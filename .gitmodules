@@ -1,0 +1,3 @@
+[submodule "Plugins/VoxelPluginLegacy"]
+	path = Plugins/VoxelPluginLegacy
+	url = https://github.com/grizendi/VoxelPluginFreeLegacy
