@@ -72,3 +72,28 @@ Plugins/**/Intermediate/*
 
 # Cache files for the editor to use
 DerivedDataCache/*
+
+# UE/Build
+Binaries/
+DerivedDataCache/
+Intermediate/
+Saved/
+Build/Android/
+Build/HoloLens/
+
+# IDE
+.vs/
+.vscode/
+*.VC.db
+*.opensdf
+*.sln.DotSettings.user
+
+# OS cruft
+.DS_Store
+Thumbs.db
+
+Plugins/*/Binaries/
+Plugins/*/Intermediate/
+Plugins/*/DerivedDataCache/
+Plugins/*/Saved/
+*.docx
