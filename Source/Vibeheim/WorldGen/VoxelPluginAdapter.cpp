@@ -1,4 +1,5 @@
 #include "VoxelPluginAdapter.h"
+#include "ChunkStreamingManager.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "HAL/FileManager.h"
@@ -19,6 +20,7 @@ UVoxelPluginAdapter::UVoxelPluginAdapter()
     , CurrentVersion(0)
     , FlushTimer(0.0f)
     , bHasDirtyOperations(false)
+    , StreamingManager(nullptr)
 {
 }
 
@@ -47,8 +49,16 @@ bool UVoxelPluginAdapter::Initialize(const FWorldGenSettings& Settings)
     // Configure world settings
     ConfigureVoxelWorldSettings(Settings);
 
+    // Initialize streaming manager
+    StreamingManager = NewObject<UChunkStreamingManager>(this);
+    if (!StreamingManager->Initialize(Settings, this))
+    {
+        UE_LOG(LogWorldGen, Error, TEXT("Failed to initialize chunk streaming manager"));
+        return false;
+    }
+
     bIsInitialized = true;
-    UE_LOG(LogWorldGen, Log, TEXT("VoxelPluginAdapter initialized successfully"));
+    UE_LOG(LogWorldGen, Log, TEXT("VoxelPluginAdapter initialized successfully with streaming"));
     
     return true;
 }
@@ -82,6 +92,12 @@ bool UVoxelPluginAdapter::BuildWorldAsync(AActor* InPlayerAnchor)
     }
 
     PlayerAnchor = InPlayerAnchor;
+
+    // Set player anchor in streaming manager
+    if (StreamingManager)
+    {
+        StreamingManager->SetPlayerAnchor(InPlayerAnchor);
+    }
 
     // Try to create VoxelWorld if it wasn't created during initialization
     if (!VoxelWorld)
@@ -127,12 +143,21 @@ void UVoxelPluginAdapter::TickStreaming(float DeltaTime)
         FlushTimer = 0.0f;
     }
 
-    // Voxel world handles its own streaming internally
-    // We just need to ensure the player anchor is still valid
+    // Update streaming manager
+    if (StreamingManager)
+    {
+        StreamingManager->UpdateStreaming(DeltaTime);
+    }
+
+    // Ensure the player anchor is still valid
     if (!PlayerAnchor || !IsValid(PlayerAnchor))
     {
         UE_LOG(LogWorldGen, Warning, TEXT("Player anchor became invalid during streaming"));
         PlayerAnchor = nullptr;
+        if (StreamingManager)
+        {
+            StreamingManager->SetPlayerAnchor(nullptr);
+        }
     }
 }
 

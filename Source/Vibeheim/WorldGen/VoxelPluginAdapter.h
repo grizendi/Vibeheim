@@ -15,6 +15,7 @@
 #include "VoxelGenerators/VoxelGeneratorPicker.h"
 #include "VoxelIntBox.h"
 
+#include "ChunkStreamingManager.h"
 #include "VoxelPluginAdapter.generated.h"
 
 DECLARE_LOG_CATEGORY_EXTERN(LogWorldGen, Log, All);
@@ -72,6 +73,35 @@ public:
      */
     UFUNCTION(BlueprintCallable, Category = "Voxel Plugin Adapter")
     bool InitializeAdapter(const FWorldGenSettings& Settings) { return Initialize(Settings); }
+
+    /**
+     * Get the chunk streaming manager
+     * @return Pointer to the streaming manager, nullptr if not initialized
+     */
+    UFUNCTION(BlueprintCallable, Category = "Voxel Plugin Adapter")
+    UChunkStreamingManager* GetStreamingManager() const { return StreamingManager; }
+
+    /**
+     * Get current streaming statistics
+     * @param OutLoadedChunks Number of currently loaded chunks
+     * @param OutGeneratingChunks Number of chunks currently being generated
+     * @param OutAverageGenerationTime Average generation time in milliseconds
+     * @param OutP95GenerationTime P95 generation time in milliseconds
+     */
+    UFUNCTION(BlueprintCallable, Category = "Voxel Plugin Adapter")
+    void GetStreamingStats(int32& OutLoadedChunks, int32& OutGeneratingChunks, 
+                          float& OutAverageGenerationTime, float& OutP95GenerationTime) const
+    {
+        if (StreamingManager)
+        {
+            StreamingManager->GetStreamingStats(OutLoadedChunks, OutGeneratingChunks, OutAverageGenerationTime, OutP95GenerationTime);
+        }
+        else
+        {
+            OutLoadedChunks = OutGeneratingChunks = 0;
+            OutAverageGenerationTime = OutP95GenerationTime = 0.0f;
+        }
+    }
 
 protected:
     /**
@@ -136,4 +166,8 @@ private:
 
     /** Whether there are unsaved edit operations */
     bool bHasDirtyOperations;
+
+    /** Chunk streaming manager for LOD and streaming control */
+    UPROPERTY()
+    TObjectPtr<UChunkStreamingManager> StreamingManager;
 };

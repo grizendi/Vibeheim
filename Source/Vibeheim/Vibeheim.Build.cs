@@ -19,6 +19,11 @@ public class Vibeheim : ModuleRules
 
 		if (Target.bBuildEditor)
 		{
+			PrivateDependencyModuleNames.Add("AutomationTest");
+		}
+
+		if (Target.bBuildEditor)
+		{
 			PrivateDependencyModuleNames.AddRange(new string[] {
 				"UnrealEd",
 				"ToolMenus",

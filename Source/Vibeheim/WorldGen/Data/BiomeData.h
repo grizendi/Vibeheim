@@ -5,22 +5,6 @@
 #include "BiomeData.generated.h"
 
 /**
- * Forward declaration for POI spawn rules (will be defined in POI system)
- */
-USTRUCT(BlueprintType)
-struct FPOISpawnRule
-{
-    GENERATED_BODY()
-
-    // Placeholder structure - will be expanded in POI system implementation
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "POI")
-    FString POIType = "";
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "POI")
-    float SpawnChance = 0.1f;
-};
-
-/**
  * Defines characteristics and generation parameters for each biome
  */
 USTRUCT(BlueprintType)
@@ -43,10 +27,6 @@ struct VIBEHEIM_API FBiomeData : public FTableRowBase
     /** Number of octaves for noise generation */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Noise", meta = (ClampMin = "1.0", ClampMax = "8.0"))
     float NoiseOctaves = 4.0f;
-
-    /** POI spawn rules for this biome */
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "POI")
-    TArray<FPOISpawnRule> POIRules;
 
     /** Debug color for biome visualization */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Debug")

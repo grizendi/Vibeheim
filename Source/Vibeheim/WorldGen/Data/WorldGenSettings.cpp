@@ -28,7 +28,7 @@ bool FWorldGenSettings::LoadFromJSON(const FString& FilePath)
     // Load basic settings
     if (JsonObject->HasField(TEXT("Seed")))
     {
-        Seed = static_cast<uint64>(JsonObject->GetNumberField(TEXT("Seed")));
+        Seed = static_cast<int64>(JsonObject->GetNumberField(TEXT("Seed")));
     }
     
     if (JsonObject->HasField(TEXT("WorldGenVersion")))
