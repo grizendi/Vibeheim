@@ -34,13 +34,13 @@ struct VIBEHEIM_API FVoxelEditOp
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Voxel Edit")
     FIntVector AffectedChunk = FIntVector::ZeroValue;
 
-    /** Timestamp when the operation was performed */
+    /** Timestamp when the operation was performed (Unix timestamp in seconds) */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Voxel Edit")
-    FDateTime Timestamp;
+    double Timestamp = 0.0;
 
     FVoxelEditOp()
     {
-        Timestamp = FDateTime::Now();
+        Timestamp = FDateTime::Now().ToUnixTimestamp();
     }
 
     FVoxelEditOp(const FVector& InCenter, float InRadius, EVoxelCSG InOperation, const FIntVector& InAffectedChunk)
@@ -48,7 +48,7 @@ struct VIBEHEIM_API FVoxelEditOp
         , Radius(InRadius)
         , Operation(InOperation)
         , AffectedChunk(InAffectedChunk)
-        , Timestamp(FDateTime::Now())
+        , Timestamp(FDateTime::Now().ToUnixTimestamp())
     {
     }
 };

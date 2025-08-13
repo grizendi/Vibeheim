@@ -321,9 +321,9 @@ bool UVoxelPluginAdapter::FlushDirty()
         FString JsonContent;
         for (const FVoxelEditOp& Op : ChunkOps.Value)
         {
-            JsonContent += FString::Printf(TEXT("{\"center\":[%f,%f,%f],\"radius\":%f,\"operation\":%d,\"timestamp\":\"%s\"}\n"),
+            JsonContent += FString::Printf(TEXT("{\"center\":[%f,%f,%f],\"radius\":%f,\"operation\":%d,\"timestamp\":%f}\n"),
                 Op.Center.X, Op.Center.Y, Op.Center.Z, Op.Radius, (int32)Op.Operation, 
-                *Op.Timestamp.ToString());
+                Op.Timestamp);
         }
 
         if (!FFileHelper::SaveStringToFile(JsonContent, *ChunkFilePath, 
