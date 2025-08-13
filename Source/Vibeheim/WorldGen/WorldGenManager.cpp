@@ -1,4 +1,5 @@
 #include "WorldGenManager.h"
+#include "WorldGenConsoleCommands.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
@@ -33,6 +34,9 @@ AWorldGenManager::AWorldGenManager()
     // Create POI system
     POISystem = MakeUnique<FPOISystem>();
     
+    // Create dungeon portal system
+    DungeonPortalSystem = MakeUnique<FDungeonPortalSystem>();
+    
     // Create noise generator
     NoiseGenerator = MakeUnique<FNoiseGenerator>();
 }
@@ -42,6 +46,9 @@ void AWorldGenManager::BeginPlay()
     Super::BeginPlay();
     
     UE_LOG(LogWorldGenManager, Log, TEXT("WorldGenManager BeginPlay - Starting initialization"));
+    
+    // Register console commands
+    FWorldGenConsoleCommands::RegisterCommands();
     
     // Initialize the world generation system
     if (!InitializeWorldGeneration())
@@ -90,6 +97,9 @@ void AWorldGenManager::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
     UE_LOG(LogWorldGenManager, Log, TEXT("WorldGenManager EndPlay - Shutting down"));
     
+    // Unregister console commands
+    FWorldGenConsoleCommands::UnregisterCommands();
+    
     // Clean up systems
     bIsReady = false;
     bIsInitialized = false;
@@ -128,7 +138,8 @@ bool AWorldGenManager::InitializeWorldGeneration(const FWorldGenSettings& Custom
     // Initialize voxel plugin adapter
     if (!VoxelPluginAdapter->Initialize(SettingsToUse))
     {
-        HandleInitializationFailure(TEXT("VoxelPluginAdapter"), TEXT("Failed to initialize voxel plugin adapter"));
+        HandleInitializationFailure(TEXT("VoxelPluginAdapter"), 
+                                   FString::Printf(TEXT("Failed to initialize voxel plugin adapter with seed %lld"), SettingsToUse.Seed));
         return false;
     }
     
@@ -144,10 +155,15 @@ bool AWorldGenManager::InitializeWorldGeneration(const FWorldGenSettings& Custom
     POISystem->Initialize(SettingsToUse, NoiseGenerator.Get(), BiomeSystem.Get());
     UE_LOG(LogWorldGenManager, Log, TEXT("POI System initialized successfully"));
     
+    // Initialize dungeon portal system
+    DungeonPortalSystem->Initialize(SettingsToUse, NoiseGenerator.Get(), BiomeSystem.Get(), POISystem.Get());
+    UE_LOG(LogWorldGenManager, Log, TEXT("Dungeon Portal System initialized successfully"));
+    
     // Initialize chunk streaming manager
     if (!ChunkStreamingManager->Initialize(SettingsToUse, VoxelPluginAdapter))
     {
-        HandleInitializationFailure(TEXT("ChunkStreamingManager"), TEXT("Failed to initialize chunk streaming manager"));
+        HandleInitializationFailure(TEXT("ChunkStreamingManager"), 
+                                   FString::Printf(TEXT("Failed to initialize chunk streaming manager with seed %lld"), SettingsToUse.Seed));
         return false;
     }
     
@@ -192,16 +208,22 @@ bool AWorldGenManager::RebuildChunk(const FIntVector& ChunkCoordinate)
 {
     if (!bIsReady || !VoxelPluginAdapter)
     {
-        UE_LOG(LogWorldGenManager, Warning, TEXT("Cannot rebuild chunk - world generation not ready"));
+        LogStructuredError(TEXT("Cannot rebuild chunk - world generation not ready"), 
+                          FString::Printf(TEXT("Chunk: (%d, %d, %d), Ready: %s, AdapterAvailable: %s"), 
+                                        ChunkCoordinate.X, ChunkCoordinate.Y, ChunkCoordinate.Z,
+                                        bIsReady ? TEXT("Yes") : TEXT("No"),
+                                        VoxelPluginAdapter ? TEXT("Yes") : TEXT("No")));
         return false;
     }
     
-    UE_LOG(LogWorldGenManager, Log, TEXT("Rebuilding chunk at coordinate: %s"), *ChunkCoordinate.ToString());
+    UE_LOG(LogWorldGenManager, VeryVerbose, TEXT("Rebuilding chunk - Chunk: (%d, %d, %d)"), 
+           ChunkCoordinate.X, ChunkCoordinate.Y, ChunkCoordinate.Z);
     
     bool bSuccess = VoxelPluginAdapter->RebuildChunkAsync(ChunkCoordinate);
     if (!bSuccess)
     {
-        UE_LOG(LogWorldGenManager, Error, TEXT("Failed to queue chunk rebuild for coordinate: %s"), *ChunkCoordinate.ToString());
+        LogStructuredError(TEXT("Failed to queue chunk rebuild"), 
+                          FString::Printf(TEXT("Chunk: (%d, %d, %d)"), ChunkCoordinate.X, ChunkCoordinate.Y, ChunkCoordinate.Z));
     }
     
     return bSuccess;
@@ -352,26 +374,125 @@ bool AWorldGenManager::LoadConfiguration()
 
 void AWorldGenManager::HandleInitializationFailure(const FString& FailedSystem, const FString& ErrorMessage)
 {
-    UE_LOG(LogWorldGenManager, Error, TEXT("Initialization failure in %s: %s"), *FailedSystem, *ErrorMessage);
-    
-    // Log current seed and any relevant context for debugging
+    // Log structured error with seed and context
     if (ConfigManager && ConfigManager->IsConfigurationValid())
     {
         const FWorldGenSettings& Settings = ConfigManager->GetSettings();
-        UE_LOG(LogWorldGenManager, Error, TEXT("Failure context - Seed: %lld, Version: %d"), 
-               Settings.Seed, Settings.WorldGenVersion);
+        LogStructuredError(FString::Printf(TEXT("Initialization failure in %s: %s"), *FailedSystem, *ErrorMessage),
+                          FString::Printf(TEXT("Seed: %lld, Version: %d"), Settings.Seed, Settings.WorldGenVersion));
+    }
+    else
+    {
+        LogStructuredError(FString::Printf(TEXT("Initialization failure in %s: %s"), *FailedSystem, *ErrorMessage),
+                          TEXT("ConfigManager not available or invalid"));
     }
     
-    // Set flags to indicate failure
-    bIsInitialized = false;
-    bIsReady = false;
+    // Attempt graceful degradation
+    if (!AttemptGracefulDegradation(FailedSystem, ErrorMessage))
+    {
+        // Complete failure - set flags to indicate failure
+        bIsInitialized = false;
+        bIsReady = false;
+        
+        UE_LOG(LogWorldGenManager, Error, TEXT("World generation system is not available due to initialization failure - no graceful degradation possible"));
+    }
+}
+
+bool AWorldGenManager::AttemptGracefulDegradation(const FString& FailedSystem, const FString& ErrorMessage)
+{
+    UE_LOG(LogWorldGenManager, Warning, TEXT("Attempting graceful degradation for failed system: %s"), *FailedSystem);
     
-    // In a production environment, you might want to:
-    // 1. Show an error message to the user
-    // 2. Attempt fallback generation
-    // 3. Disable world generation features gracefully
+    // Get current seed for logging context
+    int64 CurrentSeed = 1337;
+    if (ConfigManager && ConfigManager->IsConfigurationValid())
+    {
+        CurrentSeed = ConfigManager->GetSettings().Seed;
+    }
     
-    UE_LOG(LogWorldGenManager, Error, TEXT("World generation system is not available due to initialization failure"));
+    // Handle specific system failures with fallback options
+    if (FailedSystem == TEXT("VoxelPluginAdapter"))
+    {
+        UE_LOG(LogWorldGenManager, Warning, TEXT("VoxelPluginAdapter failed - attempting to continue without voxel features - Seed: %lld"), CurrentSeed);
+        
+        // Disable voxel-dependent features but allow other systems to continue
+        VoxelPluginAdapter = nullptr;
+        
+        // We can still provide biome evaluation, POI placement logic, etc.
+        bIsInitialized = true;
+        bIsReady = false; // Not fully ready but partially functional
+        
+        return true;
+    }
+    else if (FailedSystem == TEXT("ChunkStreamingManager"))
+    {
+        UE_LOG(LogWorldGenManager, Warning, TEXT("ChunkStreamingManager failed - world generation will work without streaming optimization - Seed: %lld"), CurrentSeed);
+        
+        // Disable streaming but allow basic world generation
+        ChunkStreamingManager = nullptr;
+        
+        bIsInitialized = true;
+        bIsReady = true; // Can still generate world, just without streaming
+        
+        return true;
+    }
+    else if (FailedSystem == TEXT("ConfigManager"))
+    {
+        UE_LOG(LogWorldGenManager, Warning, TEXT("ConfigManager failed - using default settings - Seed: %lld"), CurrentSeed);
+        
+        // Create a default config manager with fallback settings
+        ConfigManager = CreateDefaultSubobject<UWorldGenConfigManager>(TEXT("FallbackConfigManager"));
+        ConfigManager->ResetToDefaults();
+        
+        return true; // Can continue with defaults
+    }
+    else if (FailedSystem == TEXT("Subsystems"))
+    {
+        UE_LOG(LogWorldGenManager, Warning, TEXT("Some subsystems failed - attempting partial initialization - Seed: %lld"), CurrentSeed);
+        
+        // Try to initialize what we can
+        bool bPartialSuccess = false;
+        
+        if (BiomeSystem.IsValid())
+        {
+            UE_LOG(LogWorldGenManager, Log, TEXT("BiomeSystem available for fallback mode - Seed: %lld"), CurrentSeed);
+            bPartialSuccess = true;
+        }
+        
+        if (NoiseGenerator.IsValid())
+        {
+            UE_LOG(LogWorldGenManager, Log, TEXT("NoiseGenerator available for fallback mode - Seed: %lld"), CurrentSeed);
+            bPartialSuccess = true;
+        }
+        
+        if (bPartialSuccess)
+        {
+            bIsInitialized = true;
+            bIsReady = false; // Partial functionality only
+            return true;
+        }
+    }
+    
+    UE_LOG(LogWorldGenManager, Error, TEXT("No graceful degradation available for failed system: %s - Seed: %lld"), *FailedSystem, CurrentSeed);
+    return false;
+}
+
+void AWorldGenManager::LogStructuredError(const FString& ErrorMessage, const FString& AdditionalContext) const
+{
+    // Get current seed for context
+    int64 CurrentSeed = 1337;
+    if (ConfigManager && ConfigManager->IsConfigurationValid())
+    {
+        CurrentSeed = ConfigManager->GetSettings().Seed;
+    }
+    
+    if (AdditionalContext.IsEmpty())
+    {
+        UE_LOG(LogWorldGenManager, Error, TEXT("[STRUCTURED_ERROR] %s - Seed: %lld"), *ErrorMessage, CurrentSeed);
+    }
+    else
+    {
+        UE_LOG(LogWorldGenManager, Error, TEXT("[STRUCTURED_ERROR] %s - Seed: %lld, Context: %s"), *ErrorMessage, CurrentSeed, *AdditionalContext);
+    }
 }
 
 void AWorldGenManager::UpdatePlayerAnchorTracking(float DeltaTime)
@@ -462,7 +583,17 @@ TArray<FPOIPlacementResult> AWorldGenManager::GeneratePOIsForChunk(const FIntVec
         return TArray<FPOIPlacementResult>();
     }
     
-    return POISystem->GeneratePOIsForChunk(ChunkCoordinate, GetWorld());
+    // Generate POIs first
+    TArray<FPOIPlacementResult> POIResults = POISystem->GeneratePOIsForChunk(ChunkCoordinate, GetWorld());
+    
+    // Generate dungeon portals for the same chunk
+    if (DungeonPortalSystem.IsValid())
+    {
+        TArray<FPortalPlacementResult> PortalResults = DungeonPortalSystem->GeneratePortalsForChunk(ChunkCoordinate, GetWorld());
+        UE_LOG(LogWorldGenManager, Log, TEXT("Generated %d portals for chunk %s"), PortalResults.Num(), *ChunkCoordinate.ToString());
+    }
+    
+    return POIResults;
 }
 
 TArray<FPOIInstance> AWorldGenManager::GetPOIsInChunk(const FIntVector& ChunkCoordinate) const
@@ -525,5 +656,75 @@ void AWorldGenManager::GetPOIPlacementStats(int32& OutTotalAttempts, int32& OutS
     {
         OutTotalAttempts = OutSuccessfulPlacements = OutFailedPlacements = 0;
         OutAverageAttemptsPerPOI = 0.0f;
+    }
+}
+
+TArray<FPortalPlacementResult> AWorldGenManager::GeneratePortalsForChunk(const FIntVector& ChunkCoordinate)
+{
+    if (DungeonPortalSystem.IsValid())
+    {
+        return DungeonPortalSystem->GeneratePortalsForChunk(ChunkCoordinate, GetWorld());
+    }
+    
+    UE_LOG(LogWorldGenManager, Warning, TEXT("Cannot generate portals - Dungeon Portal system not available"));
+    return TArray<FPortalPlacementResult>();
+}
+
+TArray<FDungeonPortal> AWorldGenManager::GetPortalsInChunk(const FIntVector& ChunkCoordinate) const
+{
+    if (DungeonPortalSystem.IsValid())
+    {
+        return DungeonPortalSystem->GetPortalsInChunk(ChunkCoordinate);
+    }
+    
+    UE_LOG(LogWorldGenManager, Warning, TEXT("Cannot get portals in chunk - Dungeon Portal system not available"));
+    return TArray<FDungeonPortal>();
+}
+
+TArray<FDungeonPortal> AWorldGenManager::GetAllActivePortals() const
+{
+    if (DungeonPortalSystem.IsValid())
+    {
+        return DungeonPortalSystem->GetAllActivePortals();
+    }
+    
+    UE_LOG(LogWorldGenManager, Warning, TEXT("Cannot get active portals - Dungeon Portal system not available"));
+    return TArray<FDungeonPortal>();
+}
+
+void AWorldGenManager::AddPortalSpawnRule(const FPortalSpawnRule& SpawnRule)
+{
+    if (DungeonPortalSystem.IsValid())
+    {
+        DungeonPortalSystem->AddPortalSpawnRule(SpawnRule);
+    }
+    else
+    {
+        UE_LOG(LogWorldGenManager, Warning, TEXT("Cannot add portal spawn rule - Dungeon Portal system not available"));
+    }
+}
+
+bool AWorldGenManager::RemovePortalSpawnRule(const FString& PortalTypeName)
+{
+    if (DungeonPortalSystem.IsValid())
+    {
+        return DungeonPortalSystem->RemovePortalSpawnRule(PortalTypeName);
+    }
+    
+    UE_LOG(LogWorldGenManager, Warning, TEXT("Cannot remove portal spawn rule - Dungeon Portal system not available"));
+    return false;
+}
+
+void AWorldGenManager::GetPortalPlacementStats(int32& OutTotalAttempts, int32& OutSuccessfulPlacements, 
+                                              int32& OutFailedPlacements, float& OutAverageAttemptsPerPortal) const
+{
+    if (DungeonPortalSystem.IsValid())
+    {
+        DungeonPortalSystem->GetPlacementStats(OutTotalAttempts, OutSuccessfulPlacements, OutFailedPlacements, OutAverageAttemptsPerPortal);
+    }
+    else
+    {
+        OutTotalAttempts = OutSuccessfulPlacements = OutFailedPlacements = 0;
+        OutAverageAttemptsPerPortal = 0.0f;
     }
 }

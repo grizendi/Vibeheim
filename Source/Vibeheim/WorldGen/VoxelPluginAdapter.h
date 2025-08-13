@@ -16,6 +16,7 @@
 #include "VoxelIntBox.h"
 
 #include "ChunkStreamingManager.h"
+#include "FallbackTerrainGenerator.h"
 #include "VoxelPluginAdapter.generated.h"
 
 DECLARE_LOG_CATEGORY_EXTERN(LogWorldGen, Log, All);
@@ -103,6 +104,31 @@ public:
         }
     }
 
+    /**
+     * Test fallback generation for console commands (public wrapper)
+     * @param ChunkCoordinate The chunk that failed to generate
+     * @param ErrorMessage The error message describing the failure
+     * @param bAttemptFallback Whether to attempt fallback generation
+     * @return True if fallback generation was successful or not needed
+     */
+    UFUNCTION(BlueprintCallable, Category = "Voxel Plugin Adapter")
+    bool TestFallbackGeneration(const FIntVector& ChunkCoordinate, const FString& ErrorMessage, bool bAttemptFallback = true)
+    {
+        return HandleChunkGenerationFailure(ChunkCoordinate, ErrorMessage, bAttemptFallback);
+    }
+
+    /**
+     * Test structured error logging for console commands (public wrapper)
+     * @param ErrorMessage The error message
+     * @param ChunkCoordinate The chunk coordinate for context
+     * @param AdditionalContext Optional additional context information
+     */
+    UFUNCTION(BlueprintCallable, Category = "Voxel Plugin Adapter")
+    void TestStructuredErrorLogging(const FString& ErrorMessage, const FIntVector& ChunkCoordinate, const FString& AdditionalContext = TEXT(""))
+    {
+        LogStructuredError(ErrorMessage, ChunkCoordinate, AdditionalContext);
+    }
+
 protected:
     /**
      * Create and configure the voxel world actor
@@ -135,6 +161,23 @@ protected:
      * @return Full file path for the chunk's save file
      */
     FString GetChunkSaveFilePath(const FIntVector& ChunkCoordinate) const;
+
+    /**
+     * Handle chunk generation failure with structured error reporting
+     * @param ChunkCoordinate The chunk that failed to generate
+     * @param ErrorMessage The error message describing the failure
+     * @param bAttemptFallback Whether to attempt fallback generation
+     * @return True if fallback generation was successful or not needed
+     */
+    bool HandleChunkGenerationFailure(const FIntVector& ChunkCoordinate, const FString& ErrorMessage, bool bAttemptFallback = true);
+
+    /**
+     * Log structured error with seed and chunk coordinates
+     * @param ErrorMessage The error message
+     * @param ChunkCoordinate The chunk coordinate for context
+     * @param AdditionalContext Optional additional context information
+     */
+    void LogStructuredError(const FString& ErrorMessage, const FIntVector& ChunkCoordinate, const FString& AdditionalContext = TEXT("")) const;
 
 private:
     /** The voxel world instance managed by this adapter */
@@ -170,4 +213,14 @@ private:
     /** Chunk streaming manager for LOD and streaming control */
     UPROPERTY()
     TObjectPtr<UChunkStreamingManager> StreamingManager;
+
+    /** Fallback terrain generator for failed chunk generation */
+    UPROPERTY()
+    TObjectPtr<UFallbackTerrainGenerator> FallbackGenerator;
+
+    /** Map of chunks that have failed generation (for retry tracking) */
+    TMap<FIntVector, int32> FailedChunks;
+
+    /** Maximum retry attempts before using fallback generation */
+    static constexpr int32 MaxRetryAttempts = 1;
 };

@@ -1,5 +1,6 @@
 #include "VoxelPluginAdapter.h"
 #include "ChunkStreamingManager.h"
+#include "FallbackTerrainGenerator.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "HAL/FileManager.h"
@@ -21,16 +22,18 @@ UVoxelPluginAdapter::UVoxelPluginAdapter()
     , FlushTimer(0.0f)
     , bHasDirtyOperations(false)
     , StreamingManager(nullptr)
+    , FallbackGenerator(nullptr)
 {
 }
 
 bool UVoxelPluginAdapter::Initialize(const FWorldGenSettings& Settings)
 {
-    UE_LOG(LogWorldGen, Log, TEXT("Initializing VoxelPluginAdapter with settings"));
+    UE_LOG(LogWorldGen, Log, TEXT("Initializing VoxelPluginAdapter - Seed: %lld, Version: %d"), Settings.Seed, Settings.WorldGenVersion);
 
     if (!ValidatePluginAvailability())
     {
-        UE_LOG(LogWorldGen, Error, TEXT("VoxelPluginLegacy is not available - cannot initialize adapter"));
+        LogStructuredError(TEXT("VoxelPluginLegacy is not available - cannot initialize adapter"), FIntVector::ZeroValue, 
+                          FString::Printf(TEXT("Seed: %lld, Version: %d"), Settings.Seed, Settings.WorldGenVersion));
         return false;
     }
 
@@ -39,10 +42,20 @@ bool UVoxelPluginAdapter::Initialize(const FWorldGenSettings& Settings)
     CurrentSeed = Settings.Seed;
     CurrentVersion = Settings.WorldGenVersion;
 
+    // Initialize fallback generator
+    FallbackGenerator = NewObject<UFallbackTerrainGenerator>(this);
+    if (!FallbackGenerator->Initialize(Settings))
+    {
+        LogStructuredError(TEXT("Failed to initialize fallback terrain generator"), FIntVector::ZeroValue, 
+                          FString::Printf(TEXT("Seed: %lld"), Settings.Seed));
+        return false;
+    }
+
     // Create voxel world
     if (!CreateVoxelWorld())
     {
-        UE_LOG(LogWorldGen, Error, TEXT("Failed to create voxel world"));
+        LogStructuredError(TEXT("Failed to create voxel world"), FIntVector::ZeroValue, 
+                          FString::Printf(TEXT("Seed: %lld"), Settings.Seed));
         return false;
     }
 
@@ -53,12 +66,14 @@ bool UVoxelPluginAdapter::Initialize(const FWorldGenSettings& Settings)
     StreamingManager = NewObject<UChunkStreamingManager>(this);
     if (!StreamingManager->Initialize(Settings, this))
     {
-        UE_LOG(LogWorldGen, Error, TEXT("Failed to initialize chunk streaming manager"));
+        LogStructuredError(TEXT("Failed to initialize chunk streaming manager"), FIntVector::ZeroValue, 
+                          FString::Printf(TEXT("Seed: %lld"), Settings.Seed));
         return false;
     }
 
     bIsInitialized = true;
-    UE_LOG(LogWorldGen, Log, TEXT("VoxelPluginAdapter initialized successfully with streaming"));
+    UE_LOG(LogWorldGen, Log, TEXT("VoxelPluginAdapter initialized successfully - Seed: %lld, Version: %d, FallbackReady: %s"), 
+           Settings.Seed, Settings.WorldGenVersion, FallbackGenerator->IsInitialized() ? TEXT("Yes") : TEXT("No"));
     
     return true;
 }
@@ -165,30 +180,52 @@ bool UVoxelPluginAdapter::RebuildChunkAsync(const FIntVector& ChunkCoordinate)
 {
     if (!IsInitialized())
     {
-        UE_LOG(LogWorldGen, Error, TEXT("Cannot rebuild chunk - adapter not initialized"));
+        LogStructuredError(TEXT("Cannot rebuild chunk - adapter not initialized"), ChunkCoordinate, 
+                          FString::Printf(TEXT("Seed: %lld"), CurrentSeed));
         return false;
     }
 
     if (!VoxelWorld)
     {
-        UE_LOG(LogWorldGen, Warning, TEXT("Chunk rebuild deferred - VoxelWorld not created yet"));
+        UE_LOG(LogWorldGen, Warning, TEXT("Chunk rebuild deferred - VoxelWorld not created yet - Seed: %lld, Chunk: (%d, %d, %d)"), 
+               CurrentSeed, ChunkCoordinate.X, ChunkCoordinate.Y, ChunkCoordinate.Z);
         return true; // Return true but defer the operation
     }
 
     if (!VoxelWorld->IsCreated())
     {
-        UE_LOG(LogWorldGen, Warning, TEXT("Chunk rebuild deferred - VoxelWorld not ready"));
+        UE_LOG(LogWorldGen, Warning, TEXT("Chunk rebuild deferred - VoxelWorld not ready - Seed: %lld, Chunk: (%d, %d, %d)"), 
+               CurrentSeed, ChunkCoordinate.X, ChunkCoordinate.Y, ChunkCoordinate.Z);
         return true; // Return true but defer the operation
     }
 
-    // Mark the entire data as dirty to trigger updates
-    // VoxelPluginLegacy will handle the specific chunk updates automatically
-    VoxelWorld->GetData().MarkAsDirty();
-    
-    UE_LOG(LogWorldGen, Log, TEXT("Queued chunk rebuild for coordinate (%d, %d, %d)"), 
-           ChunkCoordinate.X, ChunkCoordinate.Y, ChunkCoordinate.Z);
+    // Check if this chunk has failed before
+    if (int32* FailureCount = FailedChunks.Find(ChunkCoordinate))
+    {
+        if (*FailureCount >= MaxRetryAttempts)
+        {
+            UE_LOG(LogWorldGen, Warning, TEXT("Chunk exceeded retry attempts, using fallback generation - Seed: %lld, Chunk: (%d, %d, %d), Attempts: %d"), 
+                   CurrentSeed, ChunkCoordinate.X, ChunkCoordinate.Y, ChunkCoordinate.Z, *FailureCount);
+            return HandleChunkGenerationFailure(ChunkCoordinate, TEXT("Exceeded retry attempts"), true);
+        }
+    }
 
-    return true;
+    // Attempt normal generation
+    if (VoxelWorld && VoxelWorld->IsCreated())
+    {
+        // Mark the entire data as dirty to trigger updates
+        // VoxelPluginLegacy will handle the specific chunk updates automatically
+        VoxelWorld->GetData().MarkAsDirty();
+        
+        UE_LOG(LogWorldGen, VeryVerbose, TEXT("Queued chunk rebuild - Seed: %lld, Chunk: (%d, %d, %d)"), 
+               CurrentSeed, ChunkCoordinate.X, ChunkCoordinate.Y, ChunkCoordinate.Z);
+
+        return true;
+    }
+    else
+    {
+        return HandleChunkGenerationFailure(ChunkCoordinate, TEXT("VoxelWorld not ready for chunk rebuild"), true);
+    }
 }
 
 bool UVoxelPluginAdapter::IsInitialized() const
@@ -198,9 +235,13 @@ bool UVoxelPluginAdapter::IsInitialized() const
 
 bool UVoxelPluginAdapter::ApplySphere(const FVector& Center, float Radius, EVoxelCSG Operation)
 {
+    const FIntVector AffectedChunk = WorldToChunkCoordinate(Center);
+    
     if (!IsInitialized() || !VoxelWorld || !VoxelWorld->IsCreated())
     {
-        UE_LOG(LogWorldGen, Error, TEXT("Cannot apply sphere edit - world not ready"));
+        LogStructuredError(TEXT("Cannot apply sphere edit - world not ready"), AffectedChunk, 
+                          FString::Printf(TEXT("Seed: %lld, Center: (%.2f, %.2f, %.2f), Radius: %.2f"), 
+                                        CurrentSeed, Center.X, Center.Y, Center.Z, Radius));
         return false;
     }
 
@@ -215,12 +256,12 @@ bool UVoxelPluginAdapter::ApplySphere(const FVector& Center, float Radius, EVoxe
     }
 
     // Record the operation for persistence
-    const FIntVector AffectedChunk = WorldToChunkCoordinate(Center);
     const FVoxelEditOp EditOp(Center, Radius, Operation, AffectedChunk);
     RecordOp(EditOp);
 
-    UE_LOG(LogWorldGen, Log, TEXT("Applied sphere %s at (%f, %f, %f) with radius %f"), 
+    UE_LOG(LogWorldGen, VeryVerbose, TEXT("Applied sphere %s - Seed: %lld, Chunk: (%d, %d, %d), Center: (%.2f, %.2f, %.2f), Radius: %.2f"), 
            Operation == EVoxelCSG::Add ? TEXT("Add") : TEXT("Subtract"),
+           CurrentSeed, AffectedChunk.X, AffectedChunk.Y, AffectedChunk.Z,
            Center.X, Center.Y, Center.Z, Radius);
 
     return true;
@@ -444,4 +485,54 @@ FString UVoxelPluginAdapter::GetChunkSaveFilePath(const FIntVector& ChunkCoordin
     const FString SaveDir = FPaths::ProjectSavedDir() / TEXT("WorldGen") / TEXT("Chunks");
     return SaveDir / FString::Printf(TEXT("chunk_%d_%d_%d.jsonl"), 
                                    ChunkCoordinate.X, ChunkCoordinate.Y, ChunkCoordinate.Z);
+}
+
+bool UVoxelPluginAdapter::HandleChunkGenerationFailure(const FIntVector& ChunkCoordinate, const FString& ErrorMessage, bool bAttemptFallback)
+{
+    // Track failure count
+    int32& FailureCount = FailedChunks.FindOrAdd(ChunkCoordinate, 0);
+    FailureCount++;
+    
+    LogStructuredError(ErrorMessage, ChunkCoordinate, 
+                      FString::Printf(TEXT("Seed: %lld, FailureCount: %d, AttemptFallback: %s"), 
+                                    CurrentSeed, FailureCount, bAttemptFallback ? TEXT("Yes") : TEXT("No")));
+    
+    if (!bAttemptFallback || !FallbackGenerator || !FallbackGenerator->IsInitialized())
+    {
+        UE_LOG(LogWorldGen, Error, TEXT("Cannot attempt fallback generation - Seed: %lld, Chunk: (%d, %d, %d), FallbackAvailable: %s"), 
+               CurrentSeed, ChunkCoordinate.X, ChunkCoordinate.Y, ChunkCoordinate.Z,
+               (FallbackGenerator && FallbackGenerator->IsInitialized()) ? TEXT("Yes") : TEXT("No"));
+        return false;
+    }
+    
+    // Attempt fallback generation
+    if (FailureCount >= MaxRetryAttempts)
+    {
+        UE_LOG(LogWorldGen, Warning, TEXT("Using proxy mesh for completely failed chunk - Seed: %lld, Chunk: (%d, %d, %d), Attempts: %d"), 
+               CurrentSeed, ChunkCoordinate.X, ChunkCoordinate.Y, ChunkCoordinate.Z, FailureCount);
+        
+        return FallbackGenerator->GenerateProxyMesh(ChunkCoordinate, CurrentSeed, ChunkCoordinate);
+    }
+    else
+    {
+        UE_LOG(LogWorldGen, Warning, TEXT("Using fallback heightmap generation - Seed: %lld, Chunk: (%d, %d, %d), Attempts: %d"), 
+               CurrentSeed, ChunkCoordinate.X, ChunkCoordinate.Y, ChunkCoordinate.Z, FailureCount);
+        
+        TArray<float> HeightData;
+        return FallbackGenerator->GenerateHeightmapForChunk(ChunkCoordinate, HeightData, CurrentSeed, ChunkCoordinate);
+    }
+}
+
+void UVoxelPluginAdapter::LogStructuredError(const FString& ErrorMessage, const FIntVector& ChunkCoordinate, const FString& AdditionalContext) const
+{
+    if (AdditionalContext.IsEmpty())
+    {
+        UE_LOG(LogWorldGen, Error, TEXT("[STRUCTURED_ERROR] %s - Seed: %lld, Chunk: (%d, %d, %d)"), 
+               *ErrorMessage, CurrentSeed, ChunkCoordinate.X, ChunkCoordinate.Y, ChunkCoordinate.Z);
+    }
+    else
+    {
+        UE_LOG(LogWorldGen, Error, TEXT("[STRUCTURED_ERROR] %s - Seed: %lld, Chunk: (%d, %d, %d), Context: %s"), 
+               *ErrorMessage, CurrentSeed, ChunkCoordinate.X, ChunkCoordinate.Y, ChunkCoordinate.Z, *AdditionalContext);
+    }
 }

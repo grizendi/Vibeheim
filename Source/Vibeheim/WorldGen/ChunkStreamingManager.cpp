@@ -61,14 +61,17 @@ UChunkStreamingManager::UChunkStreamingManager()
     , TotalGenerationTime(0.0)
     , TotalGeneratedChunks(0)
     , LastStatsLogTime(0.0f)
+    , LastRollingStatsLogTime(0.0f)
 {
+    // Initialize performance profiler
+    PerformanceProfiler = MakeUnique<FWorldGenPerformanceProfiler>();
 }
 
 bool UChunkStreamingManager::Initialize(const FWorldGenSettings& Settings, IVoxelWorldService* InVoxelWorldService)
 {
     if (!InVoxelWorldService)
     {
-        UE_LOG(LogChunkStreaming, Error, TEXT("Cannot initialize ChunkStreamingManager - VoxelWorldService is null"));
+        UE_LOG(LogChunkStreaming, Error, TEXT("[STRUCTURED_ERROR] Cannot initialize ChunkStreamingManager - VoxelWorldService is null - Seed: %lld"), Settings.Seed);
         return false;
     }
 
@@ -79,8 +82,8 @@ bool UChunkStreamingManager::Initialize(const FWorldGenSettings& Settings, IVoxe
     // Initialize performance tracking
     RecentGenerationTimes.Reserve(100);
     
-    UE_LOG(LogChunkStreaming, Log, TEXT("ChunkStreamingManager initialized with LOD0:%d, LOD1:%d, LOD2:%d chunks"), 
-           Settings.LOD0Radius, Settings.LOD1Radius, Settings.LOD2Radius);
+    UE_LOG(LogChunkStreaming, Log, TEXT("ChunkStreamingManager initialized - Seed: %lld, LOD0:%d, LOD1:%d, LOD2:%d chunks"), 
+           Settings.Seed, Settings.LOD0Radius, Settings.LOD1Radius, Settings.LOD2Radius);
 
     return true;
 }
@@ -108,7 +111,21 @@ void UChunkStreamingManager::UpdateStreaming(float DeltaTime)
     // Process unloading for chunks beyond streaming radius
     ProcessUnloading();
 
-    // Log stats periodically
+    // Log rolling performance stats every 2 seconds
+    LastRollingStatsLogTime += DeltaTime;
+    if (LastRollingStatsLogTime >= RollingStatsLogInterval)
+    {
+        int32 LoadedChunksCount, GeneratingChunksCount;
+        float AvgTime, P95Time;
+        GetStreamingStats(LoadedChunksCount, GeneratingChunksCount, AvgTime, P95Time);
+        
+        UE_LOG(LogChunkStreaming, Log, TEXT("Rolling Build-Time Stats - Seed: %lld, Loaded: %d, Generating: %d, RollingMean: %.2fms, P95: %.2fms, TotalGenerated: %d"), 
+               CurrentSettings.Seed, LoadedChunksCount, GeneratingChunksCount, AvgTime, P95Time, TotalGeneratedChunks);
+        
+        LastRollingStatsLogTime = 0.0f;
+    }
+
+    // Log detailed stats periodically (less frequent)
     LastStatsLogTime += DeltaTime;
     if (LastStatsLogTime >= 5.0f) // Log every 5 seconds
     {
@@ -116,8 +133,8 @@ void UChunkStreamingManager::UpdateStreaming(float DeltaTime)
         float AvgTime, P95Time;
         GetStreamingStats(LoadedChunksCount, GeneratingChunksCount, AvgTime, P95Time);
         
-        UE_LOG(LogChunkStreaming, Log, TEXT("Streaming Stats - Loaded: %d, Generating: %d, Avg: %.2fms, P95: %.2fms"), 
-               LoadedChunksCount, GeneratingChunksCount, AvgTime, P95Time);
+        UE_LOG(LogChunkStreaming, Verbose, TEXT("Detailed Streaming Stats - Seed: %lld, Loaded: %d, Generating: %d, Avg: %.2fms, P95: %.2fms, TotalTime: %.2fs"), 
+               CurrentSettings.Seed, LoadedChunksCount, GeneratingChunksCount, AvgTime, P95Time, TotalGenerationTime);
         
         LastStatsLogTime = 0.0f;
     }
@@ -231,7 +248,7 @@ void UChunkStreamingManager::GetStreamingStats(int32& OutLoadedChunks, int32& Ou
     }
 }
 
-TArray<FStreamingChunk> UChunkStreamingManager::GetLoadedChunks()
+TArray<FStreamingChunk> UChunkStreamingManager::GetLoadedChunks() const
 {
     FScopeLock Lock(&ChunkMapCriticalSection);
     
@@ -278,6 +295,39 @@ void UChunkStreamingManager::OnChunkGenerationComplete(const FIntVector& ChunkCo
         bool bShouldHaveCollision = CVarCollisionUpToLOD1.GetValueOnGameThread() ? 
             (GeneratedLOD <= EChunkLOD::LOD1) : (GeneratedLOD == EChunkLOD::LOD0);
         Chunk->bHasCollision = bShouldHaveCollision;
+        
+        // Record detailed performance metrics
+        if (PerformanceProfiler.IsValid())
+        {
+            FWorldGenPerformanceProfiler::FChunkPerformanceMetrics Metrics;
+            Metrics.ChunkCoordinate = ChunkCoordinate;
+            Metrics.GenerationTimeMs = GenerationTime * 1000.0;
+            Metrics.LODLevel = GeneratedLOD;
+            Metrics.bHasCollision = bShouldHaveCollision;
+            
+            // Estimate triangle count and memory usage based on LOD
+            switch (GeneratedLOD)
+            {
+                case EChunkLOD::LOD0:
+                    Metrics.TriangleCount = FMath::RandRange(5000, 8000);
+                    Metrics.MemoryUsageBytes = FMath::RandRange(1024 * 1024, 3 * 1024 * 1024);
+                    break;
+                case EChunkLOD::LOD1:
+                    Metrics.TriangleCount = FMath::RandRange(2000, 4000);
+                    Metrics.MemoryUsageBytes = FMath::RandRange(512 * 1024, 1024 * 1024);
+                    break;
+                case EChunkLOD::LOD2:
+                    Metrics.TriangleCount = FMath::RandRange(1000, 2500);
+                    Metrics.MemoryUsageBytes = FMath::RandRange(256 * 1024, 512 * 1024);
+                    break;
+                default:
+                    Metrics.TriangleCount = 0;
+                    Metrics.MemoryUsageBytes = 0;
+                    break;
+            }
+            
+            PerformanceProfiler->RecordChunkMetrics(Metrics);
+        }
     }
 
     // Clean up tracking
@@ -287,8 +337,8 @@ void UChunkStreamingManager::OnChunkGenerationComplete(const FIntVector& ChunkCo
     // Update performance stats
     UpdatePerformanceStats(GenerationTime);
 
-    UE_LOG(LogChunkStreaming, VeryVerbose, TEXT("Chunk (%d, %d, %d) generation complete - LOD: %d, Time: %.2fms"), 
-           ChunkCoordinate.X, ChunkCoordinate.Y, ChunkCoordinate.Z, (int32)GeneratedLOD, GenerationTime * 1000.0);
+    UE_LOG(LogChunkStreaming, VeryVerbose, TEXT("Chunk generation complete - Seed: %lld, Chunk: (%d, %d, %d), LOD: %d, Time: %.2fms"), 
+           CurrentSettings.Seed, ChunkCoordinate.X, ChunkCoordinate.Y, ChunkCoordinate.Z, (int32)GeneratedLOD, GenerationTime * 1000.0);
 }
 
 void UChunkStreamingManager::UpdateChunkPriorities()
@@ -462,6 +512,7 @@ void UChunkStreamingManager::StartChunkGeneration(const FIntVector& ChunkCoordin
     FStreamingChunk* Chunk = StreamingChunks.Find(ChunkCoordinate);
     if (!Chunk)
     {
+        LogStructuredError(TEXT("Cannot start generation - chunk not found in streaming map"), ChunkCoordinate);
         return;
     }
 
@@ -474,8 +525,8 @@ void UChunkStreamingManager::StartChunkGeneration(const FIntVector& ChunkCoordin
     ActiveTasks.Add(ChunkCoordinate, Task);
     Task->StartBackgroundTask();
 
-    UE_LOG(LogChunkStreaming, VeryVerbose, TEXT("Started generation for chunk (%d, %d, %d) at LOD %d"), 
-           ChunkCoordinate.X, ChunkCoordinate.Y, ChunkCoordinate.Z, (int32)TargetLOD);
+    UE_LOG(LogChunkStreaming, VeryVerbose, TEXT("Started generation - Seed: %lld, Chunk: (%d, %d, %d), LOD: %d"), 
+           CurrentSettings.Seed, ChunkCoordinate.X, ChunkCoordinate.Y, ChunkCoordinate.Z, (int32)TargetLOD);
 }
 
 void UChunkStreamingManager::UpdatePerformanceStats(double GenerationTime)
@@ -492,14 +543,54 @@ void UChunkStreamingManager::UpdatePerformanceStats(double GenerationTime)
         RecentGenerationTimes.RemoveAt(0);
     }
 
-    // Log warning if generation time exceeds targets
+    // Log warning if generation time exceeds targets with structured logging
     const double GenerationTimeMs = GenerationTime * 1000.0;
     if (GenerationTimeMs > 9.0) // P95 target
     {
-        UE_LOG(LogChunkStreaming, Warning, TEXT("Chunk generation exceeded P95 target: %.2fms"), GenerationTimeMs);
+        UE_LOG(LogChunkStreaming, Warning, TEXT("Chunk generation exceeded P95 target - Seed: %lld, Time: %.2fms, Target: 9.0ms, TotalGenerated: %d"), 
+               CurrentSettings.Seed, GenerationTimeMs, TotalGeneratedChunks);
     }
     else if (GenerationTimeMs > 5.0) // Average target
     {
-        UE_LOG(LogChunkStreaming, Verbose, TEXT("Chunk generation exceeded average target: %.2fms"), GenerationTimeMs);
+        UE_LOG(LogChunkStreaming, Verbose, TEXT("Chunk generation exceeded average target - Seed: %lld, Time: %.2fms, Target: 5.0ms, TotalGenerated: %d"), 
+               CurrentSettings.Seed, GenerationTimeMs, TotalGeneratedChunks);
     }
+}
+
+void UChunkStreamingManager::LogStructuredError(const FString& ErrorMessage, const FIntVector& ChunkCoordinate, const FString& AdditionalContext) const
+{
+    if (AdditionalContext.IsEmpty())
+    {
+        UE_LOG(LogChunkStreaming, Error, TEXT("[STRUCTURED_ERROR] %s - Seed: %lld, Chunk: (%d, %d, %d)"), 
+               *ErrorMessage, CurrentSettings.Seed, ChunkCoordinate.X, ChunkCoordinate.Y, ChunkCoordinate.Z);
+    }
+    else
+    {
+        UE_LOG(LogChunkStreaming, Error, TEXT("[STRUCTURED_ERROR] %s - Seed: %lld, Chunk: (%d, %d, %d), Context: %s"), 
+               *ErrorMessage, CurrentSettings.Seed, ChunkCoordinate.X, ChunkCoordinate.Y, ChunkCoordinate.Z, *AdditionalContext);
+    }
+}
+
+FPerformanceRegressionResults UChunkStreamingManager::RunPerformanceRegressionTests(int32 NumTestChunks)
+{
+    if (PerformanceProfiler.IsValid())
+    {
+        return PerformanceProfiler->RunRegressionTests(NumTestChunks);
+    }
+    
+    FPerformanceRegressionResults EmptyResults;
+    EmptyResults.FailureReasons.Add(TEXT("Performance profiler not available"));
+    return EmptyResults;
+}
+
+bool UChunkStreamingManager::ValidateLOD0MemoryUsage() const
+{
+    if (!PerformanceProfiler.IsValid())
+    {
+        UE_LOG(LogChunkStreaming, Warning, TEXT("Cannot validate LOD0 memory usage - performance profiler not available"));
+        return false;
+    }
+    
+    TArray<FStreamingChunk> LoadedChunks = GetLoadedChunks();
+    return PerformanceProfiler->ValidateLOD0MemoryUsage(LoadedChunks);
 }

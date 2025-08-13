@@ -7,22 +7,14 @@
 #include "Async/AsyncWork.h"
 #include "HAL/PlatformProcess.h"
 #include "Data/WorldGenSettings.h"
+#include "WorldGenTypes.h"
+#include "PerformanceProfiler.h"
 #include "ChunkStreamingManager.generated.h"
 
 DECLARE_LOG_CATEGORY_EXTERN(LogChunkStreaming, Log, All);
 
 // Console variable for collision toggle
 extern TAutoConsoleVariable<bool> CVarCollisionUpToLOD1;
-
-/** Enum for chunk LOD levels */
-UENUM(BlueprintType)
-enum class EChunkLOD : uint8
-{
-    LOD0 = 0,  // Full detail + collision (2 chunks radius)
-    LOD1 = 1,  // Collision enabled (4 chunks radius)
-    LOD2 = 2,  // Visual only (6 chunks radius)
-    Unloaded = 255
-};
 
 /** Structure representing a chunk in the streaming system */
 USTRUCT(BlueprintType)
@@ -180,7 +172,7 @@ public:
      * @return Array of streaming chunk data
      */
     UFUNCTION(BlueprintCallable, Category = "Chunk Streaming")
-    TArray<FStreamingChunk> GetLoadedChunks();
+    TArray<FStreamingChunk> GetLoadedChunks() const;
 
     /**
      * Check if a chunk is currently loaded
@@ -197,6 +189,27 @@ public:
      */
     UFUNCTION(BlueprintCallable, Category = "Chunk Streaming")
     EChunkLOD GetChunkLOD(const FIntVector& ChunkCoordinate);
+
+    /**
+     * Get performance profiler for advanced metrics
+     * @return Pointer to performance profiler, or nullptr if not available
+     */
+    FWorldGenPerformanceProfiler* GetPerformanceProfiler() const { return PerformanceProfiler.Get(); }
+
+    /**
+     * Run performance regression tests
+     * @param NumTestChunks Number of recent chunks to analyze
+     * @return Performance regression test results
+     */
+    UFUNCTION(BlueprintCallable, Category = "Performance")
+    FPerformanceRegressionResults RunPerformanceRegressionTests(int32 NumTestChunks = 50);
+
+    /**
+     * Validate LOD0 memory usage against targets
+     * @return True if memory usage is within acceptable limits
+     */
+    UFUNCTION(BlueprintCallable, Category = "Performance")
+    bool ValidateLOD0MemoryUsage() const;
 
     /** Called when a chunk generation task completes */
     void OnChunkGenerationComplete(const FIntVector& ChunkCoordinate, EChunkLOD GeneratedLOD, double GenerationTime);
@@ -283,8 +296,18 @@ private:
     double TotalGenerationTime;
     int32 TotalGeneratedChunks;
     float LastStatsLogTime;
+    
+    /** Rolling performance statistics logging */
+    float LastRollingStatsLogTime;
+    static constexpr float RollingStatsLogInterval = 2.0f; // Log every 2 seconds
+    
+    /** Performance profiler for detailed metrics tracking */
+    TUniquePtr<FWorldGenPerformanceProfiler> PerformanceProfiler;
+    
+    /** Structured error logging with seed and chunk coordinates */
+    void LogStructuredError(const FString& ErrorMessage, const FIntVector& ChunkCoordinate, const FString& AdditionalContext = TEXT("")) const;
 
     /** Threading */
-    FCriticalSection ChunkMapCriticalSection;
-    FCriticalSection StatsCriticalSection;
+    mutable FCriticalSection ChunkMapCriticalSection;
+    mutable FCriticalSection StatsCriticalSection;
 };

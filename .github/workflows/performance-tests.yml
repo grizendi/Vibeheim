@@ -1,0 +1,196 @@
+name: Performance Regression Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'Source/Vibeheim/WorldGen/**'
+      - 'Scripts/RunPerformanceTests.py'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'Source/Vibeheim/WorldGen/**'
+      - 'Scripts/RunPerformanceTests.py'
+  schedule:
+    # Run daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      test_type:
+        description: 'Type of performance test to run'
+        required: true
+        default: 'full'
+        type: choice
+        options:
+          - full
+          - quick
+          - memory-only
+          - timing-only
+
+jobs:
+  performance-tests:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        lfs: true
+    
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Cache Unreal Engine
+      id: cache-ue
+      uses: actions/cache@v3
+      with:
+        path: C:\UnrealEngine
+        key: ue-5.3-${{ runner.os }}
+        restore-keys: |
+          ue-5.3-
+    
+    - name: Download Unreal Engine (if not cached)
+      if: steps.cache-ue.outputs.cache-hit != 'true'
+      run: |
+        # This would typically download and install UE5
+        # For this example, we'll assume it's pre-installed or available
+        echo "Unreal Engine setup would go here"
+        # mkdir C:\UnrealEngine
+        # Download and extract UE5 to C:\UnrealEngine
+    
+    - name: Setup Unreal Engine
+      run: |
+        # Register engine installation
+        # C:\UnrealEngine\Engine\Binaries\DotNET\UnrealBuildTool\UnrealBuildTool.exe -projectfiles -project="${{ github.workspace }}\Vibeheim.uproject" -game -rocket -progress
+        echo "UE5 setup complete"
+    
+    - name: Build project
+      run: |
+        # Build the project for testing
+        # C:\UnrealEngine\Engine\Build\BatchFiles\Build.bat VibeheimdEditor Win64 Development "${{ github.workspace }}\Vibeheim.uproject" -waitmutex
+        echo "Project build would go here"
+    
+    - name: Run Performance Tests
+      id: perf-tests
+      run: |
+        python Scripts/RunPerformanceTests.py --project-path "${{ github.workspace }}" --engine-path "C:\UnrealEngine" --output-dir "${{ github.workspace }}\TestResults"
+      continue-on-error: true
+    
+    - name: Upload test results
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: performance-test-results
+        path: |
+          TestResults/
+          Saved/PerformanceTests/
+        retention-days: 30
+    
+    - name: Parse test results
+      id: parse-results
+      run: |
+        if (Test-Path "TestResults\ci_performance_report.json") {
+          $report = Get-Content "TestResults\ci_performance_report.json" | ConvertFrom-Json
+          
+          $passedTests = $report.summary.passedTests
+          $totalTests = $report.summary.totalTests
+          $validationPassed = $report.validationPassed
+          
+          echo "PASSED_TESTS=$passedTests" >> $env:GITHUB_OUTPUT
+          echo "TOTAL_TESTS=$totalTests" >> $env:GITHUB_OUTPUT
+          echo "VALIDATION_PASSED=$validationPassed" >> $env:GITHUB_OUTPUT
+          
+          if ($report.performanceMetrics) {
+            $avgTime = [math]::Round($report.performanceMetrics.averageGenerationTimeMs, 2)
+            $p95Time = [math]::Round($report.performanceMetrics.p95GenerationTimeMs, 2)
+            $memoryUsage = [math]::Round($report.performanceMetrics.lod0MemoryUsageMB, 1)
+            $maxTriangles = $report.performanceMetrics.maxTriangleCount
+            
+            echo "AVG_GEN_TIME=$avgTime" >> $env:GITHUB_OUTPUT
+            echo "P95_GEN_TIME=$p95Time" >> $env:GITHUB_OUTPUT
+            echo "LOD0_MEMORY=$memoryUsage" >> $env:GITHUB_OUTPUT
+            echo "MAX_TRIANGLES=$maxTriangles" >> $env:GITHUB_OUTPUT
+          }
+        } else {
+          echo "No test results found"
+          echo "PASSED_TESTS=0" >> $env:GITHUB_OUTPUT
+          echo "TOTAL_TESTS=0" >> $env:GITHUB_OUTPUT
+          echo "VALIDATION_PASSED=false" >> $env:GITHUB_OUTPUT
+        }
+      shell: powershell
+    
+    - name: Comment PR with results
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const passedTests = '${{ steps.parse-results.outputs.PASSED_TESTS }}';
+          const totalTests = '${{ steps.parse-results.outputs.TOTAL_TESTS }}';
+          const validationPassed = '${{ steps.parse-results.outputs.VALIDATION_PASSED }}' === 'true';
+          const avgTime = '${{ steps.parse-results.outputs.AVG_GEN_TIME }}';
+          const p95Time = '${{ steps.parse-results.outputs.P95_GEN_TIME }}';
+          const memoryUsage = '${{ steps.parse-results.outputs.LOD0_MEMORY }}';
+          const maxTriangles = '${{ steps.parse-results.outputs.MAX_TRIANGLES }}';
+          
+          const status = validationPassed ? '✅ PASSED' : '❌ FAILED';
+          
+          let comment = `## Performance Test Results ${status}\n\n`;
+          comment += `**Test Summary:** ${passedTests}/${totalTests} tests passed\n`;
+          comment += `**Validation:** ${validationPassed ? 'Passed' : 'Failed'}\n\n`;
+          
+          if (avgTime && p95Time && memoryUsage && maxTriangles) {
+            comment += `### Performance Metrics\n`;
+            comment += `| Metric | Value | Target | Status |\n`;
+            comment += `|--------|-------|--------|---------|\n`;
+            comment += `| Average Generation Time | ${avgTime}ms | ≤5.0ms | ${parseFloat(avgTime) <= 5.0 ? '✅' : '❌'} |\n`;
+            comment += `| P95 Generation Time | ${p95Time}ms | ≤9.0ms | ${parseFloat(p95Time) <= 9.0 ? '✅' : '❌'} |\n`;
+            comment += `| LOD0 Memory Usage | ${memoryUsage}MB | ≤64MB | ${parseFloat(memoryUsage) <= 64.0 ? '✅' : '❌'} |\n`;
+            comment += `| Max Triangle Count | ${maxTriangles} | ≤8000 | ${parseInt(maxTriangles) <= 8000 ? '✅' : '❌'} |\n\n`;
+          }
+          
+          comment += `[View detailed results](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})\n`;
+          
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: comment
+          });
+    
+    - name: Fail job if tests failed
+      if: steps.parse-results.outputs.VALIDATION_PASSED != 'true'
+      run: |
+        echo "Performance tests failed - see results above"
+        exit 1
+    
+    - name: Create performance trend data
+      if: github.ref == 'refs/heads/main'
+      run: |
+        # Store performance metrics for trend analysis
+        $timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ"
+        $trendData = @{
+          timestamp = $timestamp
+          commit = "${{ github.sha }}"
+          avgGenerationTime = "${{ steps.parse-results.outputs.AVG_GEN_TIME }}"
+          p95GenerationTime = "${{ steps.parse-results.outputs.P95_GEN_TIME }}"
+          lod0Memory = "${{ steps.parse-results.outputs.LOD0_MEMORY }}"
+          maxTriangles = "${{ steps.parse-results.outputs.MAX_TRIANGLES }}"
+        }
+        
+        $trendJson = $trendData | ConvertTo-Json
+        $trendFile = "performance-trend-$(Get-Date -Format 'yyyy-MM-dd-HH-mm').json"
+        $trendJson | Out-File -FilePath $trendFile
+        
+        echo "Performance trend data saved to $trendFile"
+      shell: powershell
+    
+    - name: Upload trend data
+      if: github.ref == 'refs/heads/main'
+      uses: actions/upload-artifact@v3
+      with:
+        name: performance-trends
+        path: performance-trend-*.json
+        retention-days: 365

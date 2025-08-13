@@ -10,6 +10,7 @@
 #include "ChunkStreamingManager.h"
 #include "WorldGenConfigManager.h"
 #include "POISystem.h"
+#include "DungeonPortalSystem.h"
 #include "NoiseGenerator.h"
 #include "WorldGenManager.generated.h"
 
@@ -131,6 +132,12 @@ public:
     const FPOISystem* GetPOISystem() const { return POISystem.Get(); }
 
     /**
+     * Get the dungeon portal system
+     * @return Pointer to the dungeon portal system, nullptr if not initialized
+     */
+    const FDungeonPortalSystem* GetDungeonPortalSystem() const { return DungeonPortalSystem.Get(); }
+
+    /**
      * Generate POIs for a specific chunk
      * @param ChunkCoordinate The chunk coordinate to generate POIs for
      * @return Array of placement results for this chunk
@@ -180,6 +187,55 @@ public:
                              int32& OutFailedPlacements, float& OutAverageAttemptsPerPOI) const;
 
     /**
+     * Generate dungeon portals for a specific chunk
+     * @param ChunkCoordinate The chunk coordinate to generate portals for
+     * @return Array of placement results for this chunk
+     */
+    UFUNCTION(BlueprintCallable, Category = "World Generation")
+    TArray<FPortalPlacementResult> GeneratePortalsForChunk(const FIntVector& ChunkCoordinate);
+
+    /**
+     * Get all portal instances in a specific chunk
+     * @param ChunkCoordinate The chunk coordinate to query
+     * @return Array of portal instances in the chunk
+     */
+    UFUNCTION(BlueprintCallable, Category = "World Generation")
+    TArray<FDungeonPortal> GetPortalsInChunk(const FIntVector& ChunkCoordinate) const;
+
+    /**
+     * Get all currently active portal instances
+     * @return Array of all active portal instances
+     */
+    UFUNCTION(BlueprintCallable, Category = "World Generation")
+    TArray<FDungeonPortal> GetAllActivePortals() const;
+
+    /**
+     * Add a custom portal spawn rule
+     * @param SpawnRule The spawn rule to add
+     */
+    UFUNCTION(BlueprintCallable, Category = "World Generation")
+    void AddPortalSpawnRule(const FPortalSpawnRule& SpawnRule);
+
+    /**
+     * Remove a portal spawn rule by type name
+     * @param PortalTypeName The type name of the rule to remove
+     * @return True if the rule was found and removed
+     */
+    UFUNCTION(BlueprintCallable, Category = "World Generation")
+    bool RemovePortalSpawnRule(const FString& PortalTypeName);
+
+    /**
+     * Get portal placement statistics
+     * @param OutTotalAttempts Total placement attempts made
+     * @param OutSuccessfulPlacements Number of successful placements
+     * @param OutFailedPlacements Number of failed placements
+     * @param OutAverageAttemptsPerPortal Average attempts per successful portal
+     */
+    UFUNCTION(BlueprintCallable, Category = "World Generation")
+    void GetPortalPlacementStats(int32& OutTotalAttempts, int32& OutSuccessfulPlacements, 
+                                int32& OutFailedPlacements, float& OutAverageAttemptsPerPortal) const;
+
+    /**
      * Automatically find and set the player pawn as the anchor
      * @return True if a player pawn was found and set as anchor
      */
@@ -205,6 +261,21 @@ protected:
      * @param ErrorMessage Detailed error message
      */
     void HandleInitializationFailure(const FString& FailedSystem, const FString& ErrorMessage);
+
+    /**
+     * Implement graceful degradation for system failures
+     * @param FailedSystem Name of the system that failed
+     * @param ErrorMessage Error message describing the failure
+     * @return True if graceful degradation was successful
+     */
+    bool AttemptGracefulDegradation(const FString& FailedSystem, const FString& ErrorMessage);
+
+    /**
+     * Log structured error with seed and context information
+     * @param ErrorMessage The error message
+     * @param AdditionalContext Optional additional context information
+     */
+    void LogStructuredError(const FString& ErrorMessage, const FString& AdditionalContext = TEXT("")) const;
 
     /**
      * Update player anchor tracking
@@ -241,6 +312,9 @@ private:
 
     /** POI placement and management system */
     TUniquePtr<FPOISystem> POISystem;
+
+    /** Dungeon portal placement and management system */
+    TUniquePtr<FDungeonPortalSystem> DungeonPortalSystem;
 
     /** Noise generator for deterministic world generation */
     TUniquePtr<FNoiseGenerator> NoiseGenerator;
