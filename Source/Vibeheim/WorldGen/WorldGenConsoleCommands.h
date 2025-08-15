@@ -31,19 +31,11 @@ private:
     static FAutoConsoleCommand TestErrorLoggingCommand;
     static FAutoConsoleCommand TestFallbackGenerationCommand;
     static FAutoConsoleCommand ShowStreamingStatsCommand;
-    static FAutoConsoleCommand RunIntegrationTestsCommand;
-    static FAutoConsoleCommand TestBiomeTransitionsCommand;
-    static FAutoConsoleCommand TestPOIPortalSystemCommand;
-    static FAutoConsoleCommand ValidateVisualQualityCommand;
     
     /** Command implementations */
     static void TestErrorLogging(const TArray<FString>& Args);
     static void TestFallbackGeneration(const TArray<FString>& Args);
     static void ShowStreamingStats(const TArray<FString>& Args);
-    static void RunIntegrationTests(const TArray<FString>& Args);
-    static void TestBiomeTransitions(const TArray<FString>& Args);
-    static void TestPOIPortalSystem(const TArray<FString>& Args);
-    static void ValidateVisualQuality(const TArray<FString>& Args);
     
     /** Helper to find WorldGenManager in the world */
     static class AWorldGenManager* FindWorldGenManager();
