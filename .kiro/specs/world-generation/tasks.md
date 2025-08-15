@@ -125,6 +125,11 @@
 - [x] 15. Complete automated tests for determinism and performance
 
 
+
+
+
+
+
   - Complete WorldGenTests.cpp with comprehensive determinism tests (currently only has stub)
   - Implement determinism tests with fixed seeds for terrain height validation (±1cm tolerance)
   - Add chunk seam tests: sample vertices along shared edges for bit-identical heights
