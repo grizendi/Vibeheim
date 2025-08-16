@@ -8,7 +8,7 @@ public class Vibeheim : ModuleRules
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 	
-		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "EnhancedInput" });
+		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "EnhancedInput", "PCG","PCGGeometryScriptInterop", "GeometryScriptingCore" });
 
 		PrivateDependencyModuleNames.AddRange(new string[] {  });
 
