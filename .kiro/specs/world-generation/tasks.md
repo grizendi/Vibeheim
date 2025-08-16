@@ -174,7 +174,12 @@
 
 ## Enhanced Valheim-Inspired Features
 
-- [ ] 19. Implement advanced terrain noise algorithms
+- [x] 19. Implement advanced terrain noise algorithms
+
+
+
+
+
   - Extend NoiseGenerator class with ridged multifractal noise generation
   - Add domain warping functionality with configurable strength parameters
   - Implement flow accumulation algorithm for realistic river network generation
@@ -183,7 +188,7 @@
   - Update noise generation to support earth-like geographical features
   - _Requirements: 1.1, 1.2_
 
-- [ ] 20. Enhance biome system with materials and height-based distribution
+- [x] 20. Enhance biome system with materials and height-based distribution
   - Extend FBiomeData to FEnhancedBiomeData with material properties and vegetation profiles
   - Implement height-based biome override system (mountains above threshold, water below threshold)
   - Add biome material system with distinct materials for each biome type
@@ -192,25 +197,59 @@
   - Add configurable height thresholds for mountain and water biomes
   - _Requirements: 2.1, 2.2, 4.1, 4.2, 4.3_
 
-- [ ] 21. Create vegetation system for biome-specific resource data
-  - Create VegetationSystem class with biome-specific vegetation profiles
-  - Implement FVegetationProfile, FTreeSpeciesData, FFoliageTypeData, and FResourceData structures
-  - Add vegetation data storage per biome including tree species, foliage types, and harvestable resources
-  - Create vegetation density maps and resource availability calculations
+- [x] 20.1. Create BiomeMaterialSystem for material management
+  - Create BiomeMaterialSystem.h/.cpp class for managing biome-specific materials
+  - Implement material parameter variation system for biome distinctiveness
+  - Add material blending algorithms for smooth biome transitions
+  - Create material streaming system for efficient memory usage
+  - Add fallback color system for biomes without assigned materials
+  - _Requirements: 2.1, 2.2, 2.3, 2.4_
+
+- [x] 20.2. Integrate BiomeMaterialSystem with VoxelPluginLegacy rendering
+
+
+  - Integrate BiomeMaterialSystem with VoxelPluginAdapter for material application
+  - Update WorldGenManager to initialize and use BiomeMaterialSystem
+  - Connect biome material blending with voxel chunk generation
+  - Add material parameter updates during chunk streaming
+  - Test material rendering and blending in actual gameplay scenarios
+  - _Requirements: 2.1, 2.2, 2.3, 2.4_
+
+- [x] 21. Create vegetation system for biome-specific resource data
+
+
+
+
+
+  - Create VegetationSystem.h/.cpp class with biome-specific vegetation profiles
+  - Vegetation data structures already exist in EnhancedBiomeData.h (FVegetationProfile, FTreeSpeciesData, etc.)
+  - Add vegetation density maps and resource availability calculations
+  - Add GetVegetationDataForBiome and CalculateVegetationDensity methods
   - Integrate vegetation system with enhanced biome system for biome-specific vegetation
   - Add vegetation data persistence for future harvesting and crafting system integration
   - _Requirements: 3.1, 3.2, 3.3, 3.4_
 
-- [ ] 22. Implement world boundary and configuration system
-  - Create WorldBoundarySystem class with configurable world size and shape options
-  - Add support for circular, square, and custom polygon world boundaries
+- [ ] 22. Update WorldGenSettings to support enhanced terrain parameters
+  - Add missing enhanced terrain parameters to FWorldGenSettings JSON loading/saving
+  - Update WorldGenSettings.cpp to handle MountainHeightThreshold, WaterHeightThreshold, RidgedNoiseScale, DomainWarpStrength
+  - Add validation for enhanced terrain parameters in ValidateSettings method
+  - Update default configuration in Config/WorldGenSettings.json with enhanced parameters
+  - Test configuration loading and validation with enhanced parameters
+  - _Requirements: 1.1, 4.1, 4.2, 4.3_
+
+- [ ] 23. Implement world boundary and configuration system
+  - Add world boundary parameters to FWorldGenSettings (WorldRadius, WorldShape enum, BoundaryFadeDistance)
+  - Create WorldBoundarySystem.h/.cpp class with configurable world size and shape options
+  - Add support for circular, square, and custom polygon world boundaries in WorldBoundarySystem
   - Implement world size limits and boundary enforcement in terrain generation
   - Create construction script integration for immediate world preview without editor play mode
   - Add world configuration validation and real-time parameter adjustment
   - Integrate boundary system with existing chunk streaming and LOD management
   - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5_
 
-- [ ] 23. Add planet-like world wrapping system (optional)
+- [ ] 24. Add planet-like world wrapping system (optional)
+  - Add world wrapping parameters to FWorldGenSettings (bEnableWorldWrapping)
+  - Create WorldWrappingSystem.h/.cpp class for coordinate transformation
   - Implement coordinate transformation system for seamless world edge wrapping
   - Create distant terrain visibility system showing other side of world at boundaries
   - Add terrain continuity validation across wrapped world edges
@@ -219,35 +258,25 @@
   - Integrate world wrapping with existing biome and terrain generation systems
   - _Requirements: 6.1, 6.2, 6.3, 6.4_
 
-- [ ] 24. Update world generation settings and configuration
-  - Extend FWorldGenSettings with enhanced terrain and biome parameters
-  - Add configuration options for mountain/water height thresholds, ridged noise scale, domain warp strength
-  - Update WorldGenConfigManager to handle new configuration parameters
-  - Add validation for enhanced world generation settings
-  - Create configuration presets for different world types (mountainous, flat, island, etc.)
-  - Update JSON configuration loading to support new parameters with backward compatibility
-  - _Requirements: 1.1, 4.4, 5.1_
-
-- [ ] 25. Enhance material system integration
-  - Create BiomeMaterialSystem class for managing biome-specific materials
-  - Implement material parameter variation system for biome distinctiveness
-  - Add material blending algorithms for smooth biome transitions
-  - Create material streaming system for efficient memory usage
-  - Integrate material system with VoxelPluginLegacy rendering pipeline
-  - Add fallback color system for biomes without assigned materials
-  - _Requirements: 2.1, 2.2, 2.3, 2.4_
+- [ ] 25. Complete world boundary system integration
+  - Update WorldGenManager to initialize and use WorldBoundarySystem
+  - Integrate boundary enforcement with VoxelPluginAdapter chunk generation
+  - Add boundary validation to BiomeSystem terrain evaluation
+  - Update ChunkStreamingManager to respect world boundaries
+  - Test world boundary enforcement during player movement and chunk streaming
+  - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5_
 
 - [ ] 26. Update console commands and debug tools for enhanced features
   - Add console commands for new terrain parameters: wg.MountainThreshold, wg.WaterThreshold, wg.RidgedScale
   - Implement debug visualization for height-based biome boundaries
-  - Add material blending visualization tools
+  - Add material blending visualization tools using existing BiomeMaterialSystem
   - Create vegetation data debug display showing resource availability per biome
   - Add world boundary visualization with configurable boundary indicators
   - Implement river network debug visualization showing flow accumulation data
   - _Requirements: 1.1, 2.1, 4.1, 5.1_
 
 - [ ] 27. Create comprehensive tests for enhanced world generation
-  - Add determinism tests for ridged noise and domain warping algorithms
+  - Complete AdvancedNoiseTests.cpp with determinism tests for ridged noise and domain warping algorithms
   - Create height-based biome distribution validation tests
   - Implement material blending consistency tests across multiple runs
   - Add vegetation data integrity tests ensuring proper biome-vegetation associations
@@ -257,10 +286,12 @@
 
 - [ ] 28. Complete integration testing for enhanced features
   - Test complete enhanced world generation pipeline with all new systems integrated
-  - Validate biome material rendering and blending in actual gameplay scenarios
+  - Validate biome material rendering and blending in actual gameplay scenarios using BiomeMaterialSystem
   - Test construction script integration for immediate world preview functionality
   - Validate vegetation system integration with existing POI and dungeon systems
   - Test world boundary enforcement during player movement and chunk streaming
   - Complete end-to-end testing of enhanced world generation workflow
   - _Requirements: 1.1, 2.1, 3.1, 5.1, 6.1_
+
+
 

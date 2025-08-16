@@ -2,8 +2,10 @@
 
 #include "CoreMinimal.h"
 #include "Data/BiomeData.h"
+#include "Data/EnhancedBiomeData.h"
 #include "Data/WorldGenSettings.h"
 #include "NoiseGenerator.h"
+#include "Materials/MaterialInterface.h"
 #include "BiomeSystem.generated.h"
 
 /**
@@ -15,6 +17,8 @@ enum class EBiomeType : uint8
     Meadows = 0,
     BlackForest = 1,
     Swamp = 2,
+    Mountains = 3,
+    Ocean = 4,
     Count UMETA(Hidden)
 };
 
@@ -70,11 +74,32 @@ struct VIBEHEIM_API FBiomeEvaluation
     /** Terrain height at this location */
     float TerrainHeight;
 
+    /** Blended biome material for rendering */
+    TSoftObjectPtr<UMaterialInterface> BlendedMaterial;
+
+    /** Blended biome color (fallback if no material) */
+    FLinearColor BlendedBiomeColor;
+
+    /** Material parameters for blending */
+    float BlendedRoughness;
+    float BlendedMetallic;
+
+    /** Whether height-based biome override is active */
+    bool bHeightBasedOverride;
+
+    /** Active height-based biome type (if override is active) */
+    EBiomeType HeightBasedBiomeType;
+
     FBiomeEvaluation()
         : BlendedHeightOffset(0.0f)
         , BlendedDebugColor(FLinearColor::White)
         , DominantBiome(TEXT("Unknown"))
         , TerrainHeight(0.0f)
+        , BlendedBiomeColor(FLinearColor::White)
+        , BlendedRoughness(0.5f)
+        , BlendedMetallic(0.0f)
+        , bHeightBasedOverride(false)
+        , HeightBasedBiomeType(EBiomeType::Meadows)
     {
     }
 };
@@ -95,30 +120,47 @@ public:
      * Evaluate biome at a specific world location
      * @param WorldX X coordinate in world space
      * @param WorldY Y coordinate in world space
+     * @param TerrainHeight Height of terrain at this location (for height-based biomes)
      * @param ChunkCoord Optional chunk coordinate for additional seed mixing
      * @return Biome evaluation result
      */
-    FBiomeEvaluation EvaluateBiome(float WorldX, float WorldY, const FIntVector& ChunkCoord = FIntVector::ZeroValue) const;
+    FBiomeEvaluation EvaluateBiome(float WorldX, float WorldY, float TerrainHeight = 0.0f, const FIntVector& ChunkCoord = FIntVector::ZeroValue) const;
 
     /**
-     * Get biome data for a specific biome type
+     * Get enhanced biome data for a specific biome type
+     * @param BiomeType The biome type to get data for
+     * @return Enhanced biome data structure
+     */
+    const FEnhancedBiomeData& GetEnhancedBiomeData(EBiomeType BiomeType) const;
+
+    /**
+     * Get biome data for a specific biome type (legacy compatibility)
      * @param BiomeType The biome type to get data for
      * @return Biome data structure
      */
     const FBiomeData& GetBiomeData(EBiomeType BiomeType) const;
 
     /**
-     * Get all biome data
+     * Get all enhanced biome data
+     * @return Array of all enhanced biome data
+     */
+    const TArray<FEnhancedBiomeData>& GetAllEnhancedBiomeData() const { return EnhancedBiomeDataArray; }
+
+    /**
+     * Get all biome data (legacy compatibility)
      * @return Array of all biome data
      */
-    const TArray<FBiomeData>& GetAllBiomeData() const { return BiomeDataArray; }
+    const TArray<FBiomeData>& GetAllBiomeData() const { return LegacyBiomeDataArray; }
 
 private:
     /** World generation settings */
     FWorldGenSettings Settings;
 
-    /** Array of biome data for each biome type */
-    TArray<FBiomeData> BiomeDataArray;
+    /** Array of enhanced biome data for each biome type */
+    TArray<FEnhancedBiomeData> EnhancedBiomeDataArray;
+
+    /** Legacy array of biome data for backward compatibility */
+    TArray<FBiomeData> LegacyBiomeDataArray;
 
     /** Deterministic noise generator */
     FNoiseGenerator NoiseGenerator;
@@ -177,9 +219,55 @@ private:
     void InitializeDefaultBiomeData();
 
     /**
+     * Initialize enhanced biome data with materials and vegetation
+     */
+    void InitializeEnhancedBiomeData();
+
+    /**
      * Get the appropriate noise feature tag for a biome type
      * @param BiomeType The biome type
      * @return Corresponding noise feature tag
      */
     ENoiseFeatureTag GetBiomeFeatureTag(EBiomeType BiomeType) const;
+
+    /**
+     * Evaluate height-based biome override at a specific location
+     * @param TerrainHeight Height of terrain at this location
+     * @param WorldX X coordinate in world space
+     * @param WorldY Y coordinate in world space
+     * @return Height-based biome type and blend factor (EBiomeType::Count if no override)
+     */
+    TPair<EBiomeType, float> EvaluateHeightBasedBiome(float TerrainHeight, float WorldX, float WorldY) const;
+
+    /**
+     * Apply height-based biome override to existing biome weights
+     * @param InOutWeights Biome weights to modify
+     * @param TerrainHeight Height of terrain at this location
+     * @param WorldX X coordinate in world space
+     * @param WorldY Y coordinate in world space
+     * @return Whether height-based override was applied
+     */
+    bool ApplyHeightBasedBiomeOverride(FBiomeWeights& InOutWeights, float TerrainHeight, float WorldX, float WorldY) const;
+
+    /**
+     * Calculate blended material from biome weights
+     * @param BiomeWeights The biome weights
+     * @return Blended material (null if no materials available)
+     */
+    TSoftObjectPtr<UMaterialInterface> CalculateBlendedMaterial(const FBiomeWeights& BiomeWeights) const;
+
+    /**
+     * Calculate blended biome color from biome weights
+     * @param BiomeWeights The biome weights
+     * @return Blended biome color
+     */
+    FLinearColor CalculateBlendedBiomeColor(const FBiomeWeights& BiomeWeights) const;
+
+    /**
+     * Calculate blended material parameters from biome weights
+     * @param BiomeWeights The biome weights
+     * @param OutRoughness Blended roughness value
+     * @param OutMetallic Blended metallic value
+     */
+    void CalculateBlendedMaterialParameters(const FBiomeWeights& BiomeWeights, float& OutRoughness, float& OutMetallic) const;
 };

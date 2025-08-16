@@ -62,6 +62,35 @@ struct VIBEHEIM_API FWorldGenSettings
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Persistence", meta = (ClampMin = "1000", ClampMax = "10000"))
     int32 SaveFlushMs = 3000;
 
+    // Enhanced terrain parameters
+    /** Height threshold above which mountain biome dominates */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enhanced Terrain", meta = (ClampMin = "50.0", ClampMax = "500.0"))
+    float MountainHeightThreshold = 200.0f;
+
+    /** Height threshold below which water biome dominates */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enhanced Terrain", meta = (ClampMin = "-50.0", ClampMax = "50.0"))
+    float WaterHeightThreshold = -10.0f;
+
+    /** Scale factor for ridged multifractal noise */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enhanced Terrain", meta = (ClampMin = "0.0001", ClampMax = "0.01"))
+    float RidgedNoiseScale = 0.001f;
+
+    /** Strength of domain warping effect */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enhanced Terrain", meta = (ClampMin = "10.0", ClampMax = "200.0"))
+    float DomainWarpStrength = 50.0f;
+
+    /** Enable river network generation using flow accumulation */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enhanced Terrain")
+    bool bEnableRiverGeneration = true;
+
+    /** Flow threshold for river formation (0.0-1.0) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enhanced Terrain", meta = (ClampMin = "0.1", ClampMax = "0.9"))
+    float RiverFlowThreshold = 0.3f;
+
+    /** Base terrain scale for heightmap generation */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enhanced Terrain", meta = (ClampMin = "0.0001", ClampMax = "0.01"))
+    float BaseTerrainScale = 0.002f;
+
     // Biome noise parameters
     /** Noise scale for Meadows biome */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Biome Noise", meta = (ClampMin = "0.0001", ClampMax = "0.01"))

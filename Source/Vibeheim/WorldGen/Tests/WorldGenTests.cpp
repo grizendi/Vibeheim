@@ -7,6 +7,7 @@
 #include "../NoiseGenerator.h"
 #include "../POISystem.h"
 #include "../DungeonPortalSystem.h"
+#include "../VegetationSystem.h"
 #include "../Data/WorldGenSettings.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogWorldGenDeterminismTests, Log, All);
@@ -229,10 +230,10 @@ bool FChunkSeamDeterminismTest::RunTest(const FString& Parameters)
         for (const FVector& SamplePoint : EdgeSamples)
         {
             // Evaluate from first chunk context
-            FBiomeEvaluation Eval1 = BiomeSystem.EvaluateBiome(SamplePoint.X, SamplePoint.Y, Chunk1);
+            FBiomeEvaluation Eval1 = BiomeSystem.EvaluateBiome(SamplePoint.X, SamplePoint.Y, 0.0f, Chunk1);
             
             // Evaluate from second chunk context
-            FBiomeEvaluation Eval2 = BiomeSystem.EvaluateBiome(SamplePoint.X, SamplePoint.Y, Chunk2);
+            FBiomeEvaluation Eval2 = BiomeSystem.EvaluateBiome(SamplePoint.X, SamplePoint.Y, 0.0f, Chunk2);
             
             // Heights should be bit-identical at chunk boundaries
             if (Eval1.TerrainHeight != Eval2.TerrainHeight)
@@ -896,5 +897,463 @@ bool FNoiseGenerationRegressionTest::RunTest(const FString& Parameters)
     return bAllRegressionTestsPass && bSeedConsistency;
 }
 
+/**
+ * Test advanced terrain noise algorithms (ridged multifractal, domain warping, flow accumulation)
+ * Validates that new noise algorithms produce expected results and are deterministic
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAdvancedNoiseAlgorithmsTest, 
+    "WorldGen.AdvancedNoise.Algorithms", 
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+
+bool FAdvancedNoiseAlgorithmsTest::RunTest(const FString& Parameters)
+{
+    UE_LOG(LogWorldGenDeterminismTests, Log, TEXT("Starting advanced noise algorithms test"));
+    
+    // Test configuration
+    const int64 TestSeed = 42424;
+    const int32 TestVersion = 1;
+    const int32 NumTestLocations = 50;
+    
+    FWorldGenSettings TestSettings;
+    TestSettings.Seed = TestSeed;
+    TestSettings.WorldGenVersion = TestVersion;
+    TestSettings.PluginSHA = TEXT("advanced_noise_test");
+    TestSettings.VoxelSizeCm = 50.0f;
+    TestSettings.ChunkSize = 32;
+    TestSettings.RidgedNoiseScale = 0.001f;
+    TestSettings.DomainWarpStrength = 50.0f;
+    TestSettings.BaseTerrainScale = 0.002f;
+    
+    // Initialize noise generator
+    FNoiseGenerator NoiseGen;
+    NoiseGen.Initialize(TestSettings);
+    
+    // Test locations
+    TArray<FVector2D> TestLocations;
+    for (int32 i = 0; i < NumTestLocations; ++i)
+    {
+        float X = FMath::RandRange(-2000.0f, 2000.0f);
+        float Y = FMath::RandRange(-2000.0f, 2000.0f);
+        TestLocations.Add(FVector2D(X, Y));
+    }
+    
+    bool bAllTestsPass = true;
+    int32 RidgedNoiseFailures = 0;
+    int32 DomainWarpFailures = 0;
+    int32 FlowAccumulationFailures = 0;
+    int32 TerrainHeightFailures = 0;
+    
+    // Test ridged multifractal noise
+    for (const FVector2D& Location : TestLocations)
+    {
+        float RidgedValue = NoiseGen.GenerateRidgedNoise(Location.X, Location.Y, 0.005f, 4, 0.5f, 2.0f, ENoiseFeatureTag::RidgedTerrain);
+        
+        // Ridged noise should be in valid range [0, 1]
+        if (RidgedValue < 0.0f || RidgedValue > 1.0f || !FMath::IsFinite(RidgedValue))
+        {
+            bAllTestsPass = false;
+            RidgedNoiseFailures++;
+            UE_LOG(LogWorldGenDeterminismTests, Warning,
+                TEXT("Invalid ridged noise value at (%f, %f): %f"), Location.X, Location.Y, RidgedValue);
+        }
+    }
+    
+    // Test domain warped noise
+    for (const FVector2D& Location : TestLocations)
+    {
+        float WarpedValue = NoiseGen.GenerateDomainWarpedNoise(Location.X, Location.Y, 0.005f, 50.0f, ENoiseFeatureTag::Terrain);
+        
+        // Domain warped noise should be in valid range [0, 1]
+        if (WarpedValue < 0.0f || WarpedValue > 1.0f || !FMath::IsFinite(WarpedValue))
+        {
+            bAllTestsPass = false;
+            DomainWarpFailures++;
+            UE_LOG(LogWorldGenDeterminismTests, Warning,
+                TEXT("Invalid domain warped noise value at (%f, %f): %f"), Location.X, Location.Y, WarpedValue);
+        }
+    }
+    
+    // Test flow accumulation
+    for (const FVector2D& Location : TestLocations)
+    {
+        float FlowValue = NoiseGen.CalculateFlowAccumulation(Location.X, Location.Y, 0.005f, 0.3f, ENoiseFeatureTag::Rivers);
+        
+        // Flow accumulation should be in valid range [0, 1]
+        if (FlowValue < 0.0f || FlowValue > 1.0f || !FMath::IsFinite(FlowValue))
+        {
+            bAllTestsPass = false;
+            FlowAccumulationFailures++;
+            UE_LOG(LogWorldGenDeterminismTests, Warning,
+                TEXT("Invalid flow accumulation value at (%f, %f): %f"), Location.X, Location.Y, FlowValue);
+        }
+    }
+    
+    // Test combined terrain height generation
+    for (const FVector2D& Location : TestLocations)
+    {
+        float TerrainHeight = NoiseGen.GenerateTerrainHeight(Location.X, Location.Y, 0.002f, 0.001f, 50.0f, ENoiseFeatureTag::Terrain);
+        
+        // Terrain height should be in valid range [0, 1]
+        if (TerrainHeight < 0.0f || TerrainHeight > 1.0f || !FMath::IsFinite(TerrainHeight))
+        {
+            bAllTestsPass = false;
+            TerrainHeightFailures++;
+            UE_LOG(LogWorldGenDeterminismTests, Warning,
+                TEXT("Invalid terrain height value at (%f, %f): %f"), Location.X, Location.Y, TerrainHeight);
+        }
+    }
+    
+    // Test noise algorithm selection
+    TestEqual(TEXT("Mountains use ridged multifractal"), NoiseGen.SelectNoiseAlgorithm(ETerrainFeature::Mountains), ENoiseAlgorithm::RidgedMultifractal);
+    TestEqual(TEXT("Valleys use ridged multifractal"), NoiseGen.SelectNoiseAlgorithm(ETerrainFeature::Valleys), ENoiseAlgorithm::RidgedMultifractal);
+    TestEqual(TEXT("Rivers use flow accumulation"), NoiseGen.SelectNoiseAlgorithm(ETerrainFeature::Rivers), ENoiseAlgorithm::FlowAccumulation);
+    TestEqual(TEXT("Erosion uses domain warped"), NoiseGen.SelectNoiseAlgorithm(ETerrainFeature::Erosion), ENoiseAlgorithm::DomainWarped);
+    TestEqual(TEXT("Base uses Perlin"), NoiseGen.SelectNoiseAlgorithm(ETerrainFeature::Base), ENoiseAlgorithm::Perlin);
+    
+    UE_LOG(LogWorldGenDeterminismTests, Log, TEXT("Advanced Noise Algorithms Test Results:"));
+    UE_LOG(LogWorldGenDeterminismTests, Log, TEXT("  Test Locations: %d"), NumTestLocations);
+    UE_LOG(LogWorldGenDeterminismTests, Log, TEXT("  Ridged Noise Failures: %d"), RidgedNoiseFailures);
+    UE_LOG(LogWorldGenDeterminismTests, Log, TEXT("  Domain Warp Failures: %d"), DomainWarpFailures);
+    UE_LOG(LogWorldGenDeterminismTests, Log, TEXT("  Flow Accumulation Failures: %d"), FlowAccumulationFailures);
+    UE_LOG(LogWorldGenDeterminismTests, Log, TEXT("  Terrain Height Failures: %d"), TerrainHeightFailures);
+    UE_LOG(LogWorldGenDeterminismTests, Log, TEXT("  All Tests Pass: %s"), bAllTestsPass ? TEXT("Yes") : TEXT("No"));
+    
+    TestTrue(TEXT("All advanced noise algorithms produce valid results"), bAllTestsPass);
+    TestEqual(TEXT("No ridged noise failures"), RidgedNoiseFailures, 0);
+    TestEqual(TEXT("No domain warp failures"), DomainWarpFailures, 0);
+    TestEqual(TEXT("No flow accumulation failures"), FlowAccumulationFailures, 0);
+    TestEqual(TEXT("No terrain height failures"), TerrainHeightFailures, 0);
+    
+    return bAllTestsPass;
+}
+
+/**
+ * Test determinism of advanced noise algorithms across multiple runs
+ * Validates that advanced algorithms produce identical results with same seed
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAdvancedNoiseDeterminismTest, 
+    "WorldGen.AdvancedNoise.Determinism", 
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+
+bool FAdvancedNoiseDeterminismTest::RunTest(const FString& Parameters)
+{
+    UE_LOG(LogWorldGenDeterminismTests, Log, TEXT("Starting advanced noise determinism test"));
+    
+    // Test configuration
+    const int64 TestSeed = 98765;
+    const int32 TestVersion = 1;
+    const int32 NumTestLocations = 25;
+    const float Tolerance = 0.0001f;
+    
+    FWorldGenSettings TestSettings;
+    TestSettings.Seed = TestSeed;
+    TestSettings.WorldGenVersion = TestVersion;
+    TestSettings.PluginSHA = TEXT("advanced_determinism_test");
+    TestSettings.VoxelSizeCm = 50.0f;
+    TestSettings.ChunkSize = 32;
+    
+    // Initialize two noise generators with same settings
+    FNoiseGenerator NoiseGen1, NoiseGen2;
+    NoiseGen1.Initialize(TestSettings);
+    NoiseGen2.Initialize(TestSettings);
+    
+    // Test locations
+    TArray<FVector2D> TestLocations;
+    for (int32 i = 0; i < NumTestLocations; ++i)
+    {
+        float X = FMath::RandRange(-1500.0f, 1500.0f);
+        float Y = FMath::RandRange(-1500.0f, 1500.0f);
+        TestLocations.Add(FVector2D(X, Y));
+    }
+    
+    bool bAllDeterministic = true;
+    int32 RidgedMismatches = 0;
+    int32 DomainWarpMismatches = 0;
+    int32 FlowAccumulationMismatches = 0;
+    int32 TerrainHeightMismatches = 0;
+    
+    // Test ridged noise determinism
+    for (const FVector2D& Location : TestLocations)
+    {
+        float Value1 = NoiseGen1.GenerateRidgedNoise(Location.X, Location.Y, 0.005f, 4, 0.5f, 2.0f, ENoiseFeatureTag::RidgedTerrain);
+        float Value2 = NoiseGen2.GenerateRidgedNoise(Location.X, Location.Y, 0.005f, 4, 0.5f, 2.0f, ENoiseFeatureTag::RidgedTerrain);
+        
+        if (FMath::Abs(Value1 - Value2) > Tolerance)
+        {
+            bAllDeterministic = false;
+            RidgedMismatches++;
+            UE_LOG(LogWorldGenDeterminismTests, Warning,
+                TEXT("Ridged noise determinism failure at (%f, %f): %f vs %f"), Location.X, Location.Y, Value1, Value2);
+        }
+    }
+    
+    // Test domain warp determinism
+    for (const FVector2D& Location : TestLocations)
+    {
+        float Value1 = NoiseGen1.GenerateDomainWarpedNoise(Location.X, Location.Y, 0.005f, 50.0f, ENoiseFeatureTag::Terrain);
+        float Value2 = NoiseGen2.GenerateDomainWarpedNoise(Location.X, Location.Y, 0.005f, 50.0f, ENoiseFeatureTag::Terrain);
+        
+        if (FMath::Abs(Value1 - Value2) > Tolerance)
+        {
+            bAllDeterministic = false;
+            DomainWarpMismatches++;
+            UE_LOG(LogWorldGenDeterminismTests, Warning,
+                TEXT("Domain warp determinism failure at (%f, %f): %f vs %f"), Location.X, Location.Y, Value1, Value2);
+        }
+    }
+    
+    // Test flow accumulation determinism
+    for (const FVector2D& Location : TestLocations)
+    {
+        float Value1 = NoiseGen1.CalculateFlowAccumulation(Location.X, Location.Y, 0.005f, 0.3f, ENoiseFeatureTag::Rivers);
+        float Value2 = NoiseGen2.CalculateFlowAccumulation(Location.X, Location.Y, 0.005f, 0.3f, ENoiseFeatureTag::Rivers);
+        
+        if (FMath::Abs(Value1 - Value2) > Tolerance)
+        {
+            bAllDeterministic = false;
+            FlowAccumulationMismatches++;
+            UE_LOG(LogWorldGenDeterminismTests, Warning,
+                TEXT("Flow accumulation determinism failure at (%f, %f): %f vs %f"), Location.X, Location.Y, Value1, Value2);
+        }
+    }
+    
+    // Test terrain height determinism
+    for (const FVector2D& Location : TestLocations)
+    {
+        float Value1 = NoiseGen1.GenerateTerrainHeight(Location.X, Location.Y, 0.002f, 0.001f, 50.0f, ENoiseFeatureTag::Terrain);
+        float Value2 = NoiseGen2.GenerateTerrainHeight(Location.X, Location.Y, 0.002f, 0.001f, 50.0f, ENoiseFeatureTag::Terrain);
+        
+        if (FMath::Abs(Value1 - Value2) > Tolerance)
+        {
+            bAllDeterministic = false;
+            TerrainHeightMismatches++;
+            UE_LOG(LogWorldGenDeterminismTests, Warning,
+                TEXT("Terrain height determinism failure at (%f, %f): %f vs %f"), Location.X, Location.Y, Value1, Value2);
+        }
+    }
+    
+    UE_LOG(LogWorldGenDeterminismTests, Log, TEXT("Advanced Noise Determinism Test Results:"));
+    UE_LOG(LogWorldGenDeterminismTests, Log, TEXT("  Test Locations: %d"), NumTestLocations);
+    UE_LOG(LogWorldGenDeterminismTests, Log, TEXT("  Tolerance: %f"), Tolerance);
+    UE_LOG(LogWorldGenDeterminismTests, Log, TEXT("  Ridged Noise Mismatches: %d"), RidgedMismatches);
+    UE_LOG(LogWorldGenDeterminismTests, Log, TEXT("  Domain Warp Mismatches: %d"), DomainWarpMismatches);
+    UE_LOG(LogWorldGenDeterminismTests, Log, TEXT("  Flow Accumulation Mismatches: %d"), FlowAccumulationMismatches);
+    UE_LOG(LogWorldGenDeterminismTests, Log, TEXT("  Terrain Height Mismatches: %d"), TerrainHeightMismatches);
+    UE_LOG(LogWorldGenDeterminismTests, Log, TEXT("  All Deterministic: %s"), bAllDeterministic ? TEXT("Yes") : TEXT("No"));
+    
+    TestTrue(TEXT("All advanced noise algorithms are deterministic"), bAllDeterministic);
+    TestEqual(TEXT("No ridged noise mismatches"), RidgedMismatches, 0);
+    TestEqual(TEXT("No domain warp mismatches"), DomainWarpMismatches, 0);
+    TestEqual(TEXT("No flow accumulation mismatches"), FlowAccumulationMismatches, 0);
+    TestEqual(TEXT("No terrain height mismatches"), TerrainHeightMismatches, 0);
+    
+    return bAllDeterministic;
+}
+
 // Note: Individual determinism tests are automatically run by Unreal's automation framework
 // Each test is registered separately and can be run individually or as part of a test suite
+
+/**
+ * Test VegetationSystem deterministic generation and data persistence
+ * Validates that vegetation data is consistent across multiple runs and can be saved/loaded
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FVegetationSystemDeterminismTest, 
+    "WorldGen.Determinism.VegetationSystem", 
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+
+bool FVegetationSystemDeterminismTest::RunTest(const FString& Parameters)
+{
+    UE_LOG(LogWorldGenDeterminismTests, Log, TEXT("Starting vegetation system determinism test"));
+    
+    // Test configuration
+    const int64 TestSeed = 1337;
+    const int32 TestVersion = 2;
+    const float DensityTolerance = 0.001f; // Very tight tolerance for determinism
+    const int32 NumTestLocations = 20;
+    
+    // Create test settings
+    FWorldGenSettings TestSettings;
+    TestSettings.Seed = TestSeed;
+    TestSettings.WorldGenVersion = TestVersion;
+    TestSettings.PluginSHA = TEXT("vegetation_test");
+    TestSettings.VoxelSizeCm = 50.0f;
+    TestSettings.ChunkSize = 32;
+    TestSettings.BiomeBlendMeters = 24.0f;
+    
+    // Initialize biome system (required for vegetation system)
+    FBiomeSystem BiomeSystem;
+    BiomeSystem.Initialize(TestSettings);
+    
+    // Initialize vegetation systems for both runs
+    FVegetationSystem VegSystem1, VegSystem2;
+    VegSystem1.Initialize(TestSettings, &BiomeSystem);
+    VegSystem2.Initialize(TestSettings, &BiomeSystem);
+    
+    // Test locations across different biomes
+    TArray<FVector> TestLocations = {
+        FVector(0.0f, 0.0f, 0.0f),        // Origin
+        FVector(1000.0f, 0.0f, 0.0f),     // Meadows area
+        FVector(0.0f, 1000.0f, 0.0f),     // Different biome
+        FVector(2000.0f, 2000.0f, 0.0f),  // Far location
+        FVector(-500.0f, -500.0f, 0.0f)   // Negative coordinates
+    };
+    
+    bool bAllTestsPassed = true;
+    
+    // Test deterministic vegetation density calculation
+    for (const FVector& Location : TestLocations)
+    {
+        FIntVector TestChunk(FMath::FloorToInt(Location.X / (TestSettings.ChunkSize * TestSettings.VoxelSizeCm)),
+                            FMath::FloorToInt(Location.Y / (TestSettings.ChunkSize * TestSettings.VoxelSizeCm)),
+                            0);
+        
+        FVegetationDensity Density1 = VegSystem1.CalculateVegetationDensity(Location.X, Location.Y, Location.Z, TestChunk);
+        FVegetationDensity Density2 = VegSystem2.CalculateVegetationDensity(Location.X, Location.Y, Location.Z, TestChunk);
+        
+        // Check determinism for all density values
+        if (FMath::Abs(Density1.OverallDensity - Density2.OverallDensity) > DensityTolerance)
+        {
+            UE_LOG(LogWorldGenDeterminismTests, Error, TEXT("Overall density mismatch at location (%f, %f): %f vs %f"), 
+                Location.X, Location.Y, Density1.OverallDensity, Density2.OverallDensity);
+            bAllTestsPassed = false;
+        }
+        
+        if (FMath::Abs(Density1.TreeDensity - Density2.TreeDensity) > DensityTolerance)
+        {
+            UE_LOG(LogWorldGenDeterminismTests, Error, TEXT("Tree density mismatch at location (%f, %f): %f vs %f"), 
+                Location.X, Location.Y, Density1.TreeDensity, Density2.TreeDensity);
+            bAllTestsPassed = false;
+        }
+        
+        if (FMath::Abs(Density1.FoliageDensity - Density2.FoliageDensity) > DensityTolerance)
+        {
+            UE_LOG(LogWorldGenDeterminismTests, Error, TEXT("Foliage density mismatch at location (%f, %f): %f vs %f"), 
+                Location.X, Location.Y, Density1.FoliageDensity, Density2.FoliageDensity);
+            bAllTestsPassed = false;
+        }
+        
+        if (FMath::Abs(Density1.ResourceDensity - Density2.ResourceDensity) > DensityTolerance)
+        {
+            UE_LOG(LogWorldGenDeterminismTests, Error, TEXT("Resource density mismatch at location (%f, %f): %f vs %f"), 
+                Location.X, Location.Y, Density1.ResourceDensity, Density2.ResourceDensity);
+            bAllTestsPassed = false;
+        }
+        
+        if (Density1.DominantBiome != Density2.DominantBiome)
+        {
+            UE_LOG(LogWorldGenDeterminismTests, Error, TEXT("Dominant biome mismatch at location (%f, %f): %d vs %d"), 
+                Location.X, Location.Y, static_cast<int32>(Density1.DominantBiome), static_cast<int32>(Density2.DominantBiome));
+            bAllTestsPassed = false;
+        }
+    }
+    
+    // Test chunk vegetation data generation and persistence
+    FIntVector TestChunkCoord(0, 0, 0);
+    FChunkVegetationData ChunkData1 = VegSystem1.GenerateChunkVegetationData(TestChunkCoord, 4); // 4x4 samples
+    FChunkVegetationData ChunkData2 = VegSystem2.GenerateChunkVegetationData(TestChunkCoord, 4);
+    
+    // Verify chunk data determinism
+    if (ChunkData1.DensityMap.Num() != ChunkData2.DensityMap.Num())
+    {
+        UE_LOG(LogWorldGenDeterminismTests, Error, TEXT("Chunk density map size mismatch: %d vs %d"), 
+            ChunkData1.DensityMap.Num(), ChunkData2.DensityMap.Num());
+        bAllTestsPassed = false;
+    }
+    else
+    {
+        for (int32 i = 0; i < ChunkData1.DensityMap.Num(); ++i)
+        {
+            const FVegetationDensity& D1 = ChunkData1.DensityMap[i];
+            const FVegetationDensity& D2 = ChunkData2.DensityMap[i];
+            
+            if (FMath::Abs(D1.OverallDensity - D2.OverallDensity) > DensityTolerance)
+            {
+                UE_LOG(LogWorldGenDeterminismTests, Error, TEXT("Chunk density sample %d mismatch: %f vs %f"), 
+                    i, D1.OverallDensity, D2.OverallDensity);
+                bAllTestsPassed = false;
+                break;
+            }
+        }
+    }
+    
+    // Test save/load functionality
+    bool bSaveSuccess = VegSystem1.SaveChunkVegetationData(ChunkData1);
+    if (!bSaveSuccess)
+    {
+        UE_LOG(LogWorldGenDeterminismTests, Error, TEXT("Failed to save chunk vegetation data"));
+        bAllTestsPassed = false;
+    }
+    
+    FChunkVegetationData LoadedData;
+    bool bLoadSuccess = VegSystem1.LoadChunkVegetationData(TestChunkCoord, LoadedData);
+    if (!bLoadSuccess)
+    {
+        UE_LOG(LogWorldGenDeterminismTests, Error, TEXT("Failed to load chunk vegetation data"));
+        bAllTestsPassed = false;
+    }
+    else
+    {
+        // Verify loaded data matches original
+        if (LoadedData.ChunkCoord != ChunkData1.ChunkCoord)
+        {
+            UE_LOG(LogWorldGenDeterminismTests, Error, TEXT("Loaded chunk coordinate mismatch"));
+            bAllTestsPassed = false;
+        }
+        
+        if (LoadedData.GenerationSeed != ChunkData1.GenerationSeed)
+        {
+            UE_LOG(LogWorldGenDeterminismTests, Error, TEXT("Loaded generation seed mismatch"));
+            bAllTestsPassed = false;
+        }
+        
+        if (LoadedData.WorldGenVersion != ChunkData1.WorldGenVersion)
+        {
+            UE_LOG(LogWorldGenDeterminismTests, Error, TEXT("Loaded world gen version mismatch"));
+            bAllTestsPassed = false;
+        }
+    }
+    
+    // Clean up test data
+    VegSystem1.ClearChunkVegetationData(TestChunkCoord);
+    
+    // Test biome-specific vegetation profiles
+    for (int32 BiomeIndex = 0; BiomeIndex < static_cast<int32>(EBiomeType::Count); ++BiomeIndex)
+    {
+        EBiomeType BiomeType = static_cast<EBiomeType>(BiomeIndex);
+        const FVegetationProfile& Profile1 = VegSystem1.GetVegetationDataForBiome(BiomeType);
+        const FVegetationProfile& Profile2 = VegSystem2.GetVegetationDataForBiome(BiomeType);
+        
+        // Verify profiles are identical
+        if (FMath::Abs(Profile1.TreeDensity - Profile2.TreeDensity) > DensityTolerance)
+        {
+            UE_LOG(LogWorldGenDeterminismTests, Error, TEXT("Biome %d tree density profile mismatch: %f vs %f"), 
+                BiomeIndex, Profile1.TreeDensity, Profile2.TreeDensity);
+            bAllTestsPassed = false;
+        }
+        
+        if (Profile1.TreeSpecies.Num() != Profile2.TreeSpecies.Num())
+        {
+            UE_LOG(LogWorldGenDeterminismTests, Error, TEXT("Biome %d tree species count mismatch: %d vs %d"), 
+                BiomeIndex, Profile1.TreeSpecies.Num(), Profile2.TreeSpecies.Num());
+            bAllTestsPassed = false;
+        }
+        
+        if (Profile1.HarvestableResources.Num() != Profile2.HarvestableResources.Num())
+        {
+            UE_LOG(LogWorldGenDeterminismTests, Error, TEXT("Biome %d harvestable resources count mismatch: %d vs %d"), 
+                BiomeIndex, Profile1.HarvestableResources.Num(), Profile2.HarvestableResources.Num());
+            bAllTestsPassed = false;
+        }
+    }
+    
+    if (bAllTestsPassed)
+    {
+        UE_LOG(LogWorldGenDeterminismTests, Log, TEXT("All vegetation system determinism tests passed"));
+    }
+    else
+    {
+        UE_LOG(LogWorldGenDeterminismTests, Error, TEXT("Some vegetation system determinism tests failed"));
+    }
+    
+    return bAllTestsPassed;
+}
