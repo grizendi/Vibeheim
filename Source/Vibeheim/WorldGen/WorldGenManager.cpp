@@ -5,6 +5,12 @@
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/Pawn.h"
 #include "Kismet/GameplayStatics.h"
+#if WITH_EDITOR
+#include "Editor/EditorEngine.h"
+#include "Editor.h"
+#include "Editor/UnrealEdEngine.h"
+#include "UnrealEdGlobals.h"
+#endif
 
 DEFINE_LOG_CATEGORY(LogWorldGenManager);
 
@@ -41,6 +47,32 @@ AWorldGenManager::AWorldGenManager()
     NoiseGenerator = MakeUnique<FNoiseGenerator>();
 }
 
+AWorldGenManager::~AWorldGenManager()
+{
+    UE_LOG(LogWorldGenManager, Warning, TEXT("WorldGenManager destructor - ensuring cleanup"));
+    
+    // Ensure cleanup happens even if EndPlay wasn't called
+    if (bIsInitialized || bIsReady)
+    {
+        // Shutdown chunk streaming manager first to wait for async tasks
+        if (ChunkStreamingManager)
+        {
+            ChunkStreamingManager->Shutdown();
+        }
+        
+        // Shutdown voxel plugin adapter
+        if (VoxelPluginAdapter)
+        {
+            VoxelPluginAdapter->Shutdown();
+        }
+        
+        bIsReady = false;
+        bIsInitialized = false;
+    }
+    
+    UE_LOG(LogWorldGenManager, Warning, TEXT("WorldGenManager destructor complete"));
+}
+
 void AWorldGenManager::BeginPlay()
 {
     Super::BeginPlay();
@@ -62,6 +94,14 @@ void AWorldGenManager::BeginPlay()
     {
         AutoSetPlayerAnchor();
     }
+    
+    // Register for PIE end delegate to ensure cleanup
+#if WITH_EDITOR
+    if (GEditor)
+    {
+        FEditorDelegates::EndPIE.AddUObject(this, &AWorldGenManager::OnPIEEnded);
+    }
+#endif
     
     UE_LOG(LogWorldGenManager, Log, TEXT("WorldGenManager initialization completed successfully"));
 }
@@ -95,15 +135,49 @@ void AWorldGenManager::Tick(float DeltaTime)
 
 void AWorldGenManager::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
-    UE_LOG(LogWorldGenManager, Log, TEXT("WorldGenManager EndPlay - Shutting down"));
+    UE_LOG(LogWorldGenManager, Warning, TEXT("WorldGenManager EndPlay - Shutting down (Reason: %d)"), (int32)EndPlayReason);
+    
+    // Shutdown chunk streaming manager first to wait for async tasks
+    if (ChunkStreamingManager)
+    {
+        UE_LOG(LogWorldGenManager, Warning, TEXT("Shutting down ChunkStreamingManager"));
+        ChunkStreamingManager->Shutdown();
+        UE_LOG(LogWorldGenManager, Warning, TEXT("ChunkStreamingManager shutdown complete"));
+    }
+    else
+    {
+        UE_LOG(LogWorldGenManager, Warning, TEXT("ChunkStreamingManager is null - no shutdown needed"));
+    }
+    
+    // Shutdown voxel plugin adapter
+    if (VoxelPluginAdapter)
+    {
+        UE_LOG(LogWorldGenManager, Warning, TEXT("Shutting down VoxelPluginAdapter"));
+        VoxelPluginAdapter->Shutdown();
+        UE_LOG(LogWorldGenManager, Warning, TEXT("VoxelPluginAdapter shutdown complete"));
+    }
+    else
+    {
+        UE_LOG(LogWorldGenManager, Warning, TEXT("VoxelPluginAdapter is null - no shutdown needed"));
+    }
     
     // Unregister console commands
     FWorldGenConsoleCommands::UnregisterCommands();
+    
+    // Unregister PIE delegate
+#if WITH_EDITOR
+    if (GEditor)
+    {
+        FEditorDelegates::EndPIE.RemoveAll(this);
+    }
+#endif
     
     // Clean up systems
     bIsReady = false;
     bIsInitialized = false;
     PlayerAnchor = nullptr;
+    
+    UE_LOG(LogWorldGenManager, Warning, TEXT("WorldGenManager EndPlay complete"));
     
     Super::EndPlay(EndPlayReason);
 }
@@ -727,4 +801,30 @@ void AWorldGenManager::GetPortalPlacementStats(int32& OutTotalAttempts, int32& O
         OutTotalAttempts = OutSuccessfulPlacements = OutFailedPlacements = 0;
         OutAverageAttemptsPerPortal = 0.0f;
     }
+}
+
+void AWorldGenManager::OnPIEEnded(bool bIsSimulating)
+{
+    UE_LOG(LogWorldGenManager, Warning, TEXT("PIE ended - forcing immediate shutdown"));
+    
+    // Force immediate shutdown when PIE ends
+    if (bIsInitialized || bIsReady)
+    {
+        // Shutdown chunk streaming manager first to wait for async tasks
+        if (ChunkStreamingManager)
+        {
+            ChunkStreamingManager->Shutdown();
+        }
+        
+        // Shutdown voxel plugin adapter
+        if (VoxelPluginAdapter)
+        {
+            VoxelPluginAdapter->Shutdown();
+        }
+        
+        bIsReady = false;
+        bIsInitialized = false;
+    }
+    
+    UE_LOG(LogWorldGenManager, Warning, TEXT("PIE shutdown complete"));
 }

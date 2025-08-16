@@ -2,6 +2,8 @@
 
 #include "CoreMinimal.h"
 #include "Engine/DataTable.h"
+#include "Materials/MaterialInterface.h"
+#include "VoxelGenerators/VoxelGenerator.h"
 #include "WorldGenSettings.generated.h"
 
 /**
@@ -73,9 +75,21 @@ struct VIBEHEIM_API FWorldGenSettings
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Biome Noise", meta = (ClampMin = "0.0001", ClampMax = "0.01"))
     float SwampScale = 0.0020f;
 
+    /** Material to use for voxel rendering */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Voxel Settings")
+    TSoftObjectPtr<UMaterialInterface> VoxelMaterial;
+
+    /** Generator class to use for terrain generation */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Voxel Settings")
+    TSoftClassPtr<UVoxelGenerator> GeneratorClass;
+
     FWorldGenSettings()
     {
         // Default constructor with default values already set above
+        // Set default material to the simple color material from VoxelPluginLegacy
+        VoxelMaterial = TSoftObjectPtr<UMaterialInterface>(FSoftObjectPath(TEXT("/VoxelFree/Examples/Shared/VoxelExamples_SimpleColorMaterial.VoxelExamples_SimpleColorMaterial")));
+        // Set default generator to a basic flat world generator
+        GeneratorClass = TSoftClassPtr<UVoxelGenerator>(FSoftClassPath(TEXT("/Script/Voxel.VoxelFlatGenerator")));
     }
 
     /**

@@ -106,6 +106,25 @@ bool FWorldGenSettings::LoadFromJSON(const FString& FilePath)
         SwampScale = static_cast<float>(JsonObject->GetNumberField(TEXT("SwampScale")));
     }
 
+    // Load material and generator settings
+    if (JsonObject->HasField(TEXT("VoxelMaterial")))
+    {
+        FString MaterialPath = JsonObject->GetStringField(TEXT("VoxelMaterial"));
+        if (!MaterialPath.IsEmpty())
+        {
+            VoxelMaterial = TSoftObjectPtr<UMaterialInterface>(FSoftObjectPath(MaterialPath));
+        }
+    }
+    
+    if (JsonObject->HasField(TEXT("GeneratorClass")))
+    {
+        FString GeneratorPath = JsonObject->GetStringField(TEXT("GeneratorClass"));
+        if (!GeneratorPath.IsEmpty())
+        {
+            GeneratorClass = TSoftClassPtr<UVoxelGenerator>(FSoftClassPath(GeneratorPath));
+        }
+    }
+
     UE_LOG(LogTemp, Log, TEXT("Successfully loaded WorldGen settings from: %s"), *FilePath);
     return true;
 }
@@ -140,6 +159,17 @@ bool FWorldGenSettings::SaveToJSON(const FString& FilePath) const
     JsonObject->SetNumberField(TEXT("MeadowsScale"), MeadowsScale);
     JsonObject->SetNumberField(TEXT("BlackForestScale"), BlackForestScale);
     JsonObject->SetNumberField(TEXT("SwampScale"), SwampScale);
+
+    // Save material and generator settings
+    if (VoxelMaterial.IsValid())
+    {
+        JsonObject->SetStringField(TEXT("VoxelMaterial"), VoxelMaterial.GetLongPackageName());
+    }
+    
+    if (GeneratorClass.IsValid())
+    {
+        JsonObject->SetStringField(TEXT("GeneratorClass"), GeneratorClass.GetLongPackageName());
+    }
 
     FString OutputString;
     TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&OutputString);

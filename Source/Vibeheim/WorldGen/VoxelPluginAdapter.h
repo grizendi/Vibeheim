@@ -40,6 +40,12 @@ public:
     virtual void TickStreaming(float DeltaTime) override;
     virtual bool RebuildChunkAsync(const FIntVector& ChunkCoordinate) override;
     virtual bool IsInitialized() const override;
+    
+    /**
+     * Shutdown the adapter and clean up any pending operations
+     */
+    UFUNCTION(BlueprintCallable, Category = "Voxel Plugin Adapter")
+    void Shutdown();
 
     // IVoxelEditService interface
     virtual bool ApplySphere(const FVector& Center, float Radius, EVoxelCSG Operation) override;

@@ -31,11 +31,15 @@ private:
     static FAutoConsoleCommand TestErrorLoggingCommand;
     static FAutoConsoleCommand TestFallbackGenerationCommand;
     static FAutoConsoleCommand ShowStreamingStatsCommand;
+    static FAutoConsoleCommand RecreateVoxelWorldCommand;
+    static FAutoConsoleCommand TestCSGSphereCommand;
     
     /** Command implementations */
     static void TestErrorLogging(const TArray<FString>& Args);
     static void TestFallbackGeneration(const TArray<FString>& Args);
     static void ShowStreamingStats(const TArray<FString>& Args);
+    static void RecreateVoxelWorld(const TArray<FString>& Args);
+    static void TestCSGSphere(const TArray<FString>& Args);
     
     /** Helper to find WorldGenManager in the world */
     static class AWorldGenManager* FindWorldGenManager();

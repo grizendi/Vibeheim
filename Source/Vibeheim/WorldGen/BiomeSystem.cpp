@@ -204,7 +204,7 @@ void FBiomeSystem::InitializeDefaultBiomeData()
         TEXT("Meadows"),
         0.0f,           // Height offset
         Settings.MeadowsScale,
-        FLinearColor::Green
+        FLinearColor(0.3f, 0.8f, 0.3f, 1.0f) // Bright green
     );
     
     // Initialize BlackForest biome
@@ -212,7 +212,7 @@ void FBiomeSystem::InitializeDefaultBiomeData()
         TEXT("BlackForest"),
         50.0f,          // Height offset (elevated)
         Settings.BlackForestScale,
-        FLinearColor(0.2f, 0.4f, 0.2f, 1.0f) // Dark green
+        FLinearColor(0.1f, 0.3f, 0.1f, 1.0f) // Very dark green
     );
     
     // Initialize Swamp biome
@@ -220,7 +220,7 @@ void FBiomeSystem::InitializeDefaultBiomeData()
         TEXT("Swamp"),
         -25.0f,         // Height offset (lowered)
         Settings.SwampScale,
-        FLinearColor(0.4f, 0.3f, 0.1f, 1.0f) // Brown/muddy color
+        FLinearColor(0.5f, 0.4f, 0.2f, 1.0f) // Muddy brown
     );
 }
 

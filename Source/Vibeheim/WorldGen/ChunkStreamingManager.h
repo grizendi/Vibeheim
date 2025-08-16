@@ -116,6 +116,9 @@ class VIBEHEIM_API UChunkStreamingManager : public UObject
 
 public:
     UChunkStreamingManager();
+    
+    /** Destructor - ensures proper cleanup of async tasks */
+    virtual ~UChunkStreamingManager();
 
     /**
      * Initialize the streaming manager with settings
@@ -213,6 +216,13 @@ public:
 
     /** Called when a chunk generation task completes */
     void OnChunkGenerationComplete(const FIntVector& ChunkCoordinate, EChunkLOD GeneratedLOD, double GenerationTime);
+    
+    /**
+     * Shutdown the streaming manager and wait for all async tasks to complete
+     * This should be called before the object is destroyed
+     */
+    UFUNCTION(BlueprintCallable, Category = "Chunk Streaming")
+    void Shutdown();
 
 protected:
     /**

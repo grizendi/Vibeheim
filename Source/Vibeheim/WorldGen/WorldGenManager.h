@@ -27,6 +27,9 @@ class VIBEHEIM_API AWorldGenManager : public AActor
 
 public:
     AWorldGenManager();
+    
+    /** Destructor - ensures cleanup even if EndPlay isn't called */
+    virtual ~AWorldGenManager();
 
 protected:
     virtual void BeginPlay() override;
@@ -241,6 +244,12 @@ public:
      */
     UFUNCTION(BlueprintCallable, Category = "World Generation")
     bool AutoSetPlayerAnchor();
+
+protected:
+    /**
+     * Called when PIE ends to ensure proper cleanup
+     */
+    void OnPIEEnded(bool bIsSimulating);
 
 protected:
     /**

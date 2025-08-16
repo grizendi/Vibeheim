@@ -53,6 +53,18 @@ FAutoConsoleCommand FWorldGenConsoleCommands::ShowStreamingStatsCommand(
     FConsoleCommandWithArgsDelegate::CreateStatic(&FWorldGenConsoleCommands::ShowStreamingStats)
 );
 
+FAutoConsoleCommand FWorldGenConsoleCommands::RecreateVoxelWorldCommand(
+    TEXT("wg.RecreateVoxelWorld"),
+    TEXT("Recreate the voxel world with current settings (useful after changing material/generator)"),
+    FConsoleCommandWithArgsDelegate::CreateStatic(&FWorldGenConsoleCommands::RecreateVoxelWorld)
+);
+
+FAutoConsoleCommand FWorldGenConsoleCommands::TestCSGSphereCommand(
+    TEXT("wg.TestCSGSphere"),
+    TEXT("Test CSG sphere operations (usage: wg.TestCSGSphere X Y Z Radius Add/Remove)"),
+    FConsoleCommandWithArgsDelegate::CreateStatic(&FWorldGenConsoleCommands::TestCSGSphere)
+);
+
 void FWorldGenConsoleCommands::RegisterCommands()
 {
     UE_LOG(LogTemp, Log, TEXT("WorldGen console commands registered"));
@@ -165,6 +177,93 @@ void FWorldGenConsoleCommands::ShowStreamingStats(const TArray<FString>& Args)
     }
     
     UE_LOG(LogTemp, Log, TEXT("========================================"));
+}
+
+void FWorldGenConsoleCommands::RecreateVoxelWorld(const TArray<FString>& Args)
+{
+    AWorldGenManager* WorldGenManager = FindWorldGenManager();
+    if (!WorldGenManager)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("No WorldGenManager found in current world"));
+        return;
+    }
+    
+    UVoxelPluginAdapter* Adapter = WorldGenManager->GetVoxelPluginAdapter();
+    if (!Adapter)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("VoxelPluginAdapter not available"));
+        return;
+    }
+    
+    UE_LOG(LogTemp, Log, TEXT("Recreating voxel world with current settings..."));
+    
+    // Shutdown the current adapter
+    Adapter->Shutdown();
+    
+    // Reinitialize with current settings
+    const FWorldGenSettings& Settings = WorldGenManager->GetWorldGenSettings();
+    if (Adapter->Initialize(Settings))
+    {
+        UE_LOG(LogTemp, Log, TEXT("Successfully recreated voxel world"));
+        
+        // Restart world building if we have a player anchor
+        if (WorldGenManager->GetPlayerAnchor())
+        {
+            Adapter->BuildWorldAsync(WorldGenManager->GetPlayerAnchor());
+            UE_LOG(LogTemp, Log, TEXT("Restarted world building around player anchor"));
+        }
+    }
+    else
+    {
+        UE_LOG(LogTemp, Error, TEXT("Failed to recreate voxel world"));
+    }
+}
+
+void FWorldGenConsoleCommands::TestCSGSphere(const TArray<FString>& Args)
+{
+    if (Args.Num() < 5)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("Usage: wg.TestCSGSphere X Y Z Radius Add/Remove"));
+        UE_LOG(LogTemp, Warning, TEXT("Example: wg.TestCSGSphere 1000 1000 100 200 Add"));
+        return;
+    }
+    
+    AWorldGenManager* WorldGenManager = FindWorldGenManager();
+    if (!WorldGenManager)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("No WorldGenManager found in current world"));
+        return;
+    }
+    
+    UVoxelPluginAdapter* Adapter = WorldGenManager->GetVoxelPluginAdapter();
+    if (!Adapter)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("VoxelPluginAdapter not available"));
+        return;
+    }
+    
+    // Parse arguments
+    float X = FCString::Atof(*Args[0]);
+    float Y = FCString::Atof(*Args[1]);
+    float Z = FCString::Atof(*Args[2]);
+    float Radius = FCString::Atof(*Args[3]);
+    FString Operation = Args[4];
+    
+    FVector Center(X, Y, Z);
+    EVoxelCSG CSGOperation = Operation.ToLower().Contains(TEXT("add")) ? EVoxelCSG::Add : EVoxelCSG::Subtract;
+    
+    UE_LOG(LogTemp, Log, TEXT("Applying CSG sphere %s at (%.2f, %.2f, %.2f) with radius %.2f"), 
+           CSGOperation == EVoxelCSG::Add ? TEXT("Add") : TEXT("Remove"),
+           X, Y, Z, Radius);
+    
+    if (Adapter->ApplySphere(Center, Radius, CSGOperation))
+    {
+        UE_LOG(LogTemp, Log, TEXT("CSG sphere operation successful"));
+    }
+    else
+    {
+        UE_LOG(LogTemp, Error, TEXT("CSG sphere operation failed"));
+    }
 }
 
 AWorldGenManager* FWorldGenConsoleCommands::FindWorldGenManager()

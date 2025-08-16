@@ -67,6 +67,12 @@ UChunkStreamingManager::UChunkStreamingManager()
     PerformanceProfiler = MakeUnique<FWorldGenPerformanceProfiler>();
 }
 
+UChunkStreamingManager::~UChunkStreamingManager()
+{
+    // Ensure proper cleanup
+    Shutdown();
+}
+
 bool UChunkStreamingManager::Initialize(const FWorldGenSettings& Settings, IVoxelWorldService* InVoxelWorldService)
 {
     if (!InVoxelWorldService)
@@ -509,6 +515,14 @@ FIntVector UChunkStreamingManager::WorldToChunkCoordinate(const FVector& WorldPo
 
 void UChunkStreamingManager::StartChunkGeneration(const FIntVector& ChunkCoordinate, EChunkLOD TargetLOD)
 {
+    // Don't start new tasks if we're shutting down
+    if (!bIsInitialized)
+    {
+        UE_LOG(LogChunkStreaming, Warning, TEXT("Ignoring chunk generation request during shutdown - Chunk: (%d, %d, %d)"), 
+               ChunkCoordinate.X, ChunkCoordinate.Y, ChunkCoordinate.Z);
+        return;
+    }
+    
     FStreamingChunk* Chunk = StreamingChunks.Find(ChunkCoordinate);
     if (!Chunk)
     {
@@ -516,17 +530,53 @@ void UChunkStreamingManager::StartChunkGeneration(const FIntVector& ChunkCoordin
         return;
     }
 
+    // Check if chunk is already generating or generated
+    if (Chunk->bIsGenerating || Chunk->CurrentLOD != EChunkLOD::Unloaded)
+    {
+        return;
+    }
+
+    // TEMPORARY: Use synchronous generation to avoid async task issues
+    // This is safer but will cause frame drops - should be replaced with proper async fix
+    UE_LOG(LogChunkStreaming, Verbose, TEXT("Using synchronous chunk generation - Chunk: (%d, %d, %d), LOD: %d"), 
+           ChunkCoordinate.X, ChunkCoordinate.Y, ChunkCoordinate.Z, (int32)TargetLOD);
+
     Chunk->bIsGenerating = true;
     Chunk->GenerationStartTime = FPlatformTime::Seconds();
     GeneratingChunks.Add(ChunkCoordinate);
 
-    // Create and start async task
-    TSharedPtr<FAsyncChunkGenerationTask> Task = MakeShared<FAsyncChunkGenerationTask>(ChunkCoordinate, TargetLOD, this);
-    ActiveTasks.Add(ChunkCoordinate, Task);
-    Task->StartBackgroundTask();
+    // Perform synchronous generation
+    double WorkStartTime = FPlatformTime::Seconds();
+    
+    // Simulate generation time based on LOD (reduced for synchronous)
+    double TargetGenerationTime = 0.001; // 1ms base time for sync
+    switch (TargetLOD)
+    {
+        case EChunkLOD::LOD0:
+            TargetGenerationTime = 0.002; // 2ms for full detail
+            break;
+        case EChunkLOD::LOD1:
+            TargetGenerationTime = 0.0015; // 1.5ms for collision
+            break;
+        case EChunkLOD::LOD2:
+            TargetGenerationTime = 0.001; // 1ms for visual only
+            break;
+    }
 
-    UE_LOG(LogChunkStreaming, VeryVerbose, TEXT("Started generation - Seed: %lld, Chunk: (%d, %d, %d), LOD: %d"), 
-           CurrentSettings.Seed, ChunkCoordinate.X, ChunkCoordinate.Y, ChunkCoordinate.Z, (int32)TargetLOD);
+    // Simulate work (in real implementation, this would call voxel generation)
+    while ((FPlatformTime::Seconds() - WorkStartTime) < TargetGenerationTime)
+    {
+        // Minimal work simulation
+        volatile float DummyWork = FMath::Sin(ChunkCoordinate.X * 0.1f);
+    }
+
+    double TotalTime = FPlatformTime::Seconds() - Chunk->GenerationStartTime;
+    
+    // Complete generation immediately
+    OnChunkGenerationComplete(ChunkCoordinate, TargetLOD, TotalTime);
+
+    UE_LOG(LogChunkStreaming, VeryVerbose, TEXT("Completed synchronous generation - Seed: %lld, Chunk: (%d, %d, %d), LOD: %d, Time: %.2fms"), 
+           CurrentSettings.Seed, ChunkCoordinate.X, ChunkCoordinate.Y, ChunkCoordinate.Z, (int32)TargetLOD, TotalTime * 1000.0);
 }
 
 void UChunkStreamingManager::UpdatePerformanceStats(double GenerationTime)
@@ -593,4 +643,27 @@ bool UChunkStreamingManager::ValidateLOD0MemoryUsage() const
     
     TArray<FStreamingChunk> LoadedChunks = GetLoadedChunks();
     return PerformanceProfiler->ValidateLOD0MemoryUsage(LoadedChunks);
+}
+
+void UChunkStreamingManager::Shutdown()
+{
+    UE_LOG(LogChunkStreaming, Warning, TEXT("ChunkStreamingManager shutting down - using synchronous generation, no async tasks to wait for"));
+    
+    // Stop accepting new tasks and disable ticking
+    bIsInitialized = false;
+    
+    // Since we're using synchronous generation, no need to wait for async tasks
+    // Just clear data structures safely
+    {
+        FScopeLock ChunkLock(&ChunkMapCriticalSection);
+        FScopeLock StatsLock(&StatsCriticalSection);
+        
+        // Clear all data structures
+        ActiveTasks.Empty();
+        StreamingChunks.Empty();
+        LoadingQueue.Empty();
+        GeneratingChunks.Empty();
+    }
+    
+    UE_LOG(LogChunkStreaming, Warning, TEXT("ChunkStreamingManager shutdown complete"));
 }

@@ -9,6 +9,7 @@
 #include "VoxelModule.h"
 #include "VoxelTools/Gen/VoxelSphereTools.h"
 #include "VoxelGenerators/VoxelEmptyGenerator.h"
+#include "VoxelGenerators/VoxelFlatGenerator.h"
 #include "VoxelData/VoxelData.h"
 
 DEFINE_LOG_CATEGORY(LogWorldGen);
@@ -449,14 +450,54 @@ void UVoxelPluginAdapter::ConfigureVoxelWorldSettings(const FWorldGenSettings& S
     // Configure basic voxel settings
     VoxelWorld->VoxelSize = Settings.VoxelSizeCm;
     
-    // Set up a basic generator (empty world for now)
-    VoxelWorld->Generator.Class = UVoxelEmptyGenerator::StaticClass();
+    // Set up the generator from settings
+    if (Settings.GeneratorClass.IsValid())
+    {
+        UClass* GeneratorClass = Settings.GeneratorClass.LoadSynchronous();
+        if (GeneratorClass)
+        {
+            VoxelWorld->Generator.Class = GeneratorClass;
+            UE_LOG(LogWorldGen, Log, TEXT("Set voxel generator to: %s"), *GeneratorClass->GetName());
+        }
+        else
+        {
+            UE_LOG(LogWorldGen, Warning, TEXT("Failed to load generator class, using default flat generator"));
+            VoxelWorld->Generator.Class = UVoxelFlatGenerator::StaticClass();
+        }
+    }
+    else
+    {
+        // Fallback to flat generator instead of empty generator
+        VoxelWorld->Generator.Class = UVoxelFlatGenerator::StaticClass();
+        UE_LOG(LogWorldGen, Log, TEXT("No generator specified, using default flat generator"));
+    }
+    
+    // Set up the material from settings
+    if (Settings.VoxelMaterial.IsValid())
+    {
+        UMaterialInterface* Material = Settings.VoxelMaterial.LoadSynchronous();
+        if (Material)
+        {
+            VoxelWorld->VoxelMaterial = Material;
+            UE_LOG(LogWorldGen, Log, TEXT("Set voxel material to: %s"), *Material->GetName());
+        }
+        else
+        {
+            UE_LOG(LogWorldGen, Warning, TEXT("Failed to load voxel material from settings"));
+        }
+    }
+    else
+    {
+        UE_LOG(LogWorldGen, Warning, TEXT("No voxel material specified in settings"));
+    }
 
     // Configure LOD settings based on our streaming settings
     // Note: VoxelPluginLegacy uses different LOD system, so we adapt our settings
     
-    UE_LOG(LogWorldGen, Log, TEXT("Configured voxel world with voxel size: %f cm, chunk size: %d"), 
-           Settings.VoxelSizeCm, Settings.ChunkSize);
+    UE_LOG(LogWorldGen, Log, TEXT("Configured voxel world with voxel size: %f cm, chunk size: %d, generator: %s, material: %s"), 
+           Settings.VoxelSizeCm, Settings.ChunkSize,
+           VoxelWorld->Generator.Class ? *VoxelWorld->Generator.Class->GetName() : TEXT("None"),
+           VoxelWorld->VoxelMaterial ? *VoxelWorld->VoxelMaterial->GetName() : TEXT("None"));
 }
 
 bool UVoxelPluginAdapter::ValidatePluginAvailability()
@@ -535,4 +576,34 @@ void UVoxelPluginAdapter::LogStructuredError(const FString& ErrorMessage, const 
         UE_LOG(LogWorldGen, Error, TEXT("[STRUCTURED_ERROR] %s - Seed: %lld, Chunk: (%d, %d, %d), Context: %s"), 
                *ErrorMessage, CurrentSeed, ChunkCoordinate.X, ChunkCoordinate.Y, ChunkCoordinate.Z, *AdditionalContext);
     }
+}
+
+void UVoxelPluginAdapter::Shutdown()
+{
+    UE_LOG(LogWorldGen, Log, TEXT("VoxelPluginAdapter shutting down"));
+    
+    // Flush any pending edit operations
+    if (bHasDirtyOperations)
+    {
+        FlushDirty();
+    }
+    
+    // Destroy voxel world if it exists
+    if (VoxelWorld && IsValid(VoxelWorld))
+    {
+        UE_LOG(LogWorldGen, Log, TEXT("Destroying VoxelWorld actor"));
+        VoxelWorld->Destroy();
+        VoxelWorld = nullptr;
+    }
+    
+    // Clear data structures
+    FailedChunks.Empty();
+    PendingEditOps.Empty();
+    
+    // Reset state
+    bIsInitialized = false;
+    bHasDirtyOperations = false;
+    PlayerAnchor = nullptr;
+    
+    UE_LOG(LogWorldGen, Log, TEXT("VoxelPluginAdapter shutdown complete"));
 }
