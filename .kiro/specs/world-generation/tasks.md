@@ -1,27 +1,44 @@
 # Implementation Plan
 
-- [ ] 1. Set up project structure and core interfaces
+- [x] 1. Set up project structure and core interfaces
+
+
+
+
+
   - Create WorldGen module directory structure under Source/Vibeheim/WorldGen/
   - Update Vibeheim.Build.cs to include PCG Framework, World Partition, and RVT dependencies
   - Define IHeightfieldService, IPCGWorldService, and IWorldPartitionService interfaces
   - Create base data structures: FWorldGenSettings, FBiomeDefinition, FHeightfieldModification
   - _Requirements: 4.1, 4.2_
 
-- [ ] 1.5. Define core coordinate and tiling contract
+- [x] 1.5. Define core coordinate and tiling contract
+
+
   - Lock units (meters), tile size (64m), sample spacing (1m), max height (120m)
   - Define world origin semantics with world-space sampling (no tile-local bias)
   - Document Generate/Load/Active radii semantics and FTileCoord hashing
   - Create guardrails in WorldGenSettings.json with performance targets
   - _Requirements: 1.1_
 
-- [ ] 2. Implement configuration and settings system
+- [x] 2. Implement configuration and settings system
+
+
+
+
+
   - Create WorldGenSettings.h/.cpp with FWorldGenSettings structure
   - Implement JSON configuration loader for /Config/WorldGenSettings.json
   - Add validation for heightfield resolution, streaming radius, and PCG parameters
   - Create unit tests for settings validation and JSON parsing
   - _Requirements: 1.1, 4.2_
 
-- [ ] 3. Create custom runtime heightfield system
+- [x] 3. Create custom runtime heightfield system
+
+
+
+
+
   - Implement CPU height generation v1 (deterministic, easy to debug)
   - Set up Virtual Heightfield Mesh (VHM) rendering for runtime-editable terrain
   - Generate height, normal, slope data with optional thermal smoothing
@@ -29,7 +46,10 @@
   - Implement height texture upload path for GPU rendering
   - _Requirements: 1.1, 1.2, 4.1_
 
-- [ ] 3.5. Implement climate and ring systems
+- [x] 3.5. Implement climate and ring systems
+
+
+
   - Create Temperature(x,y) system (latitudinal + altitude lapse + noise)
   - Implement Moisture(x,y) system (coast distance + noise)
   - Add ring bias by distance from world center with exposed tunables

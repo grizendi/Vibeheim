@@ -1,0 +1,25 @@
+{
+  "Seed": 1337,
+  "WorldGenVersion": 1,
+  "TileSizeMeters": 64,
+  "SampleSpacingMeters": 1,
+  "MaxTerrainHeight": 120,
+  "SeaLevel": 0,
+  "GenerateRadius": 9,
+  "LoadRadius": 5,
+  "ActiveRadius": 3,
+  "HeightfieldScale": 100.0,
+  "HeightfieldResolution": 1024,
+  "CellSize": 12800,
+  "VegetationDensity": 1.0,
+  "POIDensity": 0.1,
+  "MaxHISMInstances": 10000,
+  "BiomeScale": 0.001,
+  "BiomeBlendDistance": 500.0,
+  "RVTResolution": 4096,
+  "RVTTileSize": 256,
+  "PerfTargets": {
+    "TileGenMs": 2.0,
+    "PCGMsPerTile": 1.0
+  }
+}

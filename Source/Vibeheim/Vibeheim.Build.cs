@@ -8,9 +8,37 @@ public class Vibeheim : ModuleRules
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 	
-		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "EnhancedInput", "PCG","PCGGeometryScriptInterop", "GeometryScriptingCore" });
+		PublicDependencyModuleNames.AddRange(new string[] { 
+			"Core", 
+			"CoreUObject", 
+			"Engine", 
+			"InputCore", 
+			"EnhancedInput"
+		});
 
-		PrivateDependencyModuleNames.AddRange(new string[] {  });
+		// Add PCG modules if available (UE5.1+)
+		if (Target.Version.MajorVersion >= 5 && Target.Version.MinorVersion >= 1)
+		{
+			PublicDependencyModuleNames.AddRange(new string[] {
+				"PCG"
+			});
+			PublicDefinitions.Add("WITH_PCG=1");
+		}
+		else
+		{
+			PublicDefinitions.Add("WITH_PCG=0");
+		}
+
+		PrivateDependencyModuleNames.AddRange(new string[] { 
+			"Json",
+			"JsonUtilities"
+		});
+
+		// Add AutomationTest module only in development builds
+		if (Target.Configuration != UnrealTargetConfiguration.Shipping)
+		{
+			PrivateDependencyModuleNames.Add("AutomationTest");
+		}
 
 		// Uncomment if you are using Slate UI
 		// PrivateDependencyModuleNames.AddRange(new string[] { "Slate", "SlateCore" });
