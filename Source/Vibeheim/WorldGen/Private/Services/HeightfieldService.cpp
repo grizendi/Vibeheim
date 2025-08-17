@@ -47,7 +47,7 @@ bool UHeightfieldService::Initialize(const FWorldGenConfig& Settings)
 	return true;
 }
 
-FHeightfieldData UHeightfieldService::GenerateHeightfield(uint64 Seed, FTileCoord TileCoord)
+FHeightfieldData UHeightfieldService::GenerateHeightfield(int32 Seed, FTileCoord TileCoord)
 {
 	double StartTime = FPlatformTime::Seconds();
 	
@@ -104,7 +104,7 @@ FHeightfieldData UHeightfieldService::GenerateHeightfield(uint64 Seed, FTileCoor
 	
 	return HeightfieldData;
 }fl
-float UHeightfieldService::GenerateBaseHeight(FVector2D WorldPosition, uint64 Seed) const
+float UHeightfieldService::GenerateBaseHeight(FVector2D WorldPosition, int32 Seed) const
 {
 	float Height = GenerationSettings.BaseHeight;
 	
@@ -163,7 +163,7 @@ float UHeightfieldService::GenerateBaseHeight(FVector2D WorldPosition, uint64 Se
 	return Height;
 }
 
-float UHeightfieldService::GenerateOctaveNoise(FVector2D Position, const FNoiseSettings& Settings, uint64 Seed) const
+float UHeightfieldService::GenerateOctaveNoise(FVector2D Position, const FNoiseSettings& Settings, int32 Seed) const
 {
 	// Apply domain warping if enabled
 	FVector2D WarpedPosition = Position;
@@ -190,7 +190,7 @@ float UHeightfieldService::GenerateOctaveNoise(FVector2D Position, const FNoiseS
 	return (NoiseValue / MaxValue) * Settings.Amplitude;
 }
 
-float UHeightfieldService::GenerateNoise(FVector2D Position, float Scale, uint64 Seed) const
+float UHeightfieldService::GenerateNoise(FVector2D Position, float Scale, int32 Seed) const
 {
 	// Scale position
 	FVector2D ScaledPos = Position * Scale;
@@ -221,7 +221,7 @@ float UHeightfieldService::GenerateNoise(FVector2D Position, float Scale, uint64
 	
 	return FMath::Lerp(N0, N1, SmoothY);
 }FVector2D U
-HeightfieldService::ApplyDomainWarp(FVector2D Position, const FNoiseSettings& Settings, uint64 Seed) const
+HeightfieldService::ApplyDomainWarp(FVector2D Position, const FNoiseSettings& Settings, int32 Seed) const
 {
 	if (Settings.DomainWarpStrength <= 0.0f)
 	{
@@ -236,7 +236,7 @@ HeightfieldService::ApplyDomainWarp(FVector2D Position, const FNoiseSettings& Se
 	return Position + FVector2D(WarpX, WarpY) * Settings.DomainWarpStrength;
 }
 
-uint32 UHeightfieldService::HashPosition(FVector2D Position, uint64 Seed) const
+uint32 UHeightfieldService::HashPosition(FVector2D Position, int32 Seed) const
 {
 	// Convert position to integers for hashing
 	uint32 X = static_cast<uint32>(Position.X * 1000.0f);

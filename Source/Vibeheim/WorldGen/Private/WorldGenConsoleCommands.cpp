@@ -201,7 +201,7 @@ static FAutoConsoleCommand WorldGenTestHeightfieldCommand(
 
 		int32 TileX = FCString::Atoi(*Args[0]);
 		int32 TileY = FCString::Atoi(*Args[1]);
-		uint64 Seed = Args.Num() > 2 ? FCString::Strtoui64(*Args[2], nullptr, 10) : 1337;
+		int32 Seed = Args.Num() > 2 ? FCString::Strtoui64(*Args[2], nullptr, 10) : 1337;
 
 		// Get world gen settings
 		UWorldGenSettings* Settings = UWorldGenSettings::GetWorldGenSettings();

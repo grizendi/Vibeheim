@@ -13,7 +13,7 @@ UClimateSystem::UClimateSystem()
 	Seed = 1337;
 }
 
-void UClimateSystem::Initialize(const FClimateSettings& InSettings, uint64 InSeed)
+void UClimateSystem::Initialize(const FClimateSettings& InSettings, int32 InSeed)
 {
 	Settings = InSettings;
 	Seed = InSeed;

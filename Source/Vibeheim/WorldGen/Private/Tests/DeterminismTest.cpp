@@ -46,7 +46,7 @@ bool FDeterminismTest::TestMultiRunDeterminism()
 
 	HeightfieldService->Initialize(Settings->Settings);
 
-	const uint64 TestSeed = 12345;
+	const int32 TestSeed = 12345;
 	const FTileCoord TestTile(5, 7);
 	const int32 NumRuns = 5;
 
@@ -120,7 +120,7 @@ bool FDeterminismTest::TestBorderSeamEquality()
 
 	HeightfieldService->Initialize(Settings->Settings);
 
-	const uint64 TestSeed = 67890;
+	const int32 TestSeed = 67890;
 	const FTileCoord CenterTile(10, 10);
 
 	// Generate center tile and all adjacent tiles
@@ -179,7 +179,7 @@ bool FDeterminismTest::TestChecksumStability()
 
 	HeightfieldService->Initialize(Settings->Settings);
 
-	const uint64 TestSeed = 11111;
+	const int32 TestSeed = 11111;
 	const FTileCoord TestTile(3, 8);
 
 	// Generate baseline heightfield and checksum
@@ -238,7 +238,7 @@ bool FDeterminismTest::TestNoiseDeterminism()
 		return false;
 	}
 
-	const uint64 TestSeed = 22222;
+	const int32 TestSeed = 22222;
 	NoiseSystem->Initialize(TestSeed);
 
 	FAdvancedNoiseSettings NoiseSettings;
@@ -308,7 +308,7 @@ bool FDeterminismTest::TestClimateDeterminism()
 		return false;
 	}
 
-	const uint64 TestSeed = 33333;
+	const int32 TestSeed = 33333;
 	FClimateSettings ClimateSettings;
 	ClimateSystem->Initialize(ClimateSettings, TestSeed);
 
@@ -360,38 +360,38 @@ bool FHashUtilsTest::RunTest(const FString& Parameters)
 {
 	// Test xxHash64 consistency
 	TArray<uint8> TestData = {'T', 'e', 's', 't', 'D', 'a', 't', 'a'};
-	uint64 Hash1 = UHashUtils::CalculateXXHash64(TestData, 0);
-	uint64 Hash2 = UHashUtils::CalculateXXHash64(TestData, 0);
+	int32 Hash1 = UHashUtils::CalculateXXHash64(TestData, 0);
+	int32 Hash2 = UHashUtils::CalculateXXHash64(TestData, 0);
 	
 	TestEqual("xxHash64 consistency", Hash1, Hash2);
 
 	// Test different seeds produce different hashes
-	uint64 Hash3 = UHashUtils::CalculateXXHash64(TestData, 12345);
+	int32 Hash3 = UHashUtils::CalculateXXHash64(TestData, 12345);
 	TestNotEqual("Different seeds produce different hashes", Hash1, Hash3);
 
 	// Test tile seed generation
 	FTileCoord TestTile(5, 10);
-	uint64 TileSeed1 = UHashUtils::GenerateTileSeed(1000, TestTile, 0);
-	uint64 TileSeed2 = UHashUtils::GenerateTileSeed(1000, TestTile, 0);
+	int32 TileSeed1 = UHashUtils::GenerateTileSeed(1000, TestTile, 0);
+	int32 TileSeed2 = UHashUtils::GenerateTileSeed(1000, TestTile, 0);
 	TestEqual("Tile seed consistency", TileSeed1, TileSeed2);
 
-	uint64 TileSeed3 = UHashUtils::GenerateTileSeed(1000, FTileCoord(5, 11), 0);
+	int32 TileSeed3 = UHashUtils::GenerateTileSeed(1000, FTileCoord(5, 11), 0);
 	TestNotEqual("Different tiles produce different seeds", TileSeed1, TileSeed3);
 
 	// Test PCG seed generation
-	uint64 PCGSeed1 = UHashUtils::GeneratePCGSeed(2000, TestTile, 1, 5);
-	uint64 PCGSeed2 = UHashUtils::GeneratePCGSeed(2000, TestTile, 1, 5);
+	int32 PCGSeed1 = UHashUtils::GeneratePCGSeed(2000, TestTile, 1, 5);
+	int32 PCGSeed2 = UHashUtils::GeneratePCGSeed(2000, TestTile, 1, 5);
 	TestEqual("PCG seed consistency", PCGSeed1, PCGSeed2);
 
-	uint64 PCGSeed3 = UHashUtils::GeneratePCGSeed(2000, TestTile, 2, 5);
+	int32 PCGSeed3 = UHashUtils::GeneratePCGSeed(2000, TestTile, 2, 5);
 	TestNotEqual("Different prototype IDs produce different PCG seeds", PCGSeed1, PCGSeed3);
 
 	// Test coordinate hashing
-	uint64 CoordHash1 = UHashUtils::HashCoordinates(10, 20, 0);
-	uint64 CoordHash2 = UHashUtils::HashCoordinates(10, 20, 0);
+	int32 CoordHash1 = UHashUtils::HashCoordinates(10, 20, 0);
+	int32 CoordHash2 = UHashUtils::HashCoordinates(10, 20, 0);
 	TestEqual("Coordinate hash consistency", CoordHash1, CoordHash2);
 
-	uint64 CoordHash3 = UHashUtils::HashCoordinates(10, 21, 0);
+	int32 CoordHash3 = UHashUtils::HashCoordinates(10, 21, 0);
 	TestNotEqual("Different coordinates produce different hashes", CoordHash1, CoordHash3);
 
 	return true;

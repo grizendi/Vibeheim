@@ -115,7 +115,7 @@ struct VIBEHEIM_API FWorldGenConfig
 
 	// Core generation parameters
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Generation")
-	uint64 Seed = 1337;
+	int32 Seed = 1337;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Generation")
 	int32 WorldGenVersion = 1;

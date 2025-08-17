@@ -106,7 +106,7 @@ bool UWorldGenSettings::ParseJSONObject(const TSharedPtr<FJsonObject>& JsonObjec
 	// Parse core generation settings
 	if (JsonObject->HasField(TEXT("Seed")))
 	{
-		Settings.Seed = static_cast<uint64>(JsonObject->GetNumberField(TEXT("Seed")));
+		Settings.Seed = static_cast<int32>(JsonObject->GetNumberField(TEXT("Seed")));
 	}
 	
 	if (JsonObject->HasField(TEXT("WorldGenVersion")))

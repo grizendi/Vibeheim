@@ -100,9 +100,9 @@ class UHeightfieldServiceInterface : public UInterface
  * Interface for heightfield generation and management services
  * Handles terrain height generation, modification, and rendering integration
  */
-class VIBEHEIM_API IHeightfieldService
+class VIBEHEIM_API IHeightfieldServiceInterface
 {
-	GENERATED_BODY()
+	GENERATED_IINTERFACE_BODY()
 
 public:
 	/**
@@ -113,7 +113,7 @@ public:
 	/**
 	 * Generate heightfield data for a specific tile
 	 */
-	virtual FHeightfieldData GenerateHeightfield(uint64 Seed, FTileCoord TileCoord) = 0;
+	virtual FHeightfieldData GenerateHeightfield(int32 Seed, FTileCoord TileCoord) = 0;
 
 	/**
 	 * Modify heightfield at a specific world location

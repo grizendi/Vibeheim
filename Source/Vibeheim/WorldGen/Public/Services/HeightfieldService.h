@@ -76,16 +76,16 @@ struct VIBEHEIM_API FHeightfieldGenerationSettings
  * Provides deterministic heightfield generation with noise and climate integration
  */
 UCLASS(BlueprintType)
-class VIBEHEIM_API UHeightfieldService : public UObject, public IHeightfieldService
+class VIBEHEIM_API UHeightfieldService : public UObject, public IHeightfieldServiceInterface
 {
 	GENERATED_BODY()
 
 public:
 	UHeightfieldService();
 
-	// IHeightfieldService interface
+	// IHeightfieldServiceInterface interface
 	virtual bool Initialize(const FWorldGenConfig& Settings) override;
-	virtual FHeightfieldData GenerateHeightfield(uint64 Seed, FTileCoord TileCoord) override;
+	virtual FHeightfieldData GenerateHeightfield(int32 Seed, FTileCoord TileCoord) override;
 	virtual bool ModifyHeightfield(FVector Location, float Radius, float Strength, EHeightfieldOperation Operation) override;
 	virtual float GetHeightAtLocation(FVector2D WorldPos) override;
 	virtual FVector GetNormalAtLocation(FVector2D WorldPos) override;
@@ -154,27 +154,27 @@ private:
 	/**
 	 * Generate base terrain height using noise
 	 */
-	float GenerateBaseHeight(FVector2D WorldPosition, uint64 Seed) const;
+	float GenerateBaseHeight(FVector2D WorldPosition, int32 Seed) const;
 
 	/**
 	 * Generate noise value with multiple octaves
 	 */
-	float GenerateOctaveNoise(FVector2D Position, const FNoiseSettings& Settings, uint64 Seed) const;
+	float GenerateOctaveNoise(FVector2D Position, const FNoiseSettings& Settings, int32 Seed) const;
 
 	/**
 	 * Generate single octave of noise
 	 */
-	float GenerateNoise(FVector2D Position, float Scale, uint64 Seed) const;
+	float GenerateNoise(FVector2D Position, float Scale, int32 Seed) const;
 
 	/**
 	 * Apply domain warping to position
 	 */
-	FVector2D ApplyDomainWarp(FVector2D Position, const FNoiseSettings& Settings, uint64 Seed) const;
+	FVector2D ApplyDomainWarp(FVector2D Position, const FNoiseSettings& Settings, int32 Seed) const;
 
 	/**
 	 * Hash function for deterministic noise
 	 */
-	uint32 HashPosition(FVector2D Position, uint64 Seed) const;
+	uint32 HashPosition(FVector2D Position, int32 Seed) const;
 
 	/**
 	 * Interpolate height between cached tiles

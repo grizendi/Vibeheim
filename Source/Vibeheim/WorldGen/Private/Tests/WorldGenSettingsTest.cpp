@@ -108,7 +108,7 @@ bool FWorldGenSettingsJSONTest::RunTest(const FString& Parameters)
 	TestTrue("Should be able to load settings from JSON", bLoaded);
 	
 	// Verify loaded values
-	TestEqual("Seed should be loaded correctly", Settings->Settings.Seed, static_cast<uint64>(12345));
+	TestEqual("Seed should be loaded correctly", Settings->Settings.Seed, static_cast<int32>(12345));
 	TestEqual("WorldGenVersion should be loaded correctly", Settings->Settings.WorldGenVersion, 2);
 	TestEqual("GenerateRadius should be loaded correctly", Settings->Settings.GenerateRadius, 7);
 	TestEqual("LoadRadius should be loaded correctly", Settings->Settings.LoadRadius, 4);
@@ -186,11 +186,11 @@ bool FWorldGenSettingsSingletonTest::RunTest(const FString& Parameters)
 	TestEqual("GetWorldGenSettings should return same instance", Settings1, Settings2);
 	
 	// Test that singleton persists changes
-	uint64 OriginalSeed = Settings1->Settings.Seed;
+	int32 OriginalSeed = Settings1->Settings.Seed;
 	Settings1->Settings.Seed = 99999;
 	
 	UWorldGenSettings* Settings3 = UWorldGenSettings::GetWorldGenSettings();
-	TestEqual("Singleton should persist changes", Settings3->Settings.Seed, static_cast<uint64>(99999));
+	TestEqual("Singleton should persist changes", Settings3->Settings.Seed, static_cast<int32>(99999));
 	
 	// Reset for other tests
 	Settings1->Settings.Seed = OriginalSeed;

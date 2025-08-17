@@ -8,7 +8,7 @@ UNoiseSystem::UNoiseSystem()
 	Seed = 1337;
 }
 
-void UNoiseSystem::Initialize(uint64 InSeed)
+void UNoiseSystem::Initialize(int32 InSeed)
 {
 	Seed = InSeed;
 	UE_LOG(LogNoiseSystem, Log, TEXT("Noise system initialized with seed %llu"), Seed);
@@ -62,6 +62,12 @@ float UNoiseSystem::GenerateSimpleNoise(FVector2D Position, float Scale, float A
 	Settings.Octaves = 1;
 
 	return GenerateNoise(Position, Settings);
+}
+
+float UNoiseSystem::GenerateSimpleNoise(FVector2D Position, float Scale, float Amplitude) const
+{
+	// Call the full version with default noise type 0 (Perlin)
+	return GenerateSimpleNoise(Position, Scale, Amplitude, 0);
 }
 
 float UNoiseSystem::GenerateOctaveNoise(FVector2D Position, const FAdvancedNoiseSettings& Settings) const

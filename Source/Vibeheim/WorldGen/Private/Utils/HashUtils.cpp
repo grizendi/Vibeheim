@@ -2,7 +2,32 @@
 #include "Services/IHeightfieldService.h"
 #include "Misc/DateTime.h"
 
-uint64 UHashUtils::CalculateXXHash64(const TArray<uint8>& Data, uint64 Seed)
+int32 UHashUtils::CalculateXXHash64(const TArray<uint8>& Data)
+{
+	return CalculateXXHash64(Data, 0);
+}
+
+int32 UHashUtils::CalculateFloatArrayHash(const TArray<float>& FloatData)
+{
+	return CalculateFloatArrayHash(FloatData, 0);
+}
+
+int32 UHashUtils::CalculateVectorArrayHash(const TArray<FVector>& VectorData)
+{
+	return CalculateVectorArrayHash(VectorData, 0);
+}
+
+int32 UHashUtils::GenerateTileSeed(int32 BaseSeed, FTileCoord TileCoord)
+{
+	return GenerateTileSeed(BaseSeed, TileCoord, 0);
+}
+
+int32 UHashUtils::HashCoordinates(int32 X, int32 Y)
+{
+	return HashCoordinates(X, Y, 0);
+}
+
+int32 UHashUtils::CalculateXXHash64(const TArray<uint8>& Data, int32 Seed)
 {
 	if (Data.Num() == 0)
 	{
@@ -11,7 +36,7 @@ uint64 UHashUtils::CalculateXXHash64(const TArray<uint8>& Data, uint64 Seed)
 	return XXHash64Internal(Data.GetData(), Data.Num(), Seed);
 }
 
-uint64 UHashUtils::CalculateFloatArrayHash(const TArray<float>& FloatData, uint64 Seed)
+int32 UHashUtils::CalculateFloatArrayHash(const TArray<float>& FloatData, int32 Seed)
 {
 	if (FloatData.Num() == 0)
 	{
@@ -20,7 +45,7 @@ uint64 UHashUtils::CalculateFloatArrayHash(const TArray<float>& FloatData, uint6
 	return XXHash64Internal(FloatData.GetData(), FloatData.Num() * sizeof(float), Seed);
 }
 
-uint64 UHashUtils::CalculateVectorArrayHash(const TArray<FVector>& VectorData, uint64 Seed)
+int32 UHashUtils::CalculateVectorArrayHash(const TArray<FVector>& VectorData, int32 Seed)
 {
 	if (VectorData.Num() == 0)
 	{
@@ -29,7 +54,7 @@ uint64 UHashUtils::CalculateVectorArrayHash(const TArray<FVector>& VectorData, u
 	return XXHash64Internal(VectorData.GetData(), VectorData.Num() * sizeof(FVector), Seed);
 }
 
-FTileChecksum UHashUtils::CalculateHeightfieldChecksum(const FHeightfieldData& HeightfieldData, uint64 GenerationSeed, int32 WorldGenVersion)
+FTileChecksum UHashUtils::CalculateHeightfieldChecksum(const FHeightfieldData& HeightfieldData, int32 GenerationSeed, int32 WorldGenVersion)
 {
 	FTileChecksum Checksum;
 	Checksum.TileCoord = HeightfieldData.TileCoord;
@@ -44,9 +69,9 @@ FTileChecksum UHashUtils::CalculateHeightfieldChecksum(const FHeightfieldData& H
 
 	// Calculate combined checksum including metadata
 	TArray<uint8> CombinedData;
-	CombinedData.Append(reinterpret_cast<const uint8*>(&Checksum.HeightDataChecksum), sizeof(uint64));
-	CombinedData.Append(reinterpret_cast<const uint8*>(&Checksum.NormalDataChecksum), sizeof(uint64));
-	CombinedData.Append(reinterpret_cast<const uint8*>(&Checksum.SlopeDataChecksum), sizeof(uint64));
+	CombinedData.Append(reinterpret_cast<const uint8*>(&Checksum.HeightDataChecksum), sizeof(int32));
+	CombinedData.Append(reinterpret_cast<const uint8*>(&Checksum.NormalDataChecksum), sizeof(int32));
+	CombinedData.Append(reinterpret_cast<const uint8*>(&Checksum.SlopeDataChecksum), sizeof(int32));
 	CombinedData.Append(reinterpret_cast<const uint8*>(&HeightfieldData.TileCoord.X), sizeof(int32));
 	CombinedData.Append(reinterpret_cast<const uint8*>(&HeightfieldData.TileCoord.Y), sizeof(int32));
 	CombinedData.Append(reinterpret_cast<const uint8*>(&HeightfieldData.Resolution), sizeof(int32));
@@ -75,11 +100,11 @@ bool UHashUtils::ValidateHeightfieldChecksum(const FHeightfieldData& Heightfield
 	return bValid;
 }
 
-uint64 UHashUtils::GenerateTileSeed(uint64 BaseSeed, FTileCoord TileCoord, uint32 LayerType)
+int32 UHashUtils::GenerateTileSeed(int32 BaseSeed, FTileCoord TileCoord, uint32 LayerType)
 {
 	// Combine base seed with tile coordinates and layer type
 	TArray<uint8> SeedData;
-	SeedData.Append(reinterpret_cast<const uint8*>(&BaseSeed), sizeof(uint64));
+	SeedData.Append(reinterpret_cast<const uint8*>(&BaseSeed), sizeof(int32));
 	SeedData.Append(reinterpret_cast<const uint8*>(&TileCoord.X), sizeof(int32));
 	SeedData.Append(reinterpret_cast<const uint8*>(&TileCoord.Y), sizeof(int32));
 	SeedData.Append(reinterpret_cast<const uint8*>(&LayerType), sizeof(uint32));
@@ -87,11 +112,11 @@ uint64 UHashUtils::GenerateTileSeed(uint64 BaseSeed, FTileCoord TileCoord, uint3
 	return CalculateXXHash64(SeedData, BaseSeed);
 }
 
-uint64 UHashUtils::GeneratePCGSeed(uint64 BaseSeed, FTileCoord TileCoord, int32 PrototypeId, int32 Index)
+int32 UHashUtils::GeneratePCGSeed(int32 BaseSeed, FTileCoord TileCoord, int32 PrototypeId, int32 Index)
 {
 	// Generate deterministic seed for PCG content: (Seed, TileCoord, PrototypeId, Index) → PCG seed
 	TArray<uint8> SeedData;
-	SeedData.Append(reinterpret_cast<const uint8*>(&BaseSeed), sizeof(uint64));
+	SeedData.Append(reinterpret_cast<const uint8*>(&BaseSeed), sizeof(int32));
 	SeedData.Append(reinterpret_cast<const uint8*>(&TileCoord.X), sizeof(int32));
 	SeedData.Append(reinterpret_cast<const uint8*>(&TileCoord.Y), sizeof(int32));
 	SeedData.Append(reinterpret_cast<const uint8*>(&PrototypeId), sizeof(int32));
@@ -100,7 +125,7 @@ uint64 UHashUtils::GeneratePCGSeed(uint64 BaseSeed, FTileCoord TileCoord, int32 
 	return CalculateXXHash64(SeedData, BaseSeed);
 }
 
-uint64 UHashUtils::HashCoordinates(int32 X, int32 Y, uint64 Seed)
+int32 UHashUtils::HashCoordinates(int32 X, int32 Y, int32 Seed)
 {
 	TArray<uint8> CoordData;
 	CoordData.Append(reinterpret_cast<const uint8*>(&X), sizeof(int32));
@@ -187,30 +212,30 @@ bool UHashUtils::ValidateTileBorderSeam(const FHeightfieldData& Tile1, const FHe
 	return false;
 }
 
-uint64 UHashUtils::XXHash64Internal(const void* Data, size_t Length, uint64 Seed)
+int32 UHashUtils::XXHash64Internal(const void* Data, size_t Length, int32 Seed)
 {
 	const uint8* ByteData = static_cast<const uint8*>(Data);
-	uint64 Hash;
+	int32 Hash;
 
 	if (Length >= 32)
 	{
 		const uint8* const End = ByteData + Length;
 		const uint8* const Limit = End - 32;
 
-		uint64 V1 = Seed + PRIME64_1 + PRIME64_2;
-		uint64 V2 = Seed + PRIME64_2;
-		uint64 V3 = Seed + 0;
-		uint64 V4 = Seed - PRIME64_1;
+		int32 V1 = Seed + PRIME64_1 + PRIME64_2;
+		int32 V2 = Seed + PRIME64_2;
+		int32 V3 = Seed + 0;
+		int32 V4 = Seed - PRIME64_1;
 
 		do
 		{
-			V1 = RotateLeft64(V1 + (*reinterpret_cast<const uint64*>(ByteData) * PRIME64_2), 31) * PRIME64_1;
+			V1 = RotateLeft64(V1 + (*reinterpret_cast<const int32*>(ByteData) * PRIME64_2), 31) * PRIME64_1;
 			ByteData += 8;
-			V2 = RotateLeft64(V2 + (*reinterpret_cast<const uint64*>(ByteData) * PRIME64_2), 31) * PRIME64_1;
+			V2 = RotateLeft64(V2 + (*reinterpret_cast<const int32*>(ByteData) * PRIME64_2), 31) * PRIME64_1;
 			ByteData += 8;
-			V3 = RotateLeft64(V3 + (*reinterpret_cast<const uint64*>(ByteData) * PRIME64_2), 31) * PRIME64_1;
+			V3 = RotateLeft64(V3 + (*reinterpret_cast<const int32*>(ByteData) * PRIME64_2), 31) * PRIME64_1;
 			ByteData += 8;
-			V4 = RotateLeft64(V4 + (*reinterpret_cast<const uint64*>(ByteData) * PRIME64_2), 31) * PRIME64_1;
+			V4 = RotateLeft64(V4 + (*reinterpret_cast<const int32*>(ByteData) * PRIME64_2), 31) * PRIME64_1;
 			ByteData += 8;
 		} while (ByteData <= Limit);
 
@@ -226,12 +251,12 @@ uint64 UHashUtils::XXHash64Internal(const void* Data, size_t Length, uint64 Seed
 		Hash = Seed + PRIME64_5;
 	}
 
-	Hash += static_cast<uint64>(Length);
+	Hash += static_cast<int32>(Length);
 
 	const uint8* const End = ByteData + (Length & 31);
 	while (ByteData + 8 <= End)
 	{
-		uint64 K1 = *reinterpret_cast<const uint64*>(ByteData);
+		int32 K1 = *reinterpret_cast<const int32*>(ByteData);
 		K1 *= PRIME64_2;
 		K1 = RotateLeft64(K1, 31);
 		K1 *= PRIME64_1;
@@ -242,7 +267,7 @@ uint64 UHashUtils::XXHash64Internal(const void* Data, size_t Length, uint64 Seed
 
 	if (ByteData + 4 <= End)
 	{
-		Hash ^= static_cast<uint64>(*reinterpret_cast<const uint32*>(ByteData)) * PRIME64_1;
+		Hash ^= static_cast<int32>(*reinterpret_cast<const uint32*>(ByteData)) * PRIME64_1;
 		Hash = RotateLeft64(Hash, 23) * PRIME64_2 + PRIME64_3;
 		ByteData += 4;
 	}

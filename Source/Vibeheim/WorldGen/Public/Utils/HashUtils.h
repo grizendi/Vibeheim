@@ -16,19 +16,19 @@ struct VIBEHEIM_API FTileChecksum
 	FTileCoord TileCoord;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Checksum")
-	uint64 HeightDataChecksum = 0;
+	int32 HeightDataChecksum = 0;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Checksum")
-	uint64 NormalDataChecksum = 0;
+	int32 NormalDataChecksum = 0;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Checksum")
-	uint64 SlopeDataChecksum = 0;
+	int32 SlopeDataChecksum = 0;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Checksum")
-	uint64 CombinedChecksum = 0;
+	int32 CombinedChecksum = 0;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Checksum")
-	uint64 GenerationSeed = 0;
+	int32 GenerationSeed = 0;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Checksum")
 	int32 WorldGenVersion = 1;
@@ -76,25 +76,25 @@ public:
 	 * Calculate xxHash64 for a byte array
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Hash")
-	static uint64 CalculateXXHash64(const TArray<uint8>& Data, uint64 Seed = 0);
+	static int32 CalculateXXHash64(const TArray<uint8>& Data, int32 Seed);
 
 	/**
 	 * Calculate xxHash64 for float array (heightfield data)
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Hash")
-	static uint64 CalculateFloatArrayHash(const TArray<float>& FloatData, uint64 Seed = 0);
+	static int32 CalculateFloatArrayHash(const TArray<float>& FloatData, int32 Seed);
 
 	/**
 	 * Calculate xxHash64 for vector array (normal data)
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Hash")
-	static uint64 CalculateVectorArrayHash(const TArray<FVector>& VectorData, uint64 Seed = 0);
-
+	static int32 CalculateVectorArrayHash(const TArray<FVector>& VectorData, int32 Seed);
+	
 	/**
 	 * Calculate checksum for heightfield data
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Hash")
-	static FTileChecksum CalculateHeightfieldChecksum(const struct FHeightfieldData& HeightfieldData, uint64 GenerationSeed, int32 WorldGenVersion);
+	static FTileChecksum CalculateHeightfieldChecksum(const struct FHeightfieldData& HeightfieldData, int32 GenerationSeed, int32 WorldGenVersion);
 
 	/**
 	 * Validate heightfield checksum integrity
@@ -106,19 +106,19 @@ public:
 	 * Generate deterministic seed for tile coordinate
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Hash")
-	static uint64 GenerateTileSeed(uint64 BaseSeed, FTileCoord TileCoord, uint32 LayerType = 0);
-
+	static int32 GenerateTileSeed(int32 BaseSeed, FTileCoord TileCoord, int32 LayerType);
+	
 	/**
 	 * Generate deterministic seed for PCG content
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Hash")
-	static uint64 GeneratePCGSeed(uint64 BaseSeed, FTileCoord TileCoord, int32 PrototypeId, int32 Index);
+	static int32 GeneratePCGSeed(int32 BaseSeed, FTileCoord TileCoord, int32 PrototypeId, int32 Index);
 
 	/**
 	 * Hash two 32-bit integers into single 64-bit hash
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Hash")
-	static uint64 HashCoordinates(int32 X, int32 Y, uint64 Seed = 0);
+	static int32 HashCoordinates(int32 X, int32 Y, int32 Seed);
 
 	/**
 	 * Fast hash for coordinates (for use in tight loops)
@@ -145,21 +145,21 @@ private:
 	/**
 	 * Internal xxHash64 implementation
 	 */
-	static uint64 XXHash64Internal(const void* Data, size_t Length, uint64 Seed);
+	static int32 XXHash64Internal(const void* Data, size_t Length, int32 Seed);
 
 	/**
 	 * xxHash64 constants
 	 */
-	static constexpr uint64 PRIME64_1 = 0x9E3779B185EBCA87ULL;
-	static constexpr uint64 PRIME64_2 = 0xC2B2AE3D27D4EB4FULL;
-	static constexpr uint64 PRIME64_3 = 0x165667B19E3779F9ULL;
-	static constexpr uint64 PRIME64_4 = 0x85EBCA77C2B2AE63ULL;
-	static constexpr uint64 PRIME64_5 = 0x27D4EB2F165667C5ULL;
+	static constexpr int32 PRIME64_1 = 0x9E3779B185EBCA87ULL;
+	static constexpr int32 PRIME64_2 = 0xC2B2AE3D27D4EB4FULL;
+	static constexpr int32 PRIME64_3 = 0x165667B19E3779F9ULL;
+	static constexpr int32 PRIME64_4 = 0x85EBCA77C2B2AE63ULL;
+	static constexpr int32 PRIME64_5 = 0x27D4EB2F165667C5ULL;
 
 	/**
 	 * Rotate left operation for xxHash64
 	 */
-	static FORCEINLINE uint64 RotateLeft64(uint64 Value, int32 Amount)
+	static FORCEINLINE int32 RotateLeft64(int32 Value, int32 Amount)
 	{
 		return (Value << Amount) | (Value >> (64 - Amount));
 	}

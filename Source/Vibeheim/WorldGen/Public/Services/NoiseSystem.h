@@ -97,7 +97,7 @@ public:
 	 * Initialize the noise system with a seed
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Noise")
-	void Initialize(uint64 InSeed);
+	void Initialize(int32 InSeed);
 
 	/**
 	 * Generate noise value at a specific position
@@ -109,8 +109,8 @@ public:
 	 * Generate noise with simple settings (backward compatibility)
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Noise")
-	float GenerateSimpleNoise(FVector2D Position, float Scale, float Amplitude, uint32 NoiseTypeIndex = 0) const;
-
+	float GenerateSimpleNoise(FVector2D Position, float Scale, float Amplitude, int32 NoiseTypeIndex) const;
+	
 	/**
 	 * Generate octave noise (multiple layers)
 	 */
@@ -133,11 +133,11 @@ public:
 	 * Get the current seed
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Noise")
-	uint64 GetSeed() const { return Seed; }
+	int32 GetSeed() const { return Seed; }
 
 private:
 	UPROPERTY()
-	uint64 Seed;
+	int32 Seed;
 
 	/**
 	 * Generate Perlin noise

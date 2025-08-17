@@ -43,9 +43,9 @@ class UPCGWorldServiceInterface : public UInterface
  * Interface for PCG-based world content generation
  * Handles biome-specific content, POI placement, and HISM management
  */
-class VIBEHEIM_API IPCGWorldService
+class VIBEHEIM_API IPCGWorldServiceInterface
 {
-	GENERATED_BODY()
+	GENERATED_IINTERFACE_BODY()
 
 public:
 	/**

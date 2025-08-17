@@ -22,7 +22,7 @@ bool FBasicSystemTest::RunTest(const FString& Parameters)
 	if (NoiseSystem)
 	{
 		NoiseSystem->Initialize(1337);
-		TestEqual("NoiseSystem seed should be set", NoiseSystem->GetSeed(), static_cast<uint64>(1337));
+		TestEqual("NoiseSystem seed should be set", NoiseSystem->GetSeed(), static_cast<int32>(1337));
 		
 		// Test basic noise generation
 		FAdvancedNoiseSettings NoiseSettings;
