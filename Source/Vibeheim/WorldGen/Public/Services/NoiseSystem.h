@@ -108,8 +108,8 @@ public:
 	/**
 	 * Generate noise with simple settings (backward compatibility)
 	 */
-	UFUNCTION(BlueprintCallable, Category = "Noise")
-	float GenerateSimpleNoise(FVector2D Position, float Scale, float Amplitude, uint32 NoiseTypeIndex = 0) const;
+        UFUNCTION(BlueprintCallable, Category = "Noise")
+        float GenerateSimpleNoise(FVector2D Position, float Scale, float Amplitude, ENoiseType NoiseType = ENoiseType::Perlin) const;
 
 	/**
 	 * Generate octave noise (multiple layers)

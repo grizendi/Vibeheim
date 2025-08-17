@@ -15,14 +15,14 @@ class UHierarchicalInstancedStaticMeshComponent;
  * Handles PCG-based content generation with fallback for non-PCG builds
  */
 UCLASS(BlueprintType)
-class VIBEHEIM_API UPCGWorldService : public UObject, public IPCGWorldService
+class VIBEHEIM_API UPCGWorldService : public UObject, public IPCGWorldServiceInterface
 {
 	GENERATED_BODY()
 
 public:
 	UPCGWorldService();
 
-	// IPCGWorldService interface
+        // IPCGWorldServiceInterface
 	virtual bool Initialize(const FWorldGenConfig& Settings) override;
 
 	virtual bool InitializePCGGraph(UObject* BiomeGraph) override;

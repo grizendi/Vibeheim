@@ -93,16 +93,16 @@ struct VIBEHEIM_API FHeightfieldData
 UINTERFACE(MinimalAPI, Blueprintable)
 class UHeightfieldServiceInterface : public UInterface
 {
-	GENERATED_BODY()
+        GENERATED_BODY()
 };
 
 /**
  * Interface for heightfield generation and management services
  * Handles terrain height generation, modification, and rendering integration
  */
-class VIBEHEIM_API IHeightfieldService
+class VIBEHEIM_API IHeightfieldServiceInterface
 {
-	GENERATED_BODY()
+        GENERATED_BODY()
 
 public:
 	/**
@@ -183,5 +183,5 @@ public:
 	/**
 	 * Get performance statistics for heightfield generation
 	 */
-	virtual void GetPerformanceStats(float& OutAverageGenerationTimeMs, int32& OutCachedTiles) = 0;
+        virtual void GetPerformanceStats(float& OutAverageGenerationTimeMs, int32& OutCachedTiles) = 0;
 };
