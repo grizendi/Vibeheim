@@ -76,14 +76,14 @@ struct VIBEHEIM_API FHeightfieldGenerationSettings
  * Provides deterministic heightfield generation with noise and climate integration
  */
 UCLASS(BlueprintType)
-class VIBEHEIM_API UHeightfieldService : public UObject, public IHeightfieldService
+class VIBEHEIM_API UHeightfieldService : public UObject, public IHeightfieldServiceInterface
 {
 	GENERATED_BODY()
 
 public:
 	UHeightfieldService();
 
-	// IHeightfieldService interface
+        // IHeightfieldServiceInterface
 	virtual bool Initialize(const FWorldGenConfig& Settings) override;
 	virtual FHeightfieldData GenerateHeightfield(uint64 Seed, FTileCoord TileCoord) override;
 	virtual bool ModifyHeightfield(FVector Location, float Radius, float Strength, EHeightfieldOperation Operation) override;

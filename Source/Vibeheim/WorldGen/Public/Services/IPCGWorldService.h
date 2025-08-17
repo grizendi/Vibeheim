@@ -36,16 +36,16 @@ struct VIBEHEIM_API FPCGGenerationData
 UINTERFACE(MinimalAPI, Blueprintable)
 class UPCGWorldServiceInterface : public UInterface
 {
-	GENERATED_BODY()
+        GENERATED_BODY()
 };
 
 /**
  * Interface for PCG-based world content generation
  * Handles biome-specific content, POI placement, and HISM management
  */
-class VIBEHEIM_API IPCGWorldService
+class VIBEHEIM_API IPCGWorldServiceInterface
 {
-	GENERATED_BODY()
+        GENERATED_BODY()
 
 public:
 	/**
@@ -96,5 +96,5 @@ public:
 	/**
 	 * Validate PCG graph compatibility
 	 */
-	virtual bool ValidatePCGGraph(const FString& GraphPath, TArray<FString>& OutErrors) = 0;
+        virtual bool ValidatePCGGraph(const FString& GraphPath, TArray<FString>& OutErrors) = 0;
 };
