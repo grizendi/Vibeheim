@@ -2,27 +2,27 @@
 #include "Services/IHeightfieldService.h"
 #include "Misc/DateTime.h"
 
-int32 UHashUtils::CalculateXXHash64(const TArray<uint8>& Data)
+int32 UHashUtils::CalculateXXHash64(const TArray<uint8>& Data, int32 Seed)
 {
 	return CalculateXXHash64(Data, 0);
 }
 
-int32 UHashUtils::CalculateFloatArrayHash(const TArray<float>& FloatData)
+int32 UHashUtils::CalculateFloatArrayHash(const TArray<float>& FloatData, int32 Seed)
 {
 	return CalculateFloatArrayHash(FloatData, 0);
 }
 
-int32 UHashUtils::CalculateVectorArrayHash(const TArray<FVector>& VectorData)
+int32 UHashUtils::CalculateVectorArrayHash(const TArray<FVector>& VectorData, int32 Seed)
 {
 	return CalculateVectorArrayHash(VectorData, 0);
 }
 
-int32 UHashUtils::GenerateTileSeed(int32 BaseSeed, FTileCoord TileCoord)
+int32 UHashUtils::GenerateTileSeed(int32 BaseSeed, FTileCoord TileCoord, int32 LayerType)
 {
 	return GenerateTileSeed(BaseSeed, TileCoord, 0);
 }
 
-int32 UHashUtils::HashCoordinates(int32 X, int32 Y)
+int32 UHashUtils::HashCoordinates(int32 X, int32 Y, int32 Seed)
 {
 	return HashCoordinates(X, Y, 0);
 }
@@ -100,7 +100,7 @@ bool UHashUtils::ValidateHeightfieldChecksum(const FHeightfieldData& Heightfield
 	return bValid;
 }
 
-int32 UHashUtils::GenerateTileSeed(int32 BaseSeed, FTileCoord TileCoord, uint32 LayerType)
+int32 UHashUtils::GenerateTileSeed(int32 BaseSeed, FTileCoord TileCoord, int32 LayerType)
 {
 	// Combine base seed with tile coordinates and layer type
 	TArray<uint8> SeedData;

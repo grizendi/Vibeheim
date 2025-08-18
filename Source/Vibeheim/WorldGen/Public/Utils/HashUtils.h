@@ -102,6 +102,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Hash")
 	static bool ValidateHeightfieldChecksum(const struct FHeightfieldData& HeightfieldData, const FTileChecksum& ExpectedChecksum);
 
+
 	/**
 	 * Generate deterministic seed for tile coordinate
 	 */

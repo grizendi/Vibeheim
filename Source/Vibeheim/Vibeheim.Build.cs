@@ -1,5 +1,6 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
+using System.IO;
 using UnrealBuildTool;
 
 public class Vibeheim : ModuleRules
@@ -34,8 +35,12 @@ public class Vibeheim : ModuleRules
 			"JsonUtilities"
 		});
 
-		// Add AutomationTest module only in development builds
-		if (Target.Configuration != UnrealTargetConfiguration.Shipping)
+        // Make nested WorldGen folders visible as include roots:
+        PublicIncludePaths.Add(Path.Combine(ModuleDirectory, "WorldGen", "Public"));
+        PrivateIncludePaths.Add(Path.Combine(ModuleDirectory, "WorldGen", "Private"));
+
+        // Add AutomationTest module only in development builds
+        if (Target.Configuration != UnrealTargetConfiguration.Shipping)
 		{
 			PrivateDependencyModuleNames.Add("AutomationTest");
 		}

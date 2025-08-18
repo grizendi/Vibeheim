@@ -109,6 +109,7 @@ public:
 	 * Generate noise with simple settings (backward compatibility)
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Noise")
+	float GenerateSimpleNoise(FVector2D Position, float Scale, float Amplitude) const;
 	float GenerateSimpleNoise(FVector2D Position, float Scale, float Amplitude, int32 NoiseTypeIndex) const;
 	
 	/**

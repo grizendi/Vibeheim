@@ -53,10 +53,10 @@ float UNoiseSystem::GenerateNoise(FVector2D Position, const FAdvancedNoiseSettin
 	return NoiseValue * Settings.Amplitude;
 }
 
-float UNoiseSystem::GenerateSimpleNoise(FVector2D Position, float Scale, float Amplitude, uint32 NoiseTypeIndex) const
+float UNoiseSystem::GenerateSimpleNoise(FVector2D Position, float Scale, float Amplitude, int32 NoiseTypeIndex) const
 {
 	FAdvancedNoiseSettings Settings;
-	Settings.NoiseType = static_cast<ENoiseType>(FMath::Clamp(NoiseTypeIndex, 0u, static_cast<uint32>(ENoiseType::MAX) - 1));
+	Settings.NoiseType = static_cast<ENoiseType>(FMath::Clamp(NoiseTypeIndex, 0u, static_cast<int32>(ENoiseType::MAX) - 1));
 	Settings.Scale = Scale;
 	Settings.Amplitude = Amplitude;
 	Settings.Octaves = 1;
