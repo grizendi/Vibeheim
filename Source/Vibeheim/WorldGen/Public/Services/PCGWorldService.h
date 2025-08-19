@@ -13,6 +13,7 @@ class UStaticMeshComponent;
 class UHierarchicalInstancedStaticMeshComponent;
 class AActor;
 class UPCGGraph;
+class UInstancePersistenceManager;
 
 /**
  * Wrapper struct for HISM components to make it compatible with TMap
@@ -71,6 +72,42 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "PCG")
 	void SetBiomeDefinitions(const TMap<EBiomeType, FBiomeDefinition>& InBiomeDefinitions);
 
+	/**
+	 * Set instance persistence manager for saving/loading modifications
+	 */
+	UFUNCTION(BlueprintCallable, Category = "PCG")
+	void SetPersistenceManager(UInstancePersistenceManager* InPersistenceManager);
+
+	/**
+	 * Remove specific instance and persist the change
+	 */
+	UFUNCTION(BlueprintCallable, Category = "PCG")
+	bool RemoveInstance(FTileCoord TileCoord, FGuid InstanceId);
+
+	/**
+	 * Add new instance and persist the change
+	 */
+	UFUNCTION(BlueprintCallable, Category = "PCG")
+	bool AddInstance(FTileCoord TileCoord, const FPCGInstanceData& InstanceData);
+
+	/**
+	 * Remove specific POI and persist the change
+	 */
+	UFUNCTION(BlueprintCallable, Category = "PCG")
+	bool RemovePOI(FGuid POIId);
+
+	/**
+	 * Add new POI and persist the change
+	 */
+	UFUNCTION(BlueprintCallable, Category = "PCG")
+	bool AddPOI(const FPOIData& POIData);
+
+	/**
+	 * Load tile with persistence reconciliation
+	 */
+	UFUNCTION(BlueprintCallable, Category = "PCG")
+	bool LoadTileWithPersistence(FTileCoord TileCoord, EBiomeType BiomeType, const TArray<float>& HeightData);
+
 private:
 	UPROPERTY()
 	FWorldGenConfig WorldGenSettings;
@@ -112,6 +149,10 @@ private:
 
 	UPROPERTY()
 	TMap<EBiomeType, TObjectPtr<UObject>> BiomePCGComponents; // UPCGComponent* when WITH_PCG is available
+
+	// Instance persistence manager
+	UPROPERTY()
+	TObjectPtr<UInstancePersistenceManager> PersistenceManager;
 
 	/**
 	 * Generate content using PCG if available, otherwise use fallback

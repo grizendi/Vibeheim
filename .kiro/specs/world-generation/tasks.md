@@ -78,20 +78,25 @@
   - _Requirements: 2.1, 2.2, 2.3, 2.4_
   - _Status: Full biome system implemented with JSON configuration, climate integration, and debug tools_
 
-- [ ] 6. Create PCG-based vegetation and content system
-  - Set up PCG graphs per biome spawning trees/rocks/plants via HISM for performance
-  - Create deterministic seeding adapter: (Seed, TileCoord, PrototypeId, Index) → PCG seed
-  - Implement runtime PCG with partitioned grids aligned to tile size
-  - Add add/remove operations for gameplay (fell trees, mine rocks)
-  - Create multi-scale PCG partitioning for different content types
+- [x] 6. Create PCG-based vegetation and content system (COMPLETED)
+  - ✅ Set up PCG graphs per biome spawning trees/rocks/plants via HISM for performance
+  - ✅ Create deterministic seeding adapter: (Seed, TileCoord, PrototypeId, Index) → PCG seed
+  - ✅ Implement runtime PCG with partitioned grids aligned to tile size
+  - ✅ Add add/remove operations for gameplay (fell trees, mine rocks)
+  - ✅ Create multi-scale PCG partitioning for different content types
+  - ✅ Full integration with WorldGenManager and streaming systems
+  - ✅ Comprehensive debug commands and performance monitoring
+  - ✅ Fallback generation system when PCG Framework is unavailable
   - _Requirements: 3.1, 3.2, 3.5_
+  - _Status: Full PCG system implemented with HISM optimization, deterministic seeding, runtime operations, and complete debug tooling_
 
-- [ ] 6.5. Implement instance and POI persistence
-  - Create per-tile .inst file: instance GUID add/remove journal with compression
-  - Persist spawned POIs, destroyed foliage, placed structures/loot
-  - Implement replay journal after terrain/delta load with PCG spawn reconciliation
-  - Add efficient instance tracking and modification systems
+- [x] 6.5. Implement instance and POI persistence
+  - ✅ Create per-tile .inst file: instance GUID add/remove journal with compression
+  - ✅ Persist spawned POIs, destroyed foliage, placed structures/loot
+  - ✅ Implement replay journal after terrain/delta load with PCG spawn reconciliation
+  - ✅ Add efficient instance tracking and modification systems
   - _Requirements: 5.3_
+  - _Status: Complete instance persistence system implemented with journal-based tracking, POI persistence, file I/O operations, and comprehensive testing_
 
 - [ ] 7. Implement hybrid streaming system
   - Set up World Partition for authored content only (towns, dungeons, vistas)
@@ -184,8 +189,8 @@
   - Verify edits, persistence, navmesh, and replication under stress
   - Test complete integration with performance targets and error handling
   - _Requirements: 2.3, 3.4, 5.1, 5.4_
-## Perfor
-mance Guardrails
+
+## Performance Guardrails
 
 These values should be locked in WorldGenSettings.json:
 

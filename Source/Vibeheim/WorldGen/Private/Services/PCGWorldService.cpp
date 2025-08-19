@@ -7,6 +7,7 @@
 #include "Misc/DateTime.h"
 #include "GameFramework/Actor.h"
 #include "UObject/ConstructorHelpers.h"
+#include "Data/InstancePersistence.h"
 
 // PCG includes (conditional)
 #if WITH_PCG
@@ -556,6 +557,190 @@ void UPCGWorldService::SetBiomeDefinitions(const TMap<EBiomeType, FBiomeDefiniti
 {
 	BiomeDefinitions = InBiomeDefinitions;
 	UE_LOG(LogPCGWorldService, Log, TEXT("Updated biome definitions with %d biomes"), BiomeDefinitions.Num());
+}
+
+void UPCGWorldService::SetPersistenceManager(UInstancePersistenceManager* InPersistenceManager)
+{
+	PersistenceManager = InPersistenceManager;
+	UE_LOG(LogPCGWorldService, Log, TEXT("Instance persistence manager set: %s"), 
+		PersistenceManager ? TEXT("Valid") : TEXT("Null"));
+}
+
+bool UPCGWorldService::RemoveInstance(FTileCoord TileCoord, FGuid InstanceId)
+{
+	// Find the instance in the generation cache
+	FPCGGenerationData* GenerationData = GenerationCache.Find(TileCoord);
+	if (!GenerationData)
+	{
+		UE_LOG(LogPCGWorldService, Warning, TEXT("No generation data found for tile (%d, %d) when removing instance"), TileCoord.X, TileCoord.Y);
+		return false;
+	}
+
+	// Find and remove the instance
+	bool bFoundInstance = false;
+	FPCGInstanceData RemovedInstance;
+	for (int32 i = GenerationData->GeneratedInstances.Num() - 1; i >= 0; i--)
+	{
+		if (GenerationData->GeneratedInstances[i].InstanceId == InstanceId)
+		{
+			RemovedInstance = GenerationData->GeneratedInstances[i];
+			GenerationData->GeneratedInstances.RemoveAt(i);
+			GenerationData->TotalInstanceCount = GenerationData->GeneratedInstances.Num();
+			bFoundInstance = true;
+			break;
+		}
+	}
+
+	if (!bFoundInstance)
+	{
+		UE_LOG(LogPCGWorldService, Warning, TEXT("Instance %s not found in tile (%d, %d)"), *InstanceId.ToString(), TileCoord.X, TileCoord.Y);
+		return false;
+	}
+
+	// Log the removal to persistence manager if available
+	if (PersistenceManager)
+	{
+		PersistenceManager->AddInstanceOperation(TileCoord, RemovedInstance, EInstanceOperation::Remove);
+	}
+
+	// Update HISM instances to reflect the change
+	UpdateHISMInstances(TileCoord);
+
+	UE_LOG(LogPCGWorldService, Log, TEXT("Removed instance %s from tile (%d, %d)"), *InstanceId.ToString(), TileCoord.X, TileCoord.Y);
+	return true;
+}
+
+bool UPCGWorldService::AddInstance(FTileCoord TileCoord, const FPCGInstanceData& InstanceData)
+{
+	// Get or create generation data for the tile
+	FPCGGenerationData* GenerationData = GenerationCache.Find(TileCoord);
+	if (!GenerationData)
+	{
+		// Create new generation data for this tile
+		FPCGGenerationData NewGenerationData;
+		NewGenerationData.TileCoord = TileCoord;
+		NewGenerationData.BiomeType = EBiomeType::None; // Will be set by proper generation
+		GenerationCache.Add(TileCoord, NewGenerationData);
+		GenerationData = GenerationCache.Find(TileCoord);
+	}
+
+	// Add the instance
+	FPCGInstanceData NewInstance = InstanceData;
+	NewInstance.OwningTile = TileCoord;
+	NewInstance.bIsActive = true;
+
+	GenerationData->GeneratedInstances.Add(NewInstance);
+	GenerationData->TotalInstanceCount = GenerationData->GeneratedInstances.Num();
+
+	// Log the addition to persistence manager if available
+	if (PersistenceManager)
+	{
+		PersistenceManager->AddInstanceOperation(TileCoord, NewInstance, EInstanceOperation::Add);
+	}
+
+	// Update HISM instances to reflect the change
+	UpdateHISMInstances(TileCoord);
+
+	UE_LOG(LogPCGWorldService, Log, TEXT("Added instance %s to tile (%d, %d)"), *NewInstance.InstanceId.ToString(), TileCoord.X, TileCoord.Y);
+	return true;
+}
+
+bool UPCGWorldService::RemovePOI(FGuid POIId)
+{
+	// Find POI in spawned POIs
+	FPOIData* POIData = SpawnedPOIs.Find(POIId);
+	if (!POIData)
+	{
+		UE_LOG(LogPCGWorldService, Warning, TEXT("POI %s not found in spawned POIs"), *POIId.ToString());
+		return false;
+	}
+
+	// Get the tile coordinate for persistence logging
+	FTileCoord TileCoord = FTileCoord::FromWorldPosition(POIData->Location, 64.0f);
+
+	// Destroy the spawned actor if it exists
+	if (AActor** SpawnedActor = SpawnedPOIActors.Find(POIId))
+	{
+		if (IsValid(*SpawnedActor))
+		{
+			(*SpawnedActor)->Destroy();
+		}
+		SpawnedPOIActors.Remove(POIId);
+	}
+
+	// Log the removal to persistence manager if available
+	if (PersistenceManager)
+	{
+		PersistenceManager->AddPOIOperation(TileCoord, *POIData, EInstanceOperation::Remove);
+	}
+
+	// Remove from spawned POIs map
+	SpawnedPOIs.Remove(POIId);
+
+	UE_LOG(LogPCGWorldService, Log, TEXT("Removed POI %s (%s)"), *POIId.ToString(), *POIData->POIName);
+	return true;
+}
+
+bool UPCGWorldService::AddPOI(const FPOIData& POIData)
+{
+	// Get the tile coordinate for persistence logging
+	FTileCoord TileCoord = FTileCoord::FromWorldPosition(POIData.Location, 64.0f);
+
+	// Add to spawned POIs map
+	SpawnedPOIs.Add(POIData.POIId, POIData);
+
+	// Actually spawn the POI
+	bool bSpawned = SpawnPOI(POIData.Location, POIData);
+	if (!bSpawned)
+	{
+		// Remove from map if spawning failed
+		SpawnedPOIs.Remove(POIData.POIId);
+		return false;
+	}
+
+	// Log the addition to persistence manager if available
+	if (PersistenceManager)
+	{
+		PersistenceManager->AddPOIOperation(TileCoord, POIData, EInstanceOperation::Add);
+	}
+
+	UE_LOG(LogPCGWorldService, Log, TEXT("Added POI %s (%s) at (%.1f, %.1f, %.1f)"), 
+		*POIData.POIId.ToString(), *POIData.POIName, POIData.Location.X, POIData.Location.Y, POIData.Location.Z);
+	return true;
+}
+
+bool UPCGWorldService::LoadTileWithPersistence(FTileCoord TileCoord, EBiomeType BiomeType, const TArray<float>& HeightData)
+{
+	// First generate the base content
+	FPCGGenerationData GenerationData = GenerateContentInternal(TileCoord, BiomeType, HeightData);
+	
+	// Cache the base generation
+	GenerationCache.Add(TileCoord, GenerationData);
+
+	// Apply persistence modifications if persistence manager is available
+	if (PersistenceManager)
+	{
+		// Load tile journal from disk if it exists
+		if (!PersistenceManager->LoadTileJournal(TileCoord))
+		{
+			UE_LOG(LogPCGWorldService, Warning, TEXT("Failed to load persistence journal for tile (%d, %d)"), TileCoord.X, TileCoord.Y);
+		}
+
+		// Replay the journal to apply persistent modifications
+		if (!PersistenceManager->ReplayTileJournal(TileCoord, this))
+		{
+			UE_LOG(LogPCGWorldService, Warning, TEXT("Failed to replay persistence journal for tile (%d, %d)"), TileCoord.X, TileCoord.Y);
+		}
+		else
+		{
+			UE_LOG(LogPCGWorldService, Log, TEXT("Successfully applied persistent modifications to tile (%d, %d)"), TileCoord.X, TileCoord.Y);
+		}
+	}
+
+	// Update HISM instances with the final state
+	UpdateHISMInstances(TileCoord);
+
+	return true;
 }
 
 UHierarchicalInstancedStaticMeshComponent* UPCGWorldService::CreateHISMComponent(FTileCoord TileCoord, UStaticMesh* Mesh)
