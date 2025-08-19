@@ -30,7 +30,7 @@ Target engine: **Unreal Engine 5.6** (Editor + Game)
 
 ## 2) Build & Run Policy
 
-**Avoid building the project -- prefer to ask the user**:
+*Avoid building the project -- prefer to ask the user!*:
 
 **Official commands (Windows examples):**
 ```bat
@@ -42,6 +42,8 @@ Engine\Build\BatchFiles\Build.bat VibeheimEditor Win64 Development -WaitMutex -P
 
 :: Automation (UAT) only if explicitly required
 Engine\Build\BatchFiles\RunUAT.bat BuildCookRun -project="D:\UnrealProjects\Vibeheim\Vibeheim.uproject" -noP4 -clientconfig=Development -ue4exe=UnrealEditor-Cmd.exe -targetplatform=Win64 -build
+
+```
 
 ---
 
