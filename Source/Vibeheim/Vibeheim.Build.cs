@@ -1,56 +1,42 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
-
 using System.IO;
 using UnrealBuildTool;
 
 public class Vibeheim : ModuleRules
 {
-	public Vibeheim(ReadOnlyTargetRules Target) : base(Target)
-	{
-		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
-	
-		PublicDependencyModuleNames.AddRange(new string[] { 
-			"Core", 
-			"CoreUObject", 
-			"Engine", 
-			"InputCore", 
-			"EnhancedInput"
-		});
+    public Vibeheim(ReadOnlyTargetRules Target) : base(Target)
+    {
+        PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
-		// Add PCG modules if available (UE5.1+)
-		if (Target.Version.MajorVersion >= 5 && Target.Version.MinorVersion >= 1)
-		{
-			PublicDependencyModuleNames.AddRange(new string[] {
-				"PCG"
-			});
-			PublicDefinitions.Add("WITH_PCG=1");
-		}
-		else
-		{
-			PublicDefinitions.Add("WITH_PCG=0");
-		}
-
-		PrivateDependencyModuleNames.AddRange(new string[] { 
-			"Json",
-			"JsonUtilities"
-		});
-
-        // Make nested WorldGen folders visible as include roots:
+        // Add these two lines so “WorldGen/Public” and “WorldGen/Private” become include roots
         PublicIncludePaths.Add(Path.Combine(ModuleDirectory, "WorldGen", "Public"));
         PrivateIncludePaths.Add(Path.Combine(ModuleDirectory, "WorldGen", "Private"));
 
-        // Add AutomationTest module only in development builds
+        // Public because types from these modules appear in your PUBLIC headers.
+        PublicDependencyModuleNames.AddRange(new string[]
+        {
+            "Core",
+            "CoreUObject",
+            "Engine",
+            "InputCore",
+            "EnhancedInput",
+            "PCG"
+        });
+
+        // Private-only usage
+        PrivateDependencyModuleNames.AddRange(new string[]
+        {
+            "Json",
+            "JsonUtilities",
+            "Projects" // FPaths, IPluginManager, config helpers, etc.
+        });
+
+        // Compile dev automation tests in non-shipping configs
         if (Target.Configuration != UnrealTargetConfiguration.Shipping)
-		{
-			PrivateDependencyModuleNames.Add("AutomationTest");
-		}
+        {
+            PrivateDependencyModuleNames.Add("AutomationTest");
+        }
 
-		// Uncomment if you are using Slate UI
-		// PrivateDependencyModuleNames.AddRange(new string[] { "Slate", "SlateCore" });
-		
-		// Uncomment if you are using online features
-		// PrivateDependencyModuleNames.Add("OnlineSubsystem");
-
-		// To include OnlineSubsystemSteam, add it to the plugins section in your uproject file with the Enabled attribute set to true
-	}
+        // No extra include paths: Source/Vibeheim/Public and /Private are already roots.
+        // No engine-version checks: UE 5.6 ships PCG; your code requires it publicly.
+    }
 }
