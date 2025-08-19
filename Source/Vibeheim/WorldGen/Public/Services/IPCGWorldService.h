@@ -45,7 +45,7 @@ class UPCGWorldServiceInterface : public UInterface
  */
 class VIBEHEIM_API IPCGWorldServiceInterface
 {
-	GENERATED_IINTERFACE_BODY()
+	GENERATED_BODY()
 
 public:
 	/**

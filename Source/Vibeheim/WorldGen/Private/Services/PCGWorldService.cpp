@@ -352,7 +352,7 @@ bool UPCGWorldService::SpawnPOI(FVector Location, const FPOIData& POIData)
 bool UPCGWorldService::UpdateHISMInstances(FTileCoord TileCoord)
 {
 	// Get or create HISM components for this tile
-	TArray<UHierarchicalInstancedStaticMeshComponent*>* TileComponents = HISMComponents.Find(TileCoord);
+	FHISMComponentArray* TileComponents = HISMComponents.Find(TileCoord);
 	if (!TileComponents)
 	{
 		// Create new HISM components for this tile
@@ -496,7 +496,7 @@ void UPCGWorldService::ClearPCGCache()
 	// Clean up HISM components
 	for (auto& TilePair : HISMComponents)
 	{
-		for (UHierarchicalInstancedStaticMeshComponent* Component : TilePair.Value)
+		for (UHierarchicalInstancedStaticMeshComponent* Component : TilePair.Value.Components)
 		{
 			if (IsValid(Component))
 			{
@@ -693,22 +693,10 @@ uint32 UPCGWorldService::GetTileRandomSeed(FTileCoord TileCoord) const
 
 FVector2D UPCGWorldService::GeneratePoissonSample(FRandomStream& RandomStream, FVector2D TileStart, float TileSize, float MinDistance)
 {
-	// Simple rejection sampling for Poisson disc distribution
-	// For production, consider implementing Mitchell's best-candidate algorithm
-	int32 MaxAttempts = 30;
-	
-	for (int32 Attempt = 0; Attempt < MaxAttempts; Attempt++)
-	{
-		FVector2D Sample = TileStart + FVector2D(
-			RandomStream.FRandRange(0.0f, TileSize),
-			RandomStream.FRandRange(0.0f, TileSize)
-		);
-		
-		// For simplicity, just return the sample (full Poisson implementation would check against existing samples)
-		return Sample;
-	}
-	
-	// Fallback to random position
+	// Simple random sample within the tile. For production, implement true Poisson disk
+	// by checking against existing samples and using MinDistance.
+	(void)MinDistance; // suppress unused parameter warning for now
+
 	return TileStart + FVector2D(
 		RandomStream.FRandRange(0.0f, TileSize),
 		RandomStream.FRandRange(0.0f, TileSize)
@@ -742,7 +730,7 @@ float UPCGWorldService::CalculateSlope(const TArray<float>& HeightData, int32 X,
 				{
 					float NeighborHeight = HeightData[NeighborIndex];
 					float HeightDiff = FMath::Abs(NeighborHeight - CenterHeight);
-					float Distance = FMath::Sqrt(DX * DX + DY * DY); // Grid distance
+					float Distance = FMath::Sqrt(static_cast<float>(DX * DX + DY * DY)); // Grid distance
 					float Slope = FMath::RadiansToDegrees(FMath::Atan2(HeightDiff, Distance));
 					MaxSlope = FMath::Max(MaxSlope, Slope);
 				}
@@ -810,13 +798,16 @@ void UPCGWorldService::CreateHISMComponentsForTile(FTileCoord TileCoord)
 	{
 		FVector TileWorldPos = TileCoord.ToWorldPosition(64.0f);
 		FTransform ActorTransform(FRotator::ZeroRotator, TileWorldPos, FVector::OneVector);
-		TileActor = GetWorld()->SpawnActor<AActor>(ActorTransform);
+		TileActor = GetWorld()->SpawnActor<AActor>(AActor::StaticClass(), ActorTransform);
+#if WITH_EDITOR
 		TileActor->SetActorLabel(TEXT("PCGTileActor"));
+#endif
 	}
 	
 	// Initialize empty array for this tile
-	TArray<UHierarchicalInstancedStaticMeshComponent*> NewComponents;
-	HISMComponents.Add(TileCoord, NewComponents);
+	FHISMComponentArray ComponentArray;
+	ComponentArray.Components = TArray<UHierarchicalInstancedStaticMeshComponent*>();
+	HISMComponents.Add(TileCoord, ComponentArray);
 	
 	UE_LOG(LogPCGWorldService, Log, TEXT("Created HISM component array for tile (%d, %d)"), TileCoord.X, TileCoord.Y);
 }
@@ -829,15 +820,15 @@ UHierarchicalInstancedStaticMeshComponent* UPCGWorldService::GetOrCreateHISMComp
 	}
 	
 	// Get components for this tile
-	TArray<UHierarchicalInstancedStaticMeshComponent*>* TileComponents = HISMComponents.Find(TileCoord);
-	if (!TileComponents)
+	FHISMComponentArray* TileComponentArray = HISMComponents.Find(TileCoord);
+	if (!TileComponentArray)
 	{
 		CreateHISMComponentsForTile(TileCoord);
-		TileComponents = HISMComponents.Find(TileCoord);
+		TileComponentArray = HISMComponents.Find(TileCoord);
 	}
 	
 	// Look for existing component with this mesh
-	for (UHierarchicalInstancedStaticMeshComponent* Component : *TileComponents)
+	for (UHierarchicalInstancedStaticMeshComponent* Component : TileComponentArray->Components)
 	{
 		if (IsValid(Component) && Component->GetStaticMesh() == Mesh)
 		{
@@ -850,8 +841,10 @@ UHierarchicalInstancedStaticMeshComponent* UPCGWorldService::GetOrCreateHISMComp
 	{
 		FVector TileWorldPos = TileCoord.ToWorldPosition(64.0f);
 		FTransform ActorTransform(FRotator::ZeroRotator, TileWorldPos, FVector::OneVector);
-		TileActor = GetWorld()->SpawnActor<AActor>(ActorTransform);
+		TileActor = GetWorld()->SpawnActor<AActor>(AActor::StaticClass(), ActorTransform);
+#if WITH_EDITOR
 		TileActor->SetActorLabel(TEXT("PCGTileActor"));
+#endif
 	}
 	
 	UHierarchicalInstancedStaticMeshComponent* NewComponent = NewObject<UHierarchicalInstancedStaticMeshComponent>(TileActor);
@@ -864,7 +857,7 @@ UHierarchicalInstancedStaticMeshComponent* UPCGWorldService::GetOrCreateHISMComp
 	NewComponent->SetCullDistances(LODDistances[0], LODDistances[2]);
 	NewComponent->bUseAsOccluder = false; // Vegetation typically shouldn't occlude
 	
-	TileComponents->Add(NewComponent);
+	TileComponentArray->Components.Add(NewComponent);
 	
 	UE_LOG(LogPCGWorldService, Log, TEXT("Created new HISM component for mesh %s on tile (%d, %d)"), 
 		*Mesh->GetName(), TileCoord.X, TileCoord.Y);
@@ -883,7 +876,7 @@ float UPCGWorldService::EstimateMemoryUsage()
 	int32 TotalInstances = 0;
 	for (const auto& TilePair : HISMComponents)
 	{
-		for (UHierarchicalInstancedStaticMeshComponent* Component : TilePair.Value)
+		for (UHierarchicalInstancedStaticMeshComponent* Component : TilePair.Value.Components)
 		{
 			if (IsValid(Component))
 			{

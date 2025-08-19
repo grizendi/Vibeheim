@@ -15,6 +15,31 @@ class AActor;
 class UPCGGraph;
 
 /**
+ * Wrapper struct for HISM components to make it compatible with TMap
+ */
+USTRUCT()
+struct FHISMComponentArray
+{
+	GENERATED_BODY()
+
+	UPROPERTY()
+	TArray<TObjectPtr<UHierarchicalInstancedStaticMeshComponent>> Components;
+
+	FHISMComponentArray() = default;
+	
+	bool operator==(const FHISMComponentArray& Other) const
+	{
+		return Components == Other.Components;
+	}
+	
+	friend uint32 GetTypeHash(const FHISMComponentArray& Array)
+	{
+		return GetTypeHash(Array.Components.Num());
+	}
+};
+
+
+/**
  * PCG World Service implementation
  * Handles PCG-based content generation with fallback for non-PCG builds
  */
@@ -57,7 +82,7 @@ private:
 	TMap<FTileCoord, FPCGGenerationData> GenerationCache;
 
 	UPROPERTY()
-	TMap<FTileCoord, TArray<UHierarchicalInstancedStaticMeshComponent*>> HISMComponents;
+	TMap<FTileCoord, FHISMComponentArray> HISMComponents;
 
 	UPROPERTY()
 	TMap<FGuid, FPOIData> SpawnedPOIs;
