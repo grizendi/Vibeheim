@@ -717,6 +717,197 @@ static FAutoConsoleCommand WorldGenRegenTileCommand(
 	})
 );
 
+// PCG Vegetation Control Commands
+static FAutoConsoleCommand WorldGenSetVegetationDensityCommand(
+	TEXT("wg.VegDensity"),
+	TEXT("Set vegetation density multiplier. Usage: wg.VegDensity <Density>"),
+	FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+	{
+		if (Args.Num() < 1)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Usage: wg.VegDensity <Density>"));
+			UE_LOG(LogTemp, Log, TEXT("Density: 0.0-5.0 (1.0 = normal, 0.0 = no vegetation, 5.0 = very dense)"));
+			return;
+		}
+
+		float NewDensity = FMath::Clamp(FCString::Atof(*Args[0]), 0.0f, 5.0f);
+		
+		UWorldGenSettings* Settings = UWorldGenSettings::GetWorldGenSettings();
+		if (!Settings)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Failed to get WorldGen settings instance"));
+			return;
+		}
+
+		float OldDensity = Settings->Settings.VegetationDensity;
+		Settings->Settings.VegetationDensity = NewDensity;
+		
+		UE_LOG(LogTemp, Log, TEXT("Vegetation density changed from %.2f to %.2f"), OldDensity, NewDensity);
+		UE_LOG(LogTemp, Log, TEXT("Use wg.ClearCache to apply changes to existing tiles"));
+	})
+);
+
+static FAutoConsoleCommand WorldGenSetPOIDensityCommand(
+	TEXT("wg.POIDensity"),
+	TEXT("Set POI density multiplier. Usage: wg.POIDensity <Density>"),
+	FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+	{
+		if (Args.Num() < 1)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Usage: wg.POIDensity <Density>"));
+			UE_LOG(LogTemp, Log, TEXT("Density: 0.0-2.0 (0.1 = normal, 0.0 = no POIs, 2.0 = very dense)"));
+			return;
+		}
+
+		float NewDensity = FMath::Clamp(FCString::Atof(*Args[0]), 0.0f, 2.0f);
+		
+		UWorldGenSettings* Settings = UWorldGenSettings::GetWorldGenSettings();
+		if (!Settings)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Failed to get WorldGen settings instance"));
+			return;
+		}
+
+		float OldDensity = Settings->Settings.POIDensity;
+		Settings->Settings.POIDensity = NewDensity;
+		
+		UE_LOG(LogTemp, Log, TEXT("POI density changed from %.2f to %.2f"), OldDensity, NewDensity);
+		UE_LOG(LogTemp, Log, TEXT("Use wg.ClearCache to apply changes to existing tiles"));
+	})
+);
+
+static FAutoConsoleCommand WorldGenClearVegetationCommand(
+	TEXT("wg.ClearVegetation"),
+	TEXT("Remove all vegetation in specified area. Usage: wg.ClearVegetation <CenterX> <CenterY> <Radius>"),
+	FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+	{
+		if (Args.Num() < 3)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Usage: wg.ClearVegetation <CenterX> <CenterY> <Radius>"));
+			return;
+		}
+
+		float CenterX = FCString::Atof(*Args[0]);
+		float CenterY = FCString::Atof(*Args[1]);
+		float Radius = FCString::Atof(*Args[2]);
+
+		FVector AreaCenter(CenterX, CenterY, 0.0f);
+		FVector AreaExtent(Radius, Radius, 1000.0f); // Large Z extent to catch all vegetation
+		FBox ClearArea = FBox::BuildAABB(AreaCenter, AreaExtent);
+
+		UE_LOG(LogTemp, Log, TEXT("Clearing vegetation in area: Center(%.1f, %.1f), Radius %.1f"), CenterX, CenterY, Radius);
+		
+		// TODO: Find PCGWorldService instance and call RemoveContentInArea
+		UE_LOG(LogTemp, Warning, TEXT("Vegetation clearing not implemented - requires PCGWorldService instance"));
+	})
+);
+
+static FAutoConsoleCommand WorldGenSpawnPOICommand(
+	TEXT("wg.SpawnPOI"),
+	TEXT("Manually spawn a POI at location. Usage: wg.SpawnPOI <X> <Y> <Z> <POIName>"),
+	FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+	{
+		if (Args.Num() < 4)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Usage: wg.SpawnPOI <X> <Y> <Z> <POIName>"));
+			UE_LOG(LogTemp, Log, TEXT("Available POI Names: MeadowShrine, AbandonedCamp, MountainCave"));
+			return;
+		}
+
+		float X = FCString::Atof(*Args[0]);
+		float Y = FCString::Atof(*Args[1]);
+		float Z = FCString::Atof(*Args[2]);
+		FString POIName = Args[3];
+
+		FVector SpawnLocation(X, Y, Z);
+		
+		UE_LOG(LogTemp, Log, TEXT("Spawning POI '%s' at (%.1f, %.1f, %.1f)"), *POIName, X, Y, Z);
+		
+		// TODO: Find PCGWorldService instance and spawn POI
+		UE_LOG(LogTemp, Warning, TEXT("Manual POI spawning not implemented - requires PCGWorldService instance"));
+	})
+);
+
+static FAutoConsoleCommand WorldGenHISMStatsCommand(
+	TEXT("wg.HISMStats"),
+	TEXT("Display HISM component performance statistics"),
+	FConsoleCommandDelegate::CreateLambda([]()
+	{
+		UE_LOG(LogTemp, Log, TEXT("=== HISM Performance Statistics ==="));
+		
+		// TODO: Find PCGWorldService instance and get real HISM stats
+		UE_LOG(LogTemp, Log, TEXT("HISM Components:"));
+		UE_LOG(LogTemp, Log, TEXT("  Total Components: Not implemented"));
+		UE_LOG(LogTemp, Log, TEXT("  Active Instances: Not implemented"));
+		UE_LOG(LogTemp, Log, TEXT("  Memory Usage: Not implemented"));
+		UE_LOG(LogTemp, Log, TEXT(""));
+		UE_LOG(LogTemp, Log, TEXT("LOD Performance:"));
+		UE_LOG(LogTemp, Log, TEXT("  LOD 0 Instances: Not implemented"));
+		UE_LOG(LogTemp, Log, TEXT("  LOD 1 Instances: Not implemented"));
+		UE_LOG(LogTemp, Log, TEXT("  LOD 2 Instances: Not implemented"));
+		UE_LOG(LogTemp, Log, TEXT("  Culled Instances: Not implemented"));
+		
+		UE_LOG(LogTemp, Warning, TEXT("Note: Real HISM stats require PCGWorldService instance"));
+	})
+);
+
+static FAutoConsoleCommand WorldGenTestVegetationRulesCommand(
+	TEXT("wg.TestVegRules"),
+	TEXT("Test vegetation rules for a specific biome. Usage: wg.TestVegRules <BiomeType> [TileX] [TileY]"),
+	FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+	{
+		if (Args.Num() < 1)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Usage: wg.TestVegRules <BiomeType> [TileX] [TileY]"));
+			UE_LOG(LogTemp, Log, TEXT("BiomeTypes: 0=None, 1=Meadows, 2=Forest, 3=Mountains, 4=Ocean"));
+			return;
+		}
+
+		int32 BiomeTypeInt = FCString::Atoi(*Args[0]);
+		EBiomeType BiomeType = static_cast<EBiomeType>(FMath::Clamp(BiomeTypeInt, 0, 4));
+		int32 TileX = Args.Num() > 1 ? FCString::Atoi(*Args[1]) : 0;
+		int32 TileY = Args.Num() > 2 ? FCString::Atoi(*Args[2]) : 0;
+
+		UE_LOG(LogTemp, Log, TEXT("=== Testing Vegetation Rules for Biome %d ==="), static_cast<int32>(BiomeType));
+
+		// Create PCG service to access biome definitions
+		UPCGWorldService* PCGService = NewObject<UPCGWorldService>();
+		if (!PCGService)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Failed to create PCGWorldService"));
+			return;
+		}
+
+		UWorldGenSettings* Settings = UWorldGenSettings::GetWorldGenSettings();
+		if (Settings)
+		{
+			PCGService->Initialize(Settings->Settings);
+		}
+
+		UE_LOG(LogTemp, Log, TEXT("Tile: (%d, %d)"), TileX, TileY);
+		UE_LOG(LogTemp, Log, TEXT("Current vegetation density: %.2f"), Settings ? Settings->Settings.VegetationDensity : 1.0f);
+		UE_LOG(LogTemp, Log, TEXT("Current POI density: %.2f"), Settings ? Settings->Settings.POIDensity : 0.1f);
+		UE_LOG(LogTemp, Log, TEXT("Max instances per tile: %d"), Settings ? Settings->Settings.MaxHISMInstances : 10000);
+
+		// TODO: Access biome definitions and display vegetation rules
+		UE_LOG(LogTemp, Warning, TEXT("Vegetation rule analysis not fully implemented"));
+		UE_LOG(LogTemp, Log, TEXT("Use wg.TestPCG to see actual generation results"));
+	})
+);
+
+static FAutoConsoleCommand WorldGenToggleRuntimePCGCommand(
+	TEXT("wg.TogglePCG"),
+	TEXT("Toggle runtime PCG operations on/off"),
+	FConsoleCommandDelegate::CreateLambda([]()
+	{
+		UE_LOG(LogTemp, Log, TEXT("Toggling runtime PCG operations..."));
+		
+		// TODO: Find PCGWorldService instance and toggle runtime operations
+		UE_LOG(LogTemp, Warning, TEXT("PCG toggle not implemented - requires PCGWorldService instance"));
+		UE_LOG(LogTemp, Log, TEXT("This would enable/disable dynamic vegetation spawning and removal"));
+	})
+);
+
 static FAutoConsoleCommand WorldGenListDebugCommandsCommand(
 	TEXT("wg.Help"),
 	TEXT("List all available world generation debug commands"),
@@ -733,8 +924,11 @@ static FAutoConsoleCommand WorldGenListDebugCommandsCommand(
 		UE_LOG(LogTemp, Log, TEXT("Runtime Control:"));
 		UE_LOG(LogTemp, Log, TEXT("  wg.Seed <seed> - Set generation seed"));
 		UE_LOG(LogTemp, Log, TEXT("  wg.StreamRadius <gen> [load] [active] - Set streaming radii"));
+		UE_LOG(LogTemp, Log, TEXT("  wg.VegDensity <density> - Set vegetation density (0.0-5.0)"));
+		UE_LOG(LogTemp, Log, TEXT("  wg.POIDensity <density> - Set POI density (0.0-2.0)"));
 		UE_LOG(LogTemp, Log, TEXT("  wg.ClearCache - Clear all generation caches"));
 		UE_LOG(LogTemp, Log, TEXT("  wg.RegenTile <x> <y> - Regenerate specific tile"));
+		UE_LOG(LogTemp, Log, TEXT("  wg.TogglePCG - Toggle runtime PCG operations"));
 		UE_LOG(LogTemp, Log, TEXT(""));
 		UE_LOG(LogTemp, Log, TEXT("Testing:"));
 		UE_LOG(LogTemp, Log, TEXT("  wg.BasicTest - Test basic system functionality"));
@@ -743,6 +937,12 @@ static FAutoConsoleCommand WorldGenListDebugCommandsCommand(
 		UE_LOG(LogTemp, Log, TEXT("  wg.TestBiome <x> <y> [alt] - Test biome determination"));
 		UE_LOG(LogTemp, Log, TEXT("  wg.TestNoise <x> <y> [type] [scale] - Test noise generation"));
 		UE_LOG(LogTemp, Log, TEXT("  wg.TestPCG <x> <y> [biome] - Test PCG generation"));
+		UE_LOG(LogTemp, Log, TEXT("  wg.TestVegRules <biome> [x] [y] - Test vegetation rules"));
+		UE_LOG(LogTemp, Log, TEXT(""));
+		UE_LOG(LogTemp, Log, TEXT("PCG Content Management:"));
+		UE_LOG(LogTemp, Log, TEXT("  wg.ClearVegetation <x> <y> <radius> - Remove vegetation in area"));
+		UE_LOG(LogTemp, Log, TEXT("  wg.SpawnPOI <x> <y> <z> <name> - Manually spawn POI"));
+		UE_LOG(LogTemp, Log, TEXT("  wg.HISMStats - Show HISM performance statistics"));
 		UE_LOG(LogTemp, Log, TEXT(""));
 		UE_LOG(LogTemp, Log, TEXT("Debug Visualization (Console Variables):"));
 		UE_LOG(LogTemp, Log, TEXT("  wg.ShowBiomes - Toggle biome boundary overlay"));

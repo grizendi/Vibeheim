@@ -4,11 +4,15 @@
 #include "UObject/NoExportTypes.h"
 #include "Services/IPCGWorldService.h"
 #include "Data/WorldGenTypes.h"
+#include "Engine/StaticMesh.h"
+#include "Components/HierarchicalInstancedStaticMeshComponent.h"
 #include "PCGWorldService.generated.h"
 
 // Forward declarations
 class UStaticMeshComponent;
 class UHierarchicalInstancedStaticMeshComponent;
+class AActor;
+class UPCGGraph;
 
 /**
  * PCG World Service implementation
@@ -53,13 +57,29 @@ private:
 	TMap<FTileCoord, FPCGGenerationData> GenerationCache;
 
 	UPROPERTY()
-	TMap<FTileCoord, UHierarchicalInstancedStaticMeshComponent*> HISMComponents;
+	TMap<FTileCoord, TArray<UHierarchicalInstancedStaticMeshComponent*>> HISMComponents;
+
+	UPROPERTY()
+	TMap<FGuid, FPOIData> SpawnedPOIs;
+
+	UPROPERTY()
+	TMap<FGuid, TObjectPtr<AActor>> SpawnedPOIActors;
 
 	UPROPERTY()
 	FPCGPerformanceStats PerformanceStats;
 
 	UPROPERTY()
 	bool bRuntimeOperationsEnabled;
+
+	UPROPERTY()
+	TObjectPtr<AActor> TileActor;
+
+	// Performance and LOD settings
+	UPROPERTY()
+	int32 MaxInstancesPerTile;
+
+	UPROPERTY()
+	TArray<float> LODDistances;
 
 	// PCG-related properties (always declared but only used when WITH_PCG is true)
 	UPROPERTY()
@@ -72,6 +92,11 @@ private:
 	 * Generate content using PCG if available, otherwise use fallback
 	 */
 	FPCGGenerationData GenerateContentInternal(FTileCoord TileCoord, EBiomeType BiomeType, const TArray<float>& HeightData);
+
+	/**
+	 * Generate content using PCG system
+	 */
+	FPCGGenerationData GeneratePCGContent(FTileCoord TileCoord, EBiomeType BiomeType, const TArray<float>& HeightData, UPCGGraph* PCGGraph);
 
 	/**
 	 * Fallback content generation without PCG
@@ -102,4 +127,44 @@ private:
 	 * Initialize default biome definitions
 	 */
 	void InitializeDefaultBiomes();
+
+	/**
+	 * Get deterministic random seed for a tile
+	 */
+	uint32 GetTileRandomSeed(FTileCoord TileCoord) const;
+
+	/**
+	 * Generate Poisson disc sample point for better vegetation distribution
+	 */
+	FVector2D GeneratePoissonSample(FRandomStream& RandomStream, FVector2D TileStart, float TileSize, float MinDistance);
+
+	/**
+	 * Calculate slope at given heightfield position
+	 */
+	float CalculateSlope(const TArray<float>& HeightData, int32 X, int32 Y, int32 GridSize);
+
+	/**
+	 * Check if POI placement meets spacing requirements
+	 */
+	bool CheckPOISpacingRequirements(FVector Location, float MinDistance);
+
+	/**
+	 * Apply density limiting to reduce instance count if needed
+	 */
+	void ApplyDensityLimiting(FPCGGenerationData& GenerationData);
+
+	/**
+	 * Create HISM component containers for a tile
+	 */
+	void CreateHISMComponentsForTile(FTileCoord TileCoord);
+
+	/**
+	 * Get or create HISM component for specific mesh and tile
+	 */
+	UHierarchicalInstancedStaticMeshComponent* GetOrCreateHISMComponent(FTileCoord TileCoord, UStaticMesh* Mesh);
+
+	/**
+	 * Estimate current memory usage for performance tracking
+	 */
+	float EstimateMemoryUsage();
 };
