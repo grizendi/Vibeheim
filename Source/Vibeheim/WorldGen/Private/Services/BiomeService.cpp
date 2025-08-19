@@ -96,6 +96,12 @@ FBiomeResult UBiomeService::DetermineBiome(FVector2D WorldPosition, float Altitu
 	return ApplyBiomeBlending(BiomeWeights, WorldPosition);
 }
 
+EBiomeType UBiomeService::DetermineTileBiome(FTileCoord Tile, const TArray<float>& HeightData) const
+{
+	//missing logic here
+	return EBiomeType();
+}
+
 TMap<EBiomeType, float> UBiomeService::CalculateBiomeWeights(const FClimateData& ClimateData, float Altitude) const
 {
 	TMap<EBiomeType, float> Weights;
@@ -174,8 +180,7 @@ float UBiomeService::CalculateBiomeSuitability(EBiomeType BiomeType, const FClim
 	float TotalSuitability = TempSuitability * MoistureSuitability * AltitudeSuitability * RingInfluence * BiomeDef->BiomeWeight;
 	
 	return FMath::Max(0.0f, TotalSuitability);
-}FBiomeResu
-lt UBiomeService::ApplyBiomeBlending(const TMap<EBiomeType, float>& BiomeWeights, FVector2D WorldPosition) const
+}FBiomeResult UBiomeService::ApplyBiomeBlending(const TMap<EBiomeType, float>& BiomeWeights, FVector2D WorldPosition) const
 {
 	FBiomeResult Result;
 	

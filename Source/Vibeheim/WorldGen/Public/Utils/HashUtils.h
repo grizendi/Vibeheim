@@ -146,21 +146,21 @@ private:
 	/**
 	 * Internal xxHash64 implementation
 	 */
-	static int32 XXHash64Internal(const void* Data, size_t Length, int32 Seed);
+	static uint64 XXHash64Internal(const void* Data, size_t Length, int32 Seed);
 
 	/**
 	 * xxHash64 constants
 	 */
-	static constexpr int32 PRIME64_1 = 0x9E3779B185EBCA87ULL;
-	static constexpr int32 PRIME64_2 = 0xC2B2AE3D27D4EB4FULL;
-	static constexpr int32 PRIME64_3 = 0x165667B19E3779F9ULL;
-	static constexpr int32 PRIME64_4 = 0x85EBCA77C2B2AE63ULL;
-	static constexpr int32 PRIME64_5 = 0x27D4EB2F165667C5ULL;
+	static constexpr uint64 PRIME64_1 = 0x9E3779B185EBCA87ULL;
+	static constexpr uint64 PRIME64_2 = 0xC2B2AE3D27D4EB4FULL;
+	static constexpr uint64 PRIME64_3 = 0x165667B19E3779F9ULL;
+	static constexpr uint64 PRIME64_4 = 0x85EBCA77C2B2AE63ULL;
+	static constexpr uint64 PRIME64_5 = 0x27D4EB2F165667C5ULL;
 
 	/**
 	 * Rotate left operation for xxHash64
 	 */
-	static FORCEINLINE int32 RotateLeft64(int32 Value, int32 Amount)
+	static FORCEINLINE uint64 RotateLeft64(uint64  Value, uint32 Amount)
 	{
 		return (Value << Amount) | (Value >> (64 - Amount));
 	}

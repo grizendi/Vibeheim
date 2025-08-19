@@ -74,6 +74,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Biome")
 	FBiomeResult DetermineBiome(FVector2D WorldPosition, float Altitude = 0.0f) const;
 
+	
+	UFUNCTION(BlueprintCallable, Category = "Biome")
+	EBiomeType DetermineTileBiome(FTileCoord Tile, const TArray<float>& HeightData) const;
+	
 	/**
 	 * Generate biome data for an entire tile
 	 */

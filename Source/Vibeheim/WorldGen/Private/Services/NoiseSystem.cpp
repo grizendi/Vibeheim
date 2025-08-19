@@ -279,15 +279,30 @@ uint32 UNoiseSystem::Hash(int32 X, int32 Y, uint32 NoiseType) const
 {
 	uint32 Hash = static_cast<uint32>(X);
 	Hash = Hash * 1664525u + 1013904223u;
+
 	Hash ^= static_cast<uint32>(Y);
 	Hash = Hash * 1664525u + 1013904223u;
-	Hash ^= static_cast<uint32>(Seed);
+
+	// Mix the (presumably 32-bit) Seed into a pseudo "high" part safely.
+	const uint64 Seed64 = static_cast<uint64>(static_cast<uint32>(Seed));
+	const uint32 SeedHiMix = static_cast<uint32>((Seed64 * 0x9E3779B185EBCA87ull) >> 32); // golden ratio mix
+
+	Hash ^= static_cast<uint32>(Seed);   // low 32
 	Hash = Hash * 1664525u + 1013904223u;
-	Hash ^= static_cast<uint32>(Seed >> 32);
+
+	Hash ^= SeedHiMix;                    // replaces the old (Seed >> 32)
 	Hash = Hash * 1664525u + 1013904223u;
+
 	Hash ^= NoiseType;
 	Hash = Hash * 1664525u + 1013904223u;
-	
+
+	// Optional final avalanche to improve bit diffusion (fast, 32-bit friendly)
+	Hash ^= Hash >> 16;
+	Hash *= 0x7feb352dU;
+	Hash ^= Hash >> 15;
+	Hash *= 0x846ca68bU;
+	Hash ^= Hash >> 16;
+
 	return Hash;
 }
 

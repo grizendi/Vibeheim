@@ -2,29 +2,14 @@
 #include "Services/IHeightfieldService.h"
 #include "Misc/DateTime.h"
 
-int32 UHashUtils::CalculateXXHash64(const TArray<uint8>& Data, int32 Seed)
+// Helpers at top of .cpp (unaligned & aliasing-safe)
+static FORCEINLINE uint64 Read64(const uint8* p)
 {
-	return CalculateXXHash64(Data, 0);
+	uint64 v; FMemory::Memcpy(&v, p, 8); return v;
 }
-
-int32 UHashUtils::CalculateFloatArrayHash(const TArray<float>& FloatData, int32 Seed)
+static FORCEINLINE uint32 Read32(const uint8* p)
 {
-	return CalculateFloatArrayHash(FloatData, 0);
-}
-
-int32 UHashUtils::CalculateVectorArrayHash(const TArray<FVector>& VectorData, int32 Seed)
-{
-	return CalculateVectorArrayHash(VectorData, 0);
-}
-
-int32 UHashUtils::GenerateTileSeed(int32 BaseSeed, FTileCoord TileCoord, int32 LayerType)
-{
-	return GenerateTileSeed(BaseSeed, TileCoord, 0);
-}
-
-int32 UHashUtils::HashCoordinates(int32 X, int32 Y, int32 Seed)
-{
-	return HashCoordinates(X, Y, 0);
+	uint32 v; FMemory::Memcpy(&v, p, 4); return v;
 }
 
 int32 UHashUtils::CalculateXXHash64(const TArray<uint8>& Data, int32 Seed)
@@ -212,78 +197,82 @@ bool UHashUtils::ValidateTileBorderSeam(const FHeightfieldData& Tile1, const FHe
 	return false;
 }
 
-int32 UHashUtils::XXHash64Internal(const void* Data, size_t Length, int32 Seed)
+uint64 UHashUtils::XXHash64Internal(const void* Data, size_t Length, int32 Seed)
 {
-	const uint8* ByteData = static_cast<const uint8*>(Data);
-	int32 Hash;
+	const uint8* p = static_cast<const uint8*>(Data);
+	const uint8* end = p + Length;
+
+	const uint64 Seed64 = static_cast<uint64>(static_cast<uint32>(Seed));
+	uint64 Hash;
 
 	if (Length >= 32)
 	{
-		const uint8* const End = ByteData + Length;
-		const uint8* const Limit = End - 32;
+		const uint8* const limit = end - 32;
 
-		int32 V1 = Seed + PRIME64_1 + PRIME64_2;
-		int32 V2 = Seed + PRIME64_2;
-		int32 V3 = Seed + 0;
-		int32 V4 = Seed - PRIME64_1;
+		uint64 V1 = Seed64 + PRIME64_1 + PRIME64_2;
+		uint64 V2 = Seed64 + PRIME64_2;
+		uint64 V3 = Seed64 + 0;
+		uint64 V4 = Seed64 - PRIME64_1;
 
 		do
 		{
-			V1 = RotateLeft64(V1 + (*reinterpret_cast<const int32*>(ByteData) * PRIME64_2), 31) * PRIME64_1;
-			ByteData += 8;
-			V2 = RotateLeft64(V2 + (*reinterpret_cast<const int32*>(ByteData) * PRIME64_2), 31) * PRIME64_1;
-			ByteData += 8;
-			V3 = RotateLeft64(V3 + (*reinterpret_cast<const int32*>(ByteData) * PRIME64_2), 31) * PRIME64_1;
-			ByteData += 8;
-			V4 = RotateLeft64(V4 + (*reinterpret_cast<const int32*>(ByteData) * PRIME64_2), 31) * PRIME64_1;
-			ByteData += 8;
-		} while (ByteData <= Limit);
+			V1 = RotateLeft64(V1 + Read64(p) * PRIME64_2, 31) * PRIME64_1; p += 8;
+			V2 = RotateLeft64(V2 + Read64(p) * PRIME64_2, 31) * PRIME64_1; p += 8;
+			V3 = RotateLeft64(V3 + Read64(p) * PRIME64_2, 31) * PRIME64_1; p += 8;
+			V4 = RotateLeft64(V4 + Read64(p) * PRIME64_2, 31) * PRIME64_1; p += 8;
+		} while (p <= limit);
 
 		Hash = RotateLeft64(V1, 1) + RotateLeft64(V2, 7) + RotateLeft64(V3, 12) + RotateLeft64(V4, 18);
 
-		V1 *= PRIME64_2; V1 = RotateLeft64(V1, 31); V1 *= PRIME64_1; Hash ^= V1; Hash = Hash * PRIME64_1 + PRIME64_4;
-		V2 *= PRIME64_2; V2 = RotateLeft64(V2, 31); V2 *= PRIME64_1; Hash ^= V2; Hash = Hash * PRIME64_1 + PRIME64_4;
-		V3 *= PRIME64_2; V3 = RotateLeft64(V3, 31); V3 *= PRIME64_1; Hash ^= V3; Hash = Hash * PRIME64_1 + PRIME64_4;
-		V4 *= PRIME64_2; V4 = RotateLeft64(V4, 31); V4 *= PRIME64_1; Hash ^= V4; Hash = Hash * PRIME64_1 + PRIME64_4;
+		auto MergeRound = [&Hash](uint64 V)
+			{
+				V *= PRIME64_2; V = RotateLeft64(V, 31); V *= PRIME64_1;
+				Hash ^= V;
+				Hash = Hash * PRIME64_1 + PRIME64_4;
+			};
+		MergeRound(V1); MergeRound(V2); MergeRound(V3); MergeRound(V4);
 	}
 	else
 	{
-		Hash = Seed + PRIME64_5;
+		Hash = Seed64 + PRIME64_5;
 	}
 
-	Hash += static_cast<int32>(Length);
+	Hash += static_cast<uint64>(Length);
 
-	const uint8* const End = ByteData + (Length & 31);
-	while (ByteData + 8 <= End)
+	// 8-byte chunks
+	while ((p + 8) <= end)
 	{
-		int32 K1 = *reinterpret_cast<const int32*>(ByteData);
+		uint64 K1 = Read64(p);
 		K1 *= PRIME64_2;
 		K1 = RotateLeft64(K1, 31);
 		K1 *= PRIME64_1;
 		Hash ^= K1;
 		Hash = RotateLeft64(Hash, 27) * PRIME64_1 + PRIME64_4;
-		ByteData += 8;
+		p += 8;
 	}
 
-	if (ByteData + 4 <= End)
+	// 4-byte chunk
+	if ((p + 4) <= end)
 	{
-		Hash ^= static_cast<int32>(*reinterpret_cast<const uint32*>(ByteData)) * PRIME64_1;
+		Hash ^= static_cast<uint64>(Read32(p)) * PRIME64_1;
 		Hash = RotateLeft64(Hash, 23) * PRIME64_2 + PRIME64_3;
-		ByteData += 4;
+		p += 4;
 	}
 
-	while (ByteData < End)
+	// Remaining bytes
+	while (p < end)
 	{
-		Hash ^= (*ByteData) * PRIME64_5;
+		Hash ^= static_cast<uint64>(*p) * PRIME64_5;
 		Hash = RotateLeft64(Hash, 11) * PRIME64_1;
-		ByteData++;
+		++p;
 	}
 
-	Hash ^= Hash >> 33;
+	// Final avalanche
+	Hash ^= (Hash >> 33);
 	Hash *= PRIME64_2;
-	Hash ^= Hash >> 29;
+	Hash ^= (Hash >> 29);
 	Hash *= PRIME64_3;
-	Hash ^= Hash >> 32;
+	Hash ^= (Hash >> 32);
 
-	return Hash;
+	return static_cast<int32>(Hash); // switch to 'return Hash;' if you change the signature to uint64
 }

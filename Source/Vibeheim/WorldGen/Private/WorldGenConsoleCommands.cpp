@@ -336,8 +336,7 @@ static FAutoConsoleCommand WorldGenTestBiomeCommand(
 			UE_LOG(LogTemp, Log, TEXT("  Biome %d: %.3f"), static_cast<int32>(WeightPair.Key), WeightPair.Value);
 		}
 	})
-);static FAut
-oConsoleCommand WorldGenTestNoiseCommand(
+);static FAutoConsoleCommand WorldGenTestNoiseCommand(
 	TEXT("wg.TestNoise"),
 	TEXT("Test noise system with different algorithms. Usage: wg.TestNoise X Y [NoiseType] [Scale]"),
 	FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
@@ -395,8 +394,7 @@ oConsoleCommand WorldGenTestNoiseCommand(
 		float WarpedNoiseValue = NoiseSystem->GenerateOctaveNoise(TestPosition, NoiseSettings);
 		UE_LOG(LogTemp, Log, TEXT("With Domain Warp: %.6f"), WarpedNoiseValue);
 	})
-);static FA
-utoConsoleCommand WorldGenBasicSystemTestCommand(
+);static FAutoConsoleCommand WorldGenBasicSystemTestCommand(
 	TEXT("wg.BasicTest"),
 	TEXT("Test basic system functionality without external dependencies"),
 	FConsoleCommandDelegate::CreateLambda([]()
@@ -477,8 +475,8 @@ utoConsoleCommand WorldGenBasicSystemTestCommand(
 		
 		UE_LOG(LogTemp, Log, TEXT("=== Basic Test Complete ==="));
 	})
-);//
- PCG System Commands
+);
+// PCG System Commands
 #include "Services/PCGWorldService.h"
 
 static FAutoConsoleCommand WorldGenTestPCGCommand(

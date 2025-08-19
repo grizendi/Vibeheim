@@ -10,8 +10,7 @@
 #if WITH_AUTOMATION_TESTS
 #include "Misc/AutomationTest.h"
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FClimateSystemTest, "Vibeheim.WorldGen.ClimateSystem.BasicFunctionality", 
-	EAutomationTestFlags::ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FClimateSystemTest, "Vibeheim.WorldGen.ClimateSystem.BasicFunctionality", EAutomationTestFlags::ClientContext | EAutomationTestFlags::ProductFilter)
 
 bool FClimateSystemTest::RunTest(const FString& Parameters)
 {
@@ -45,7 +44,7 @@ bool FClimateSystemTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHeightfieldServiceTest, "Vibeheim.WorldGen.HeightfieldService.BasicFunctionality", 
-	EAutomationTestFlags::ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+	EAutomationTestFlags::ClientContext | EAutomationTestFlags::ProductFilter)
 
 bool FHeightfieldServiceTest::RunTest(const FString& Parameters)
 {
@@ -91,7 +90,7 @@ bool FHeightfieldServiceTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FBiomeServiceTest, "Vibeheim.WorldGen.BiomeService.BasicFunctionality", 
-	EAutomationTestFlags::ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+	EAutomationTestFlags::ClientContext | EAutomationTestFlags::ProductFilter)
 
 bool FBiomeServiceTest::RunTest(const FString& Parameters)
 {
@@ -139,7 +138,7 @@ bool FBiomeServiceTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FIntegratedSystemTest, "Vibeheim.WorldGen.IntegratedSystems.FullWorkflow", 
-	EAutomationTestFlags::ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+	EAutomationTestFlags::ClientContext | EAutomationTestFlags::ProductFilter)
 
 bool FIntegratedSystemTest::RunTest(const FString& Parameters)
 {
@@ -198,5 +197,5 @@ bool FIntegratedSystemTest::RunTest(const FString& Parameters)
 	TestTrue("Generation should be within performance target", AvgTime <= Settings->Settings.TileGenTargetMs * 2.0f); // Allow 2x target for test
 	
 	return true;
-}#endif /
-/ WITH_AUTOMATION_TESTS
+}
+#endif WITH_AUTOMATION_TESTS

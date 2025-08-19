@@ -10,8 +10,7 @@
 #if WITH_AUTOMATION_TESTS
 #include "Misc/AutomationTest.h"
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FBasicSystemTest, "Vibeheim.WorldGen.BasicSystems.Functionality", 
-	EAutomationTestFlags::ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FBasicSystemTest, "Vibeheim.WorldGen.BasicSystems.Functionality", EAutomationTestFlags:: ClientContext | EAutomationTestFlags::ProductFilter)
 
 bool FBasicSystemTest::RunTest(const FString& Parameters)
 {

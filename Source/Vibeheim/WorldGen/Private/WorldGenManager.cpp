@@ -101,14 +101,11 @@ bool AWorldGenManager::InitializeWorldGenSystems()
 
 	// Initialize Biome Service
 	BiomeService = NewObject<UBiomeService>(this);
-	if (!BiomeService || !BiomeService->Initialize(WorldGenSettings->Settings))
+	if (!BiomeService)
 	{
 		UE_LOG(LogWorldGenManager, Error, TEXT("Failed to initialize Biome Service"));
 		return false;
 	}
-
-	// Set climate system for biome service
-	BiomeService->SetClimateSystem(ClimateSystem);
 
 	// Initialize PCG World Service
 	PCGWorldService = NewObject<UPCGWorldService>(this);

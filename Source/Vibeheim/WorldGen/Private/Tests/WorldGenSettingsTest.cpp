@@ -7,8 +7,7 @@
 
 #if WITH_DEV_AUTOMATION_TESTS
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FWorldGenSettingsDefaultsTest, "WorldGen.Settings.Defaults", 
-	EAutomationTestFlags::ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FWorldGenSettingsDefaultsTest, "WorldGen.Settings.Defaults", EAutomationTestFlags::ClientContext | EAutomationTestFlags::ProductFilter)
 
 bool FWorldGenSettingsDefaultsTest::RunTest(const FString& Parameters)
 {
@@ -30,7 +29,7 @@ bool FWorldGenSettingsDefaultsTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FWorldGenSettingsValidationTest, "WorldGen.Settings.Validation", 
-	EAutomationTestFlags::ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+	EAutomationTestFlags:: ClientContext | EAutomationTestFlags::ProductFilter)
 
 bool FWorldGenSettingsValidationTest::RunTest(const FString& Parameters)
 {
@@ -75,7 +74,7 @@ bool FWorldGenSettingsValidationTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FWorldGenSettingsJSONTest, "WorldGen.Settings.JSON", 
-	EAutomationTestFlags::ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+	EAutomationTestFlags::ClientContext | EAutomationTestFlags::ProductFilter)
 
 bool FWorldGenSettingsJSONTest::RunTest(const FString& Parameters)
 {
@@ -143,7 +142,7 @@ bool FWorldGenSettingsJSONTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FWorldGenSettingsInvalidJSONTest, "WorldGen.Settings.InvalidJSON", 
-	EAutomationTestFlags::ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+	EAutomationTestFlags::ClientContext | EAutomationTestFlags::ProductFilter)
 
 bool FWorldGenSettingsInvalidJSONTest::RunTest(const FString& Parameters)
 {
@@ -174,7 +173,7 @@ bool FWorldGenSettingsInvalidJSONTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FWorldGenSettingsSingletonTest, "WorldGen.Settings.Singleton", 
-	EAutomationTestFlags::ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+	EAutomationTestFlags::ClientContext | EAutomationTestFlags::ProductFilter)
 
 bool FWorldGenSettingsSingletonTest::RunTest(const FString& Parameters)
 {

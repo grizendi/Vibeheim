@@ -103,8 +103,7 @@ FHeightfieldData UHeightfieldService::GenerateHeightfield(int32 Seed, FTileCoord
 		TileCoord.X, TileCoord.Y, GenerationTimeMs);
 	
 	return HeightfieldData;
-}fl
-float UHeightfieldService::GenerateBaseHeight(FVector2D WorldPosition, int32 Seed) const
+}float UHeightfieldService::GenerateBaseHeight(FVector2D WorldPosition, int32 Seed) const
 {
 	float Height = GenerationSettings.BaseHeight;
 	
@@ -220,8 +219,7 @@ float UHeightfieldService::GenerateNoise(FVector2D Position, float Scale, int32 
 	float N1 = FMath::Lerp(N01, N11, SmoothX);
 	
 	return FMath::Lerp(N0, N1, SmoothY);
-}FVector2D U
-HeightfieldService::ApplyDomainWarp(FVector2D Position, const FNoiseSettings& Settings, int32 Seed) const
+}FVector2D UHeightfieldService::ApplyDomainWarp(FVector2D Position, const FNoiseSettings& Settings, int32 Seed) const
 {
 	if (Settings.DomainWarpStrength <= 0.0f)
 	{
@@ -238,20 +236,36 @@ HeightfieldService::ApplyDomainWarp(FVector2D Position, const FNoiseSettings& Se
 
 uint32 UHeightfieldService::HashPosition(FVector2D Position, int32 Seed) const
 {
-	// Convert position to integers for hashing
-	uint32 X = static_cast<uint32>(Position.X * 1000.0f);
-	uint32 Y = static_cast<uint32>(Position.Y * 1000.0f);
-	
-	// Combine with seed using LCG
-	uint32 Hash = X;
+	// Quantize to mm (or whatever you want) in a deterministic way.
+	// Floor avoids -0.000… jitter flipping sign around 0.
+	constexpr double kQuant = 1000.0;
+	const int32 Xi = static_cast<int32>(FMath::FloorToDouble(Position.X * kQuant));
+	const int32 Yi = static_cast<int32>(FMath::FloorToDouble(Position.Y * kQuant));
+
+	uint32 Hash = static_cast<uint32>(Xi);
 	Hash = Hash * 1664525u + 1013904223u;
-	Hash ^= Y;
+
+	Hash ^= static_cast<uint32>(Yi);
 	Hash = Hash * 1664525u + 1013904223u;
-	Hash ^= static_cast<uint32>(Seed);
+
+	// Mix the 32-bit Seed into two "halves" without UB.
+	const uint32 SeedLo = static_cast<uint32>(Seed);
+	const uint32 SeedHiMix = static_cast<uint32>(
+		(static_cast<uint64>(SeedLo) * 0x9E3779B185EBCA87ull) >> 32); // golden-ratio mix
+
+	Hash ^= SeedLo;
 	Hash = Hash * 1664525u + 1013904223u;
-	Hash ^= static_cast<uint32>(Seed >> 32);
+
+	Hash ^= SeedHiMix; // replaces the old (Seed >> 32)
 	Hash = Hash * 1664525u + 1013904223u;
-	
+
+	// Optional fast avalanche to improve bit diffusion
+	Hash ^= (Hash >> 16);
+	Hash *= 0x7feb352dU;
+	Hash ^= (Hash >> 15);
+	Hash *= 0x846ca68bU;
+	Hash ^= (Hash >> 16);
+
 	return Hash;
 }
 
@@ -308,8 +322,7 @@ float UHeightfieldService::CalculateSlope(const FVector& Normal) const
 	float DotProduct = FVector::DotProduct(Normal, FVector::UpVector);
 	float SlopeRadians = FMath::Acos(FMath::Clamp(DotProduct, -1.0f, 1.0f));
 	return FMath::RadiansToDegrees(SlopeRadians);
-}voi
-d UHeightfieldService::ApplyThermalSmoothing(FHeightfieldData& HeightfieldData, int32 Iterations)
+}void UHeightfieldService::ApplyThermalSmoothing(FHeightfieldData& HeightfieldData, int32 Iterations)
 {
 	for (int32 Iteration = 0; Iteration < Iterations; Iteration++)
 	{
@@ -419,8 +432,7 @@ bool UHeightfieldService::ExportHeightfieldPNG(const FHeightfieldData& Heightfie
 	UE_LOG(LogHeightfieldService, Log, TEXT("Successfully exported heightfield PNGs for tile (%d, %d)"), 
 		HeightfieldData.TileCoord.X, HeightfieldData.TileCoord.Y);
 	return true;
-}/
-/ Remaining interface implementations
+}// Remaining interface implementations
 bool UHeightfieldService::ModifyHeightfield(FVector Location, float Radius, float Strength, EHeightfieldOperation Operation)
 {
 	FHeightfieldModification Modification;
