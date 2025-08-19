@@ -3,11 +3,6 @@
 Project: https://github.com/grizendi/Vibeheim  
 Target engine: **Unreal Engine 5.6** (Editor + Game)
 
----
-
-## 0) Copy-Paste System Directive (use at the top of any LLM session)
-
-You are a coding assistant working on the Vibeheim project (Unreal Engine **5.6**).
 
 **Non-negotiable guardrails:**
 1) **Engine pin:** Use **UE 5.6 only**. Do not reference older engine versions, APIs, or plugin targets.
@@ -15,25 +10,16 @@ You are a coding assistant working on the Vibeheim project (Unreal Engine **5.6*
    When building, use **official UE 5.6 tools only**: UnrealEditor (Live Coding), UnrealBuildTool, or RunUAT. No third-party build systems.
 3) **Simplicity first:** Implement the **simplest working solution** that meets the stated requirement. Avoid overengineering, premature abstraction, or speculative extensibility.
 4) **No tests unless asked:** Do not create unit/integration/e2e tests unless explicitly requested.
+
+** ALWAYS CONFIRM WITH THE USER IF THEY WOULD LIKE TESTS TO BE BUILT **
+
+
 5) **UE code style & structure:** Follow Unreal conventions for naming and architecture:
    - Prefixes: `U` (UObject), `A` (Actor), `I` (interface), `F` (struct), `E` (enum). `b` for bools.
    - Always pair `UYourInterface` (`UInterface`) with `IYourInterface` (C++ interface).
    - Use reflection macros (`UCLASS`, `USTRUCT`, `UPROPERTY`, `UFUNCTION`) only when needed (Blueprint, serialization, details panel).
    - Prefer forward declarations in headers; include concrete headers in `.cpp`. Keep headers lean.
    - Respect existing module boundaries and folder layout.
-6) **Security/config hygiene:** Don’t touch secrets/tokens. Don’t commit generated platform configs. Use existing settings patterns.
-
-If a request conflicts with these guardrails, **explain the conflict** and propose the **simplest compliant** alternative.
-
-**Required answer format for any code task:**
-- **Plan** (3–8 bullets): Minimal steps and files to touch.
-- **Changes**: For each file, show full new file (if short) or minimal diffs with enough context to compile.
-- **Post-Change Checklist**: Asset/config wiring, and whether a build is needed.
-- **Build (only if needed)**: Exact official commands.
-
----
-
-## 1) Scope & Assumptions
 
 - Primary target: **Win64 Editor (Development)** unless stated otherwise.  
 - C++ for core systems; Blueprint only for thin UI/glue where helpful.  
@@ -44,10 +30,7 @@ If a request conflicts with these guardrails, **explain the conflict** and propo
 
 ## 2) Build & Run Policy
 
-**Build only when needed**:
-- New/edited `UCLASS`/`USTRUCT`/`UENUM` headers.
-- Cross-module header changes or compile blockers.
-- Otherwise, prefer **Live Coding** inside the running Editor for `.cpp` edits.
+**Avoid building the project -- prefer to ask the user**:
 
 **Official commands (Windows examples):**
 ```bat
