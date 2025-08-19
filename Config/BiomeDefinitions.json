@@ -1,0 +1,216 @@
+{
+  "BiomeDefinitions": {
+    "Meadows": {
+      "BiomeType": 1,
+      "BiomeName": "Meadows",
+      "BaseHeight": 5.0,
+      "HeightVariation": 20.0,
+      "MinTemperature": 5.0,
+      "MaxTemperature": 25.0,
+      "MinMoisture": 0.3,
+      "MaxMoisture": 0.8,
+      "BiomeWeight": 1.0,
+      "RingTargets": [0.2, 0.4, 0.6],
+      "SlopeLimit": 30.0,
+      "VegetationRules": [
+        {
+          "VegetationName": "Grass",
+          "Density": 2.0,
+          "MinScale": 0.8,
+          "MaxScale": 1.2,
+          "SlopeLimit": 45.0,
+          "MinHeight": -5.0,
+          "MaxHeight": 50.0
+        },
+        {
+          "VegetationName": "Wildflowers",
+          "Density": 0.5,
+          "MinScale": 0.6,
+          "MaxScale": 1.0,
+          "SlopeLimit": 25.0,
+          "MinHeight": 0.0,
+          "MaxHeight": 30.0
+        }
+      ],
+      "POIRules": [
+        {
+          "POIName": "MeadowShrine",
+          "SpawnChance": 0.05,
+          "MinDistanceFromOthers": 500.0,
+          "SlopeLimit": 15.0,
+          "RequiresFlatGround": true
+        }
+      ],
+      "RVTBlendColor": [0.56, 0.93, 0.56, 1.0]
+    },
+    "Forest": {
+      "BiomeType": 2,
+      "BiomeName": "Forest",
+      "BaseHeight": 10.0,
+      "HeightVariation": 30.0,
+      "MinTemperature": 0.0,
+      "MaxTemperature": 20.0,
+      "MinMoisture": 0.5,
+      "MaxMoisture": 1.0,
+      "BiomeWeight": 1.2,
+      "RingTargets": [0.3, 0.5, 0.7],
+      "SlopeLimit": 40.0,
+      "VegetationRules": [
+        {
+          "VegetationName": "Pine",
+          "Density": 0.8,
+          "MinScale": 0.9,
+          "MaxScale": 1.3,
+          "SlopeLimit": 35.0,
+          "MinHeight": 5.0,
+          "MaxHeight": 80.0
+        },
+        {
+          "VegetationName": "Birch",
+          "Density": 0.6,
+          "MinScale": 0.8,
+          "MaxScale": 1.1,
+          "SlopeLimit": 30.0,
+          "MinHeight": 0.0,
+          "MaxHeight": 60.0
+        },
+        {
+          "VegetationName": "Underbrush",
+          "Density": 1.5,
+          "MinScale": 0.7,
+          "MaxScale": 1.0,
+          "SlopeLimit": 40.0,
+          "MinHeight": 0.0,
+          "MaxHeight": 70.0
+        }
+      ],
+      "POIRules": [
+        {
+          "POIName": "ForestCamp",
+          "SpawnChance": 0.08,
+          "MinDistanceFromOthers": 400.0,
+          "SlopeLimit": 20.0,
+          "RequiresFlatGround": false
+        },
+        {
+          "POIName": "AncientTree",
+          "SpawnChance": 0.03,
+          "MinDistanceFromOthers": 800.0,
+          "SlopeLimit": 25.0,
+          "RequiresFlatGround": false
+        }
+      ],
+      "RVTBlendColor": [0.13, 0.55, 0.13, 1.0]
+    },
+    "Mountains": {
+      "BiomeType": 3,
+      "BiomeName": "Mountains",
+      "BaseHeight": 50.0,
+      "HeightVariation": 70.0,
+      "MinTemperature": -10.0,
+      "MaxTemperature": 15.0,
+      "MinMoisture": 0.2,
+      "MaxMoisture": 0.9,
+      "BiomeWeight": 0.8,
+      "RingTargets": [0.6, 0.8, 1.0],
+      "SlopeLimit": 60.0,
+      "VegetationRules": [
+        {
+          "VegetationName": "AlpineShrubs",
+          "Density": 0.3,
+          "MinScale": 0.5,
+          "MaxScale": 0.8,
+          "SlopeLimit": 50.0,
+          "MinHeight": 30.0,
+          "MaxHeight": 100.0
+        },
+        {
+          "VegetationName": "MountainGrass",
+          "Density": 0.8,
+          "MinScale": 0.6,
+          "MaxScale": 1.0,
+          "SlopeLimit": 45.0,
+          "MinHeight": 40.0,
+          "MaxHeight": 120.0
+        }
+      ],
+      "POIRules": [
+        {
+          "POIName": "MountainPeak",
+          "SpawnChance": 0.02,
+          "MinDistanceFromOthers": 1000.0,
+          "SlopeLimit": 10.0,
+          "RequiresFlatGround": true
+        },
+        {
+          "POIName": "CaveEntrance",
+          "SpawnChance": 0.06,
+          "MinDistanceFromOthers": 300.0,
+          "SlopeLimit": 40.0,
+          "RequiresFlatGround": false
+        }
+      ],
+      "RVTBlendColor": [0.55, 0.54, 0.54, 1.0]
+    },
+    "Ocean": {
+      "BiomeType": 4,
+      "BiomeName": "Ocean",
+      "BaseHeight": -20.0,
+      "HeightVariation": 10.0,
+      "MinTemperature": -5.0,
+      "MaxTemperature": 30.0,
+      "MinMoisture": 0.8,
+      "MaxMoisture": 1.0,
+      "BiomeWeight": 1.0,
+      "RingTargets": [0.0, 0.1, 0.2],
+      "SlopeLimit": 15.0,
+      "VegetationRules": [
+        {
+          "VegetationName": "Seaweed",
+          "Density": 1.2,
+          "MinScale": 0.8,
+          "MaxScale": 1.5,
+          "SlopeLimit": 20.0,
+          "MinHeight": -40.0,
+          "MaxHeight": -5.0
+        },
+        {
+          "VegetationName": "Coral",
+          "Density": 0.4,
+          "MinScale": 0.6,
+          "MaxScale": 1.2,
+          "SlopeLimit": 30.0,
+          "MinHeight": -30.0,
+          "MaxHeight": -10.0
+        }
+      ],
+      "POIRules": [
+        {
+          "POIName": "ShipwreckSite",
+          "SpawnChance": 0.01,
+          "MinDistanceFromOthers": 2000.0,
+          "SlopeLimit": 10.0,
+          "RequiresFlatGround": true
+        },
+        {
+          "POIName": "CoralReef",
+          "SpawnChance": 0.04,
+          "MinDistanceFromOthers": 600.0,
+          "SlopeLimit": 20.0,
+          "RequiresFlatGround": false
+        }
+      ],
+      "RVTBlendColor": [0.0, 0.75, 1.0, 1.0]
+    }
+  },
+  "GlobalBiomeSettings": {
+    "Version": 1,
+    "BlendDistanceMeters": 500.0,
+    "MinBiomeWeight": 0.1,
+    "BiomeTransitionSpeed": 1.0,
+    "RingBiasStrength": 0.5,
+    "TemperatureInfluence": 1.0,
+    "MoistureInfluence": 1.0,
+    "AltitudeInfluence": 0.8
+  }
+}

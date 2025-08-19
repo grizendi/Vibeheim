@@ -103,6 +103,18 @@ public:
 	void SetBiomeDefinitions(const TMap<EBiomeType, FBiomeDefinition>& InBiomeDefinitions);
 
 	/**
+	 * Load biome definitions from JSON configuration file
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Biome")
+	bool LoadBiomesFromJSON(const FString& ConfigPath = TEXT("Config/BiomeDefinitions.json"));
+
+	/**
+	 * Save biome definitions to JSON configuration file
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Biome")
+	bool SaveBiomesToJSON(const FString& ConfigPath = TEXT("Config/BiomeDefinitions.json")) const;
+
+	/**
 	 * Calculate biome suitability based on climate conditions
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Biome")

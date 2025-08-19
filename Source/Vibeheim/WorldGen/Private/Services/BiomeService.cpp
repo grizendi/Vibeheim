@@ -2,6 +2,11 @@
 #include "Engine/Engine.h"
 #include "HAL/FileManager.h"
 #include "Misc/Paths.h"
+#include "Misc/FileHelper.h"
+#include "Dom/JsonObject.h"
+#include "Serialization/JsonSerializer.h"
+#include "Serialization/JsonReader.h"
+#include "Serialization/JsonWriter.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogBiomeService, Log, All);
 
@@ -15,7 +20,12 @@ void UBiomeService::Initialize(UClimateSystem* InClimateSystem, const FWorldGenC
 	ClimateSystem = InClimateSystem;
 	WorldGenSettings = Settings;
 	
-	InitializeDefaultBiomes();
+	// Try to load biomes from JSON first, fallback to defaults
+	if (!LoadBiomesFromJSON(TEXT("Config/BiomeDefinitions.json")))
+	{
+		UE_LOG(LogBiomeService, Warning, TEXT("Failed to load biomes from JSON, using default hardcoded biomes"));
+		InitializeDefaultBiomes();
+	}
 	
 	UE_LOG(LogBiomeService, Log, TEXT("Biome service initialized with %d biome definitions"), BiomeDefinitions.Num());
 }
@@ -98,8 +108,75 @@ FBiomeResult UBiomeService::DetermineBiome(FVector2D WorldPosition, float Altitu
 
 EBiomeType UBiomeService::DetermineTileBiome(FTileCoord Tile, const TArray<float>& HeightData) const
 {
-	//missing logic here
-	return EBiomeType();
+	if (!ClimateSystem)
+	{
+		UE_LOG(LogBiomeService, Warning, TEXT("Climate system not set, defaulting to Meadows biome for tile (%d, %d)"), Tile.X, Tile.Y);
+		return EBiomeType::Meadows;
+	}
+
+	// Calculate tile world position (center of tile)
+	FVector TileWorldPos = Tile.ToWorldPosition(WorldGenSettings.TileSizeMeters);
+	FVector2D TileCenter(TileWorldPos.X, TileWorldPos.Y);
+	
+	// Sample multiple points across the tile to determine dominant biome
+	const int32 SampleCount = 9; // 3x3 sampling grid
+	const float SampleSpacing = WorldGenSettings.TileSizeMeters / 4.0f; // Quarter tile spacing
+	TMap<EBiomeType, int32> BiomeCounts;
+	
+	for (int32 Y = -1; Y <= 1; Y++)
+	{
+		for (int32 X = -1; X <= 1; X++)
+		{
+			// Calculate sample position
+			FVector2D SamplePos = TileCenter + FVector2D(X * SampleSpacing, Y * SampleSpacing);
+			
+			// Get height at this sample position (approximate from height data)
+			float SampleHeight = 0.0f;
+			if (HeightData.Num() > 0)
+			{
+				// Use center height as approximation (could be improved with interpolation)
+				int32 CenterIndex = (HeightData.Num() - 1) / 2;
+				if (HeightData.IsValidIndex(CenterIndex))
+				{
+					SampleHeight = HeightData[CenterIndex];
+				}
+			}
+			
+			// Determine biome at this sample point
+			FBiomeResult BiomeResult = DetermineBiome(SamplePos, SampleHeight);
+			
+			// Count biome occurrences
+			if (BiomeResult.PrimaryBiome != EBiomeType::None)
+			{
+				if (int32* Count = BiomeCounts.Find(BiomeResult.PrimaryBiome))
+				{
+					(*Count)++;
+				}
+				else
+				{
+					BiomeCounts.Add(BiomeResult.PrimaryBiome, 1);
+				}
+			}
+		}
+	}
+	
+	// Find the most common biome
+	EBiomeType DominantBiome = EBiomeType::Meadows; // Default fallback
+	int32 MaxCount = 0;
+	
+	for (const auto& BiomeCount : BiomeCounts)
+	{
+		if (BiomeCount.Value > MaxCount)
+		{
+			MaxCount = BiomeCount.Value;
+			DominantBiome = BiomeCount.Key;
+		}
+	}
+	
+	UE_LOG(LogBiomeService, Verbose, TEXT("Determined dominant biome for tile (%d, %d): %d (from %d samples)"), 
+		Tile.X, Tile.Y, static_cast<int32>(DominantBiome), SampleCount);
+	
+	return DominantBiome;
 }
 
 TMap<EBiomeType, float> UBiomeService::CalculateBiomeWeights(const FClimateData& ClimateData, float Altitude) const
@@ -330,4 +407,254 @@ void UBiomeService::SetBiomeDefinitions(const TMap<EBiomeType, FBiomeDefinition>
 {
 	BiomeDefinitions = InBiomeDefinitions;
 	UE_LOG(LogBiomeService, Log, TEXT("Updated biome definitions with %d biomes"), BiomeDefinitions.Num());
+}
+
+bool UBiomeService::LoadBiomesFromJSON(const FString& ConfigPath)
+{
+	// Get full path to the config file
+	FString FullPath = FPaths::ProjectDir() / ConfigPath;
+	
+	// Check if file exists
+	if (!FPaths::FileExists(FullPath))
+	{
+		UE_LOG(LogBiomeService, Warning, TEXT("Biome config file not found at: %s"), *FullPath);
+		return false;
+	}
+
+	// Load the JSON file
+	FString JSONContent;
+	if (!FFileHelper::LoadFileToString(JSONContent, *FullPath))
+	{
+		UE_LOG(LogBiomeService, Error, TEXT("Failed to load biome config file: %s"), *FullPath);
+		return false;
+	}
+
+	// Parse the JSON
+	TSharedPtr<FJsonObject> JSONObject;
+	TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(JSONContent);
+	if (!FJsonSerializer::Deserialize(Reader, JSONObject) || !JSONObject.IsValid())
+	{
+		UE_LOG(LogBiomeService, Error, TEXT("Failed to parse JSON from biome config file: %s"), *FullPath);
+		return false;
+	}
+
+	// Clear existing biome definitions
+	BiomeDefinitions.Empty();
+
+	// Parse biome definitions
+	const TSharedPtr<FJsonObject>* BiomeDefsObject;
+	if (!JSONObject->TryGetObjectField(TEXT("BiomeDefinitions"), BiomeDefsObject))
+	{
+		UE_LOG(LogBiomeService, Error, TEXT("Missing 'BiomeDefinitions' section in biome config"));
+		return false;
+	}
+
+	// Parse each biome
+	for (const auto& BiomePair : BiomeDefsObject->Get()->Values)
+	{
+		const FString& BiomeName = BiomePair.Key;
+		const TSharedPtr<FJsonValue>& BiomeValue = BiomePair.Value;
+		
+		const TSharedPtr<FJsonObject>* BiomeObject;
+		if (!BiomeValue->TryGetObject(BiomeObject))
+		{
+			UE_LOG(LogBiomeService, Warning, TEXT("Invalid biome object for %s"), *BiomeName);
+			continue;
+		}
+
+		// Parse biome definition
+		FBiomeDefinition BiomeDef;
+		
+		// Get biome type
+		int32 BiomeTypeInt;
+		if (!BiomeObject->Get()->TryGetNumberField(TEXT("BiomeType"), BiomeTypeInt))
+		{
+			UE_LOG(LogBiomeService, Warning, TEXT("Missing BiomeType for biome %s"), *BiomeName);
+			continue;
+		}
+		BiomeDef.BiomeType = static_cast<EBiomeType>(BiomeTypeInt);
+
+		// Get basic properties
+		BiomeObject->Get()->TryGetStringField(TEXT("BiomeName"), BiomeDef.BiomeName);
+		BiomeObject->Get()->TryGetNumberField(TEXT("BaseHeight"), BiomeDef.BaseHeight);
+		BiomeObject->Get()->TryGetNumberField(TEXT("HeightVariation"), BiomeDef.HeightVariation);
+		BiomeObject->Get()->TryGetNumberField(TEXT("MinTemperature"), BiomeDef.MinTemperature);
+		BiomeObject->Get()->TryGetNumberField(TEXT("MaxTemperature"), BiomeDef.MaxTemperature);
+		BiomeObject->Get()->TryGetNumberField(TEXT("MinMoisture"), BiomeDef.MinMoisture);
+		BiomeObject->Get()->TryGetNumberField(TEXT("MaxMoisture"), BiomeDef.MaxMoisture);
+		BiomeObject->Get()->TryGetNumberField(TEXT("BiomeWeight"), BiomeDef.BiomeWeight);
+
+		// Parse RVT blend color
+		const TArray<TSharedPtr<FJsonValue>>* ColorArray;
+		if (BiomeObject->Get()->TryGetArrayField(TEXT("RVTBlendColor"), ColorArray) && ColorArray->Num() >= 4)
+		{
+			BiomeDef.RVTBlendColor.R = (*ColorArray)[0]->AsNumber();
+			BiomeDef.RVTBlendColor.G = (*ColorArray)[1]->AsNumber();
+			BiomeDef.RVTBlendColor.B = (*ColorArray)[2]->AsNumber();
+			BiomeDef.RVTBlendColor.A = (*ColorArray)[3]->AsNumber();
+		}
+
+		// Parse vegetation rules
+		const TArray<TSharedPtr<FJsonValue>>* VegRulesArray;
+		if (BiomeObject->Get()->TryGetArrayField(TEXT("VegetationRules"), VegRulesArray))
+		{
+			for (const auto& VegRuleValue : *VegRulesArray)
+			{
+				const TSharedPtr<FJsonObject>* VegRuleObject;
+				if (!VegRuleValue->TryGetObject(VegRuleObject))
+					continue;
+
+				FPCGVegetationRule VegRule;
+				FString VegetationName;
+				VegRuleObject->Get()->TryGetStringField(TEXT("VegetationName"), VegetationName);
+				VegRuleObject->Get()->TryGetNumberField(TEXT("Density"), VegRule.Density);
+				VegRuleObject->Get()->TryGetNumberField(TEXT("MinScale"), VegRule.MinScale);
+				VegRuleObject->Get()->TryGetNumberField(TEXT("MaxScale"), VegRule.MaxScale);
+				VegRuleObject->Get()->TryGetNumberField(TEXT("SlopeLimit"), VegRule.SlopeLimit);
+				VegRuleObject->Get()->TryGetNumberField(TEXT("MinHeight"), VegRule.MinHeight);
+				VegRuleObject->Get()->TryGetNumberField(TEXT("MaxHeight"), VegRule.MaxHeight);
+				
+				BiomeDef.VegetationRules.Add(VegRule);
+			}
+		}
+
+		// Parse POI rules
+		const TArray<TSharedPtr<FJsonValue>>* POIRulesArray;
+		if (BiomeObject->Get()->TryGetArrayField(TEXT("POIRules"), POIRulesArray))
+		{
+			for (const auto& POIRuleValue : *POIRulesArray)
+			{
+				const TSharedPtr<FJsonObject>* POIRuleObject;
+				if (!POIRuleValue->TryGetObject(POIRuleObject))
+					continue;
+
+				FPOISpawnRule POIRule;
+				POIRuleObject->Get()->TryGetStringField(TEXT("POIName"), POIRule.POIName);
+				POIRuleObject->Get()->TryGetNumberField(TEXT("SpawnChance"), POIRule.SpawnChance);
+				POIRuleObject->Get()->TryGetNumberField(TEXT("MinDistanceFromOthers"), POIRule.MinDistanceFromOthers);
+				POIRuleObject->Get()->TryGetNumberField(TEXT("SlopeLimit"), POIRule.SlopeLimit);
+				POIRuleObject->Get()->TryGetBoolField(TEXT("RequiresFlatGround"), POIRule.bRequiresFlatGround);
+				
+				BiomeDef.POIRules.Add(POIRule);
+			}
+		}
+
+		// Add the biome definition
+		BiomeDefinitions.Add(BiomeDef.BiomeType, BiomeDef);
+		UE_LOG(LogBiomeService, Log, TEXT("Loaded biome definition: %s"), *BiomeDef.BiomeName);
+	}
+
+	// Parse global biome settings if available
+	const TSharedPtr<FJsonObject>* GlobalSettingsObject;
+	if (JSONObject->TryGetObjectField(TEXT("GlobalBiomeSettings"), GlobalSettingsObject))
+	{
+		float BlendDistance;
+		if (GlobalSettingsObject->Get()->TryGetNumberField(TEXT("BlendDistanceMeters"), BlendDistance))
+		{
+			WorldGenSettings.BiomeBlendDistance = BlendDistance;
+		}
+	}
+
+	UE_LOG(LogBiomeService, Log, TEXT("Successfully loaded %d biome definitions from %s"), 
+		BiomeDefinitions.Num(), *ConfigPath);
+	return true;
+}
+
+bool UBiomeService::SaveBiomesToJSON(const FString& ConfigPath) const
+{
+	// Create the main JSON object
+	TSharedPtr<FJsonObject> JSONObject = MakeShareable(new FJsonObject);
+	
+	// Create biome definitions object
+	TSharedPtr<FJsonObject> BiomeDefsObject = MakeShareable(new FJsonObject);
+	
+	// Convert each biome definition
+	for (const auto& BiomePair : BiomeDefinitions)
+	{
+		const FBiomeDefinition& BiomeDef = BiomePair.Value;
+		TSharedPtr<FJsonObject> BiomeObject = MakeShareable(new FJsonObject);
+		
+		// Basic properties
+		BiomeObject->SetNumberField(TEXT("BiomeType"), static_cast<int32>(BiomeDef.BiomeType));
+		BiomeObject->SetStringField(TEXT("BiomeName"), BiomeDef.BiomeName);
+		BiomeObject->SetNumberField(TEXT("BaseHeight"), BiomeDef.BaseHeight);
+		BiomeObject->SetNumberField(TEXT("HeightVariation"), BiomeDef.HeightVariation);
+		BiomeObject->SetNumberField(TEXT("MinTemperature"), BiomeDef.MinTemperature);
+		BiomeObject->SetNumberField(TEXT("MaxTemperature"), BiomeDef.MaxTemperature);
+		BiomeObject->SetNumberField(TEXT("MinMoisture"), BiomeDef.MinMoisture);
+		BiomeObject->SetNumberField(TEXT("MaxMoisture"), BiomeDef.MaxMoisture);
+		BiomeObject->SetNumberField(TEXT("BiomeWeight"), BiomeDef.BiomeWeight);
+
+		// RVT blend color
+		TArray<TSharedPtr<FJsonValue>> ColorArray;
+		ColorArray.Add(MakeShareable(new FJsonValueNumber(BiomeDef.RVTBlendColor.R)));
+		ColorArray.Add(MakeShareable(new FJsonValueNumber(BiomeDef.RVTBlendColor.G)));
+		ColorArray.Add(MakeShareable(new FJsonValueNumber(BiomeDef.RVTBlendColor.B)));
+		ColorArray.Add(MakeShareable(new FJsonValueNumber(BiomeDef.RVTBlendColor.A)));
+		BiomeObject->SetArrayField(TEXT("RVTBlendColor"), ColorArray);
+
+		// Vegetation rules
+		TArray<TSharedPtr<FJsonValue>> VegRulesArray;
+		for (const FPCGVegetationRule& VegRule : BiomeDef.VegetationRules)
+		{
+			TSharedPtr<FJsonObject> VegRuleObject = MakeShareable(new FJsonObject);
+			VegRuleObject->SetStringField(TEXT("VegetationName"), TEXT("Generated")); // Placeholder
+			VegRuleObject->SetNumberField(TEXT("Density"), VegRule.Density);
+			VegRuleObject->SetNumberField(TEXT("MinScale"), VegRule.MinScale);
+			VegRuleObject->SetNumberField(TEXT("MaxScale"), VegRule.MaxScale);
+			VegRuleObject->SetNumberField(TEXT("SlopeLimit"), VegRule.SlopeLimit);
+			VegRuleObject->SetNumberField(TEXT("MinHeight"), VegRule.MinHeight);
+			VegRuleObject->SetNumberField(TEXT("MaxHeight"), VegRule.MaxHeight);
+			VegRulesArray.Add(MakeShareable(new FJsonValueObject(VegRuleObject)));
+		}
+		BiomeObject->SetArrayField(TEXT("VegetationRules"), VegRulesArray);
+
+		// POI rules
+		TArray<TSharedPtr<FJsonValue>> POIRulesArray;
+		for (const FPOISpawnRule& POIRule : BiomeDef.POIRules)
+		{
+			TSharedPtr<FJsonObject> POIRuleObject = MakeShareable(new FJsonObject);
+			POIRuleObject->SetStringField(TEXT("POIName"), POIRule.POIName);
+			POIRuleObject->SetNumberField(TEXT("SpawnChance"), POIRule.SpawnChance);
+			POIRuleObject->SetNumberField(TEXT("MinDistanceFromOthers"), POIRule.MinDistanceFromOthers);
+			POIRuleObject->SetNumberField(TEXT("SlopeLimit"), POIRule.SlopeLimit);
+			POIRuleObject->SetBoolField(TEXT("RequiresFlatGround"), POIRule.bRequiresFlatGround);
+			POIRulesArray.Add(MakeShareable(new FJsonValueObject(POIRuleObject)));
+		}
+		BiomeObject->SetArrayField(TEXT("POIRules"), POIRulesArray);
+
+		// Add to biome definitions
+		BiomeDefsObject->SetObjectField(BiomeDef.BiomeName, BiomeObject);
+	}
+
+	JSONObject->SetObjectField(TEXT("BiomeDefinitions"), BiomeDefsObject);
+
+	// Add global biome settings
+	TSharedPtr<FJsonObject> GlobalSettingsObject = MakeShareable(new FJsonObject);
+	GlobalSettingsObject->SetNumberField(TEXT("Version"), 1);
+	GlobalSettingsObject->SetNumberField(TEXT("BlendDistanceMeters"), WorldGenSettings.BiomeBlendDistance);
+	GlobalSettingsObject->SetNumberField(TEXT("MinBiomeWeight"), 0.1);
+	GlobalSettingsObject->SetNumberField(TEXT("BiomeTransitionSpeed"), 1.0);
+	GlobalSettingsObject->SetNumberField(TEXT("RingBiasStrength"), 0.5);
+	GlobalSettingsObject->SetNumberField(TEXT("TemperatureInfluence"), 1.0);
+	GlobalSettingsObject->SetNumberField(TEXT("MoistureInfluence"), 1.0);
+	GlobalSettingsObject->SetNumberField(TEXT("AltitudeInfluence"), 0.8);
+	JSONObject->SetObjectField(TEXT("GlobalBiomeSettings"), GlobalSettingsObject);
+
+	// Serialize to string
+	FString OutputString;
+	TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&OutputString);
+	FJsonSerializer::Serialize(JSONObject.ToSharedRef(), Writer);
+
+	// Save to file
+	FString FullPath = FPaths::ProjectDir() / ConfigPath;
+	if (!FFileHelper::SaveStringToFile(OutputString, *FullPath))
+	{
+		UE_LOG(LogBiomeService, Error, TEXT("Failed to save biome config to: %s"), *FullPath);
+		return false;
+	}
+
+	UE_LOG(LogBiomeService, Log, TEXT("Successfully saved %d biome definitions to %s"), 
+		BiomeDefinitions.Num(), *ConfigPath);
+	return true;
 }

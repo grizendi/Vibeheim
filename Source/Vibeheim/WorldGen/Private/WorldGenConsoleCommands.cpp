@@ -540,3 +540,222 @@ static FAutoConsoleCommand WorldGenTestPCGCommand(
 #endif
 	})
 );
+
+// Dynamic Runtime Commands
+static FAutoConsoleCommand WorldGenSetSeedCommand(
+	TEXT("wg.Seed"),
+	TEXT("Set the world generation seed. Usage: wg.Seed <NewSeed>"),
+	FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+	{
+		if (Args.Num() < 1)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Usage: wg.Seed <NewSeed>"));
+			return;
+		}
+
+		uint64 NewSeed = FCString::Strtoui64(*Args[0], nullptr, 10);
+		
+		UWorldGenSettings* Settings = UWorldGenSettings::GetWorldGenSettings();
+		if (!Settings)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Failed to get WorldGen settings instance"));
+			return;
+		}
+
+		uint64 OldSeed = Settings->Settings.Seed;
+		Settings->Settings.Seed = NewSeed;
+		
+		UE_LOG(LogTemp, Log, TEXT("World generation seed changed from %llu to %llu"), OldSeed, NewSeed);
+		UE_LOG(LogTemp, Warning, TEXT("Note: This will affect new tile generation. Existing tiles remain unchanged."));
+		
+		// Clear heightfield cache to force regeneration with new seed
+		// TODO: Find WorldGenManager instance and clear its heightfield cache
+		UE_LOG(LogTemp, Log, TEXT("Consider using wg.ClearCache to regenerate existing tiles with new seed"));
+	})
+);
+
+static FAutoConsoleCommand WorldGenSetStreamRadiusCommand(
+	TEXT("wg.StreamRadius"),
+	TEXT("Set streaming radii. Usage: wg.StreamRadius <GenerateRadius> [LoadRadius] [ActiveRadius]"),
+	FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+	{
+		if (Args.Num() < 1)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Usage: wg.StreamRadius <GenerateRadius> [LoadRadius] [ActiveRadius]"));
+			return;
+		}
+
+		UWorldGenSettings* Settings = UWorldGenSettings::GetWorldGenSettings();
+		if (!Settings)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Failed to get WorldGen settings instance"));
+			return;
+		}
+
+		int32 NewGenerateRadius = FMath::Clamp(FCString::Atoi(*Args[0]), 1, 20);
+		int32 NewLoadRadius = Args.Num() > 1 ? FMath::Clamp(FCString::Atoi(*Args[1]), 1, 15) : FMath::Min(NewGenerateRadius - 2, 5);
+		int32 NewActiveRadius = Args.Num() > 2 ? FMath::Clamp(FCString::Atoi(*Args[2]), 1, 10) : FMath::Min(NewLoadRadius - 1, 3);
+
+		UE_LOG(LogTemp, Log, TEXT("Streaming radii changed:"));
+		UE_LOG(LogTemp, Log, TEXT("  Generate: %d → %d"), Settings->Settings.GenerateRadius, NewGenerateRadius);
+		UE_LOG(LogTemp, Log, TEXT("  Load: %d → %d"), Settings->Settings.LoadRadius, NewLoadRadius);
+		UE_LOG(LogTemp, Log, TEXT("  Active: %d → %d"), Settings->Settings.ActiveRadius, NewActiveRadius);
+
+		Settings->Settings.GenerateRadius = NewGenerateRadius;
+		Settings->Settings.LoadRadius = NewLoadRadius;
+		Settings->Settings.ActiveRadius = NewActiveRadius;
+
+		UE_LOG(LogTemp, Log, TEXT("New streaming configuration applied"));
+	})
+);
+
+// Debug visualization commands
+static TAutoConsoleVariable<bool> CVarShowBiomes(
+	TEXT("wg.ShowBiomes"),
+	false,
+	TEXT("Show biome boundary visualization overlay"),
+	ECVF_Default
+);
+
+static TAutoConsoleVariable<bool> CVarShowPCGDebug(
+	TEXT("wg.ShowPCGDebug"),
+	false,
+	TEXT("Show PCG generation debug information"),
+	ECVF_Default
+);
+
+static TAutoConsoleVariable<bool> CVarShowClimate(
+	TEXT("wg.ShowClimate"),
+	false,
+	TEXT("Show climate data visualization overlay"),
+	ECVF_Default
+);
+
+static TAutoConsoleVariable<bool> CVarShowHeightfield(
+	TEXT("wg.ShowHeightfield"),
+	false,
+	TEXT("Show heightfield generation debug info"),
+	ECVF_Default
+);
+
+static TAutoConsoleVariable<bool> CVarShowTileGrid(
+	TEXT("wg.ShowTileGrid"),
+	false,
+	TEXT("Show tile coordinate grid overlay"),
+	ECVF_Default
+);
+
+static TAutoConsoleVariable<bool> CVarShowPerformance(
+	TEXT("wg.ShowPerformance"),
+	false,
+	TEXT("Show world generation performance HUD"),
+	ECVF_Default
+);
+
+// Performance and diagnostics commands
+static FAutoConsoleCommand WorldGenPerformanceStatsCommand(
+	TEXT("wg.PerfStats"),
+	TEXT("Display detailed world generation performance statistics"),
+	FConsoleCommandDelegate::CreateLambda([]()
+	{
+		UE_LOG(LogTemp, Log, TEXT("=== World Generation Performance Statistics ==="));
+		
+		// TODO: Get actual WorldGenManager instance and retrieve real performance stats
+		UE_LOG(LogTemp, Log, TEXT("Tile Generation:"));
+		UE_LOG(LogTemp, Log, TEXT("  Average Time: Not implemented"));
+		UE_LOG(LogTemp, Log, TEXT("  Total Tiles Generated: Not implemented"));
+		UE_LOG(LogTemp, Log, TEXT("  Tiles Exceeding Target: Not implemented"));
+		
+		UE_LOG(LogTemp, Log, TEXT("PCG Generation:"));
+		UE_LOG(LogTemp, Log, TEXT("  Average Time: Not implemented"));
+		UE_LOG(LogTemp, Log, TEXT("  Total Instances: Not implemented"));
+		UE_LOG(LogTemp, Log, TEXT("  Memory Usage: Not implemented"));
+		
+		UE_LOG(LogTemp, Log, TEXT("Streaming:"));
+		UE_LOG(LogTemp, Log, TEXT("  Loaded Tiles: Not implemented"));
+		UE_LOG(LogTemp, Log, TEXT("  Pending Loads: Not implemented"));
+		UE_LOG(LogTemp, Log, TEXT("  Cache Hit Rate: Not implemented"));
+		
+		UE_LOG(LogTemp, Warning, TEXT("Note: Real performance stats require WorldGenManager instance"));
+	})
+);
+
+static FAutoConsoleCommand WorldGenClearCacheCommand(
+	TEXT("wg.ClearCache"),
+	TEXT("Clear all cached heightfield and generation data"),
+	FConsoleCommandDelegate::CreateLambda([]()
+	{
+		UE_LOG(LogTemp, Log, TEXT("Clearing world generation caches..."));
+		
+		// TODO: Find WorldGenManager instance and clear its caches
+		UE_LOG(LogTemp, Log, TEXT("Heightfield cache cleared (not implemented)"));
+		UE_LOG(LogTemp, Log, TEXT("PCG instance cache cleared (not implemented)"));
+		UE_LOG(LogTemp, Log, TEXT("Climate data cache cleared (not implemented)"));
+		
+		UE_LOG(LogTemp, Warning, TEXT("Note: Cache clearing requires WorldGenManager instance"));
+	})
+);
+
+static FAutoConsoleCommand WorldGenRegenTileCommand(
+	TEXT("wg.RegenTile"),
+	TEXT("Regenerate a specific tile with current settings. Usage: wg.RegenTile TileX TileY"),
+	FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+	{
+		if (Args.Num() < 2)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Usage: wg.RegenTile TileX TileY"));
+			return;
+		}
+
+		int32 TileX = FCString::Atoi(*Args[0]);
+		int32 TileY = FCString::Atoi(*Args[1]);
+		
+		UE_LOG(LogTemp, Log, TEXT("Regenerating tile (%d, %d) with current settings..."), TileX, TileY);
+		
+		// TODO: Find WorldGenManager instance and force regeneration of specific tile
+		UE_LOG(LogTemp, Warning, TEXT("Tile regeneration not implemented - requires WorldGenManager instance"));
+	})
+);
+
+static FAutoConsoleCommand WorldGenListDebugCommandsCommand(
+	TEXT("wg.Help"),
+	TEXT("List all available world generation debug commands"),
+	FConsoleCommandDelegate::CreateLambda([]()
+	{
+		UE_LOG(LogTemp, Log, TEXT("=== World Generation Debug Commands ==="));
+		UE_LOG(LogTemp, Log, TEXT("Settings:"));
+		UE_LOG(LogTemp, Log, TEXT("  wg.LoadSettings [path] - Load settings from JSON"));
+		UE_LOG(LogTemp, Log, TEXT("  wg.SaveSettings [path] - Save settings to JSON"));
+		UE_LOG(LogTemp, Log, TEXT("  wg.ValidateSettings - Validate current settings"));
+		UE_LOG(LogTemp, Log, TEXT("  wg.ShowSettings - Display current settings"));
+		UE_LOG(LogTemp, Log, TEXT("  wg.ResetSettings - Reset to default values"));
+		UE_LOG(LogTemp, Log, TEXT(""));
+		UE_LOG(LogTemp, Log, TEXT("Runtime Control:"));
+		UE_LOG(LogTemp, Log, TEXT("  wg.Seed <seed> - Set generation seed"));
+		UE_LOG(LogTemp, Log, TEXT("  wg.StreamRadius <gen> [load] [active] - Set streaming radii"));
+		UE_LOG(LogTemp, Log, TEXT("  wg.ClearCache - Clear all generation caches"));
+		UE_LOG(LogTemp, Log, TEXT("  wg.RegenTile <x> <y> - Regenerate specific tile"));
+		UE_LOG(LogTemp, Log, TEXT(""));
+		UE_LOG(LogTemp, Log, TEXT("Testing:"));
+		UE_LOG(LogTemp, Log, TEXT("  wg.BasicTest - Test basic system functionality"));
+		UE_LOG(LogTemp, Log, TEXT("  wg.TestClimate <x> <y> [alt] - Test climate at location"));
+		UE_LOG(LogTemp, Log, TEXT("  wg.TestHeightfield <x> <y> [seed] - Test heightfield generation"));
+		UE_LOG(LogTemp, Log, TEXT("  wg.TestBiome <x> <y> [alt] - Test biome determination"));
+		UE_LOG(LogTemp, Log, TEXT("  wg.TestNoise <x> <y> [type] [scale] - Test noise generation"));
+		UE_LOG(LogTemp, Log, TEXT("  wg.TestPCG <x> <y> [biome] - Test PCG generation"));
+		UE_LOG(LogTemp, Log, TEXT(""));
+		UE_LOG(LogTemp, Log, TEXT("Debug Visualization (Console Variables):"));
+		UE_LOG(LogTemp, Log, TEXT("  wg.ShowBiomes - Toggle biome boundary overlay"));
+		UE_LOG(LogTemp, Log, TEXT("  wg.ShowPCGDebug - Toggle PCG debug information"));
+		UE_LOG(LogTemp, Log, TEXT("  wg.ShowClimate - Toggle climate visualization"));
+		UE_LOG(LogTemp, Log, TEXT("  wg.ShowHeightfield - Toggle heightfield debug"));
+		UE_LOG(LogTemp, Log, TEXT("  wg.ShowTileGrid - Toggle tile coordinate grid"));
+		UE_LOG(LogTemp, Log, TEXT("  wg.ShowPerformance - Toggle performance HUD"));
+		UE_LOG(LogTemp, Log, TEXT(""));
+		UE_LOG(LogTemp, Log, TEXT("Export:"));
+		UE_LOG(LogTemp, Log, TEXT("  wg.ExportDebugPNG <x> <y> [path] - Export debug PNGs"));
+		UE_LOG(LogTemp, Log, TEXT(""));
+		UE_LOG(LogTemp, Log, TEXT("Diagnostics:"));
+		UE_LOG(LogTemp, Log, TEXT("  wg.PerfStats - Show performance statistics"));
+	})
+);
