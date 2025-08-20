@@ -659,11 +659,12 @@ bool UPCGWorldService::RemovePOI(FGuid POIId)
 	FTileCoord TileCoord = FTileCoord::FromWorldPosition(POIData->Location, 64.0f);
 
 	// Destroy the spawned actor if it exists
-	if (AActor** SpawnedActor = SpawnedPOIActors.Find(POIId))
+	if (TObjectPtr<AActor>* FoundPtr = SpawnedPOIActors.Find(POIId))
 	{
-		if (IsValid(*SpawnedActor))
+		AActor* SpawnedActor = FoundPtr->Get();
+		if (IsValid(SpawnedActor))
 		{
-			(*SpawnedActor)->Destroy();
+			(SpawnedActor)->Destroy();
 		}
 		SpawnedPOIActors.Remove(POIId);
 	}

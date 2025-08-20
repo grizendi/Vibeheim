@@ -3,7 +3,8 @@
 #include "CoreMinimal.h"
 #include "Data/WorldGenTypes.h"
 #include "HAL/FileManager.h"
-#include "Misc/Compression.h"
+#include "Compression/CompressedBuffer.h"
+#include "Misc/Compression.h" 
 #include "InstancePersistence.generated.h"
 
 /**
@@ -225,7 +226,8 @@ private:
 
 	// Compression settings
 	bool bUseCompression = true;
-	ECompressionFlags CompressionFlags = COMPRESS_ZLIB;
+	FName CompressionFormat = NAME_Zlib;
+	ECompressionFlags CompressionFlags = ECompressionFlags::COMPRESS_None;
 
 	// Performance tracking
 	int32 TotalJournalEntries = 0;

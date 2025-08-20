@@ -3,11 +3,29 @@
 #include "HAL/PlatformFilemanager.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "Misc/Compression.h" 
 #include "Serialization/MemoryWriter.h"
 #include "Serialization/MemoryReader.h"
 #include "Serialization/ObjectAndNameAsStringProxyArchive.h"
+#include "Serialization/StructuredArchive.h"
+#include "UObject/UnrealType.h"
 #include "Services/PCGWorldService.h"
 #include "Utils/HashUtils.h"
+
+namespace InstancePersist
+{
+	static inline void GetCompressionParams(FName& OutFormat, ECompressionFlags& OutFlags)
+	{
+#if WITH_OODLE_SDK
+		OutFormat = NAME_Oodle; // UE 5.6 preferred if the Oodle plugin is present
+#else
+		OutFormat = NAME_Zlib;  // fallback that exists in stock UE
+#endif
+		OutFlags = ECompressionFlags::COMPRESS_None;
+	}
+}
+
+
 
 DEFINE_LOG_CATEGORY_STATIC(LogInstancePersistence, Log, All);
 
@@ -51,111 +69,187 @@ bool FTileInstanceJournal::CompressEntries(TArray<uint8>& OutCompressedData) con
 		return true;
 	}
 
-	// Serialize entries to binary data first
-	FMemoryWriter Writer(OutCompressedData);
-	FObjectAndNameAsStringProxyArchive StringArchive(Writer, true);
-	
-	// Write journal header
+	FName Format;
+	ECompressionFlags Flags;
+	InstancePersist::GetCompressionParams(Format, Flags);
+
+	// 1) Serialize to an uncompressed scratch buffer
+	TArray<uint8> Uncompressed;
+	FMemoryWriter Writer(Uncompressed);
+	FObjectAndNameAsStringProxyArchive Ar(Writer, /*bLoadIfFindFails*/ true);
+
+	// Header
 	int32 EntryCount = Entries.Num();
-	StringArchive << EntryCount;
-	StringArchive << JournalVersion;
-	
-	// Write all entries
-	for (const FInstanceJournalEntry& Entry : Entries)
+	Ar << EntryCount;
+	int32 JV = JournalVersion;        // non-const for << operator
+	Ar << JV;
+
+	// Body
+	for (const FInstanceJournalEntry& EntryConst : Entries)
 	{
-		// Write entry data
-		FGuid TempGuid = Entry.InstanceId;
-		StringArchive << TempGuid;
-		
-		uint8 OperationType = static_cast<uint8>(Entry.Operation);
-		StringArchive << OperationType;
-		StringArchive << const_cast<int64&>(Entry.Timestamp);
-		StringArchive << const_cast<bool&>(Entry.bIsPOI);
-		StringArchive << const_cast<int32&>(Entry.Version);
-		
-		// Serialize instance data
-		if (Entry.Operation == EInstanceOperation::Add || Entry.Operation == EInstanceOperation::Modify)
+		// Primitives must be non-const when serialized
+		FGuid InstanceId = EntryConst.InstanceId;               Ar << InstanceId;
+		uint8 OperationType = static_cast<uint8>(EntryConst.Operation); Ar << OperationType;
+		int64 Timestamp = EntryConst.Timestamp;                 Ar << Timestamp;
+		bool  bIsPOI = EntryConst.bIsPOI;                       Ar << bIsPOI;
+		int32 Version = EntryConst.Version;                     Ar << Version;
+
+		// Payload
+		if (EntryConst.Operation == EInstanceOperation::Add || EntryConst.Operation == EInstanceOperation::Modify)
 		{
-			if (Entry.bIsPOI)
+			if (EntryConst.bIsPOI)
 			{
-				// Serialize POI data
-				StringArchive << const_cast<FPOIData&>(Entry.POIData);
+				FPOIData POICopy = EntryConst.POIData;
+				Ar << POICopy;
 			}
 			else
 			{
-				// Serialize instance data
-				StringArchive << const_cast<FPCGInstanceData&>(Entry.InstanceData);
+				FPCGInstanceData InstCopy = EntryConst.InstanceData;
+				Ar << InstCopy;
 			}
 		}
 	}
 
-	// TODO: Add actual compression using UE5's compression system
-	// For now, we store uncompressed data but the infrastructure is ready
-	UE_LOG(LogInstancePersistence, Log, TEXT("Compressed journal entries for tile (%d, %d): %d entries, %d bytes"), 
-		TileCoord.X, TileCoord.Y, Entries.Num(), OutCompressedData.Num());
+	const int32 UncompressedSize = Uncompressed.Num();
+	if (UncompressedSize <= 0)
+	{
+		OutCompressedData.Empty();
+		return true;
+	}
+
+	// 2) Compress the serialized bytes
+	int32 MaxCompressed = FCompression::CompressMemoryBound(Format, UncompressedSize);
+	TArray<uint8> Compressed;
+	Compressed.SetNumUninitialized(MaxCompressed);
+
+	int32 CompressedSize = MaxCompressed;
+	const bool bOk = FCompression::CompressMemory(
+		Format,
+		Compressed.GetData(), CompressedSize,
+		Uncompressed.GetData(), UncompressedSize,
+		Flags
+	);
+
+	if (!bOk)
+	{
+		UE_LOG(LogInstancePersistence, Error, TEXT("Compression failed for tile (%d,%d)."), TileCoord.X, TileCoord.Y);
+		return false;
+	}
+
+	// 3) Write output as: [int32 UncompressedSize][CompressedBytes...]
+	OutCompressedData.SetNumUninitialized(sizeof(int32) + CompressedSize);
+	FMemory::Memcpy(OutCompressedData.GetData(), &UncompressedSize, sizeof(int32));
+	FMemory::Memcpy(OutCompressedData.GetData() + sizeof(int32), Compressed.GetData(), CompressedSize);
+
+	UE_LOG(LogInstancePersistence, Log, TEXT("Compressed journal (%d,%d): %d entries, %d -> %d bytes"),
+		TileCoord.X, TileCoord.Y, Entries.Num(), UncompressedSize, CompressedSize);
 
 	return true;
 }
 
 bool FTileInstanceJournal::DecompressEntries(const TArray<uint8>& InCompressedData)
 {
+	Entries.Reset();
+
 	if (InCompressedData.Num() == 0)
 	{
-		Entries.Empty();
 		return true;
 	}
 
-	// TODO: Add actual decompression when compression is implemented
-	// For now, read uncompressed data
-	FMemoryReader Reader(const_cast<TArray<uint8>&>(InCompressedData));
-	FObjectAndNameAsStringProxyArchive StringArchive(Reader, true);
-	
-	// Read journal header
-	int32 EntryCount = 0;
-	StringArchive << EntryCount;
-	StringArchive << JournalVersion;
-	
-	if (EntryCount < 0 || EntryCount > 100000) // Sanity check
+	FName Format;
+	ECompressionFlags Flags;
+	InstancePersist::GetCompressionParams(Format, Flags);
+
+	if (InCompressedData.Num() < static_cast<int32>(sizeof(int32)))
 	{
-		UE_LOG(LogInstancePersistence, Error, TEXT("Invalid entry count in compressed data: %d"), EntryCount);
+		UE_LOG(LogInstancePersistence, Error, TEXT("Corrupt journal: blob too small (%d)."), InCompressedData.Num());
 		return false;
 	}
-	
-	Entries.Empty(EntryCount);
-	
-	// Read all entries
-	for (int32 i = 0; i < EntryCount; i++)
+
+	// 1) Read header (expected uncompressed size)
+	int32 ExpectedUncompressedSize = 0;
+	FMemory::Memcpy(&ExpectedUncompressedSize, InCompressedData.GetData(), sizeof(int32));
+	const uint8* CompressedStart = InCompressedData.GetData() + sizeof(int32);
+	const int32  CompressedBytes = InCompressedData.Num() - sizeof(int32);
+
+	if (ExpectedUncompressedSize < 0)
+	{
+		UE_LOG(LogInstancePersistence, Error, TEXT("Corrupt journal: negative size."));
+		return false;
+	}
+
+	// 2) Decompress
+	TArray<uint8> Uncompressed;
+	Uncompressed.SetNumUninitialized(ExpectedUncompressedSize);
+
+	int32 OutSize = ExpectedUncompressedSize;
+	const bool bOk = FCompression::UncompressMemory(
+		Format,
+		Uncompressed.GetData(), OutSize,
+		CompressedStart, CompressedBytes
+	);
+
+	if (!bOk || OutSize != ExpectedUncompressedSize)
+	{
+		UE_LOG(LogInstancePersistence, Error, TEXT("Failed to uncompress journal (%d,%d). ok=%d out=%d expected=%d"),
+			TileCoord.X, TileCoord.Y, bOk ? 1 : 0, OutSize, ExpectedUncompressedSize);
+		return false;
+	}
+
+	// 3) Deserialize entries from the uncompressed buffer
+	FMemoryReader Reader(Uncompressed);
+	FObjectAndNameAsStringProxyArchive Ar(Reader, /*bLoadIfFindFails*/ true);
+
+	int32 EntryCount = 0;
+	Ar << EntryCount;
+
+	int32 JV = 0;
+	Ar << JV;
+
+	if (EntryCount < 0 || EntryCount > 100000) // sanity
+	{
+		UE_LOG(LogInstancePersistence, Error, TEXT("Invalid entry count in journal: %d"), EntryCount);
+		return false;
+	}
+
+	if (JV != JournalVersion)
+	{
+		UE_LOG(LogInstancePersistence, Verbose, TEXT("Journal version mismatch: file=%d code=%d (tile %d,%d)."),
+			JV, JournalVersion, TileCoord.X, TileCoord.Y);
+	}
+
+	Entries.Reserve(EntryCount);
+
+	for (int32 i = 0; i < EntryCount; ++i)
 	{
 		FInstanceJournalEntry Entry;
-		
-		// Read entry data
-		StringArchive << Entry.InstanceId;
-		
-		uint8 OperationType;
-		StringArchive << OperationType;
+
+		Ar << Entry.InstanceId;
+
+		uint8 OperationType = 0;
+		Ar << OperationType;
 		Entry.Operation = static_cast<EInstanceOperation>(OperationType);
-		
-		StringArchive << Entry.Timestamp;
-		StringArchive << Entry.bIsPOI;
-		StringArchive << Entry.Version;
-		
-		// Read instance data based on operation type
+
+		Ar << Entry.Timestamp;
+		Ar << Entry.bIsPOI;
+		Ar << Entry.Version;
+
 		if (Entry.Operation == EInstanceOperation::Add || Entry.Operation == EInstanceOperation::Modify)
 		{
 			if (Entry.bIsPOI)
 			{
-				StringArchive << Entry.POIData;
+				Ar << Entry.POIData;
 			}
 			else
 			{
-				StringArchive << Entry.InstanceData;
+				Ar << Entry.InstanceData;
 			}
 		}
-		
-		Entries.Add(Entry);
+
+		Entries.Add(MoveTemp(Entry));
 	}
 
-	UE_LOG(LogInstancePersistence, Log, TEXT("Decompressed journal entries for tile (%d, %d): %d entries"), 
+	UE_LOG(LogInstancePersistence, Log, TEXT("Decompressed journal (%d,%d): %d entries"),
 		TileCoord.X, TileCoord.Y, Entries.Num());
 
 	return true;
