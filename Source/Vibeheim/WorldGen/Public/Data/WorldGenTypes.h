@@ -75,6 +75,20 @@ struct VIBEHEIM_API FTileCoord
 	{
 		return FIntVector2(X, Y);
 	}
+
+	// Custom serialization for archive compatibility
+	bool Serialize(FArchive& Ar)
+	{
+		Ar << X;
+		Ar << Y;
+		return true;
+	}
+
+	friend FArchive& operator<<(FArchive& Ar, FTileCoord& TileCoord)
+	{
+		TileCoord.Serialize(Ar);
+		return Ar;
+	}
 };
 
 /**
@@ -383,6 +397,46 @@ struct VIBEHEIM_API FPOIData
 	{
 		POIId = FGuid::NewGuid();
 	}
+
+	// Custom serialization for archive compatibility
+	bool Serialize(FArchive& Ar)
+	{
+		Ar << POIId;
+		Ar << POIName;
+		Ar << Location;
+		Ar << Rotation;
+		Ar << Scale;
+		
+		// Serialize soft object pointer as string
+		if (Ar.IsLoading())
+		{
+			FString POIBlueprintPath;
+			Ar << POIBlueprintPath;
+			POIBlueprint = TSoftObjectPtr<UBlueprint>(FSoftObjectPath(POIBlueprintPath));
+		}
+		else
+		{
+			FString POIBlueprintPath = POIBlueprint.GetLongPackageName();
+			Ar << POIBlueprintPath;
+		}
+		
+		uint8 BiomeTypeValue = static_cast<uint8>(OriginBiome);
+		Ar << BiomeTypeValue;
+		if (Ar.IsLoading())
+		{
+			OriginBiome = static_cast<EBiomeType>(BiomeTypeValue);
+		}
+		
+		Ar << bIsSpawned;
+		
+		return true;
+	}
+
+	friend FArchive& operator<<(FArchive& Ar, FPOIData& POIData)
+	{
+		POIData.Serialize(Ar);
+		return Ar;
+	}
 };
 
 /**
@@ -417,6 +471,39 @@ struct VIBEHEIM_API FPCGInstanceData
 	FPCGInstanceData()
 	{
 		InstanceId = FGuid::NewGuid();
+	}
+
+	// Custom serialization for archive compatibility
+	bool Serialize(FArchive& Ar)
+	{
+		Ar << InstanceId;
+		Ar << Location;
+		Ar << Rotation;
+		Ar << Scale;
+		
+		// Serialize soft object pointer as string
+		if (Ar.IsLoading())
+		{
+			FString MeshPath;
+			Ar << MeshPath;
+			Mesh = TSoftObjectPtr<UStaticMesh>(FSoftObjectPath(MeshPath));
+		}
+		else
+		{
+			FString MeshPath = Mesh.GetLongPackageName();
+			Ar << MeshPath;
+		}
+		
+		Ar << bIsActive;
+		Ar << OwningTile;
+		
+		return true;
+	}
+
+	friend FArchive& operator<<(FArchive& Ar, FPCGInstanceData& InstanceData)
+	{
+		InstanceData.Serialize(Ar);
+		return Ar;
 	}
 };
 

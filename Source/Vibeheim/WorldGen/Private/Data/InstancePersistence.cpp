@@ -100,12 +100,12 @@ bool FTileInstanceJournal::CompressEntries(TArray<uint8>& OutCompressedData) con
 			if (EntryConst.bIsPOI)
 			{
 				FPOIData POICopy = EntryConst.POIData;
-				Ar << POICopy;
+				FPOIData::StaticStruct()->SerializeBin(Ar, &POICopy);
 			}
 			else
 			{
 				FPCGInstanceData InstCopy = EntryConst.InstanceData;
-				Ar << InstCopy;
+				FPCGInstanceData::StaticStruct()->SerializeBin(Ar, &InstCopy);
 			}
 		}
 	}
@@ -238,11 +238,11 @@ bool FTileInstanceJournal::DecompressEntries(const TArray<uint8>& InCompressedDa
 		{
 			if (Entry.bIsPOI)
 			{
-				Ar << Entry.POIData;
+				FPOIData::StaticStruct()->SerializeBin(Ar, &Entry.POIData);
 			}
 			else
 			{
-				Ar << Entry.InstanceData;
+				FPCGInstanceData::StaticStruct()->SerializeBin(Ar, &Entry.InstanceData);
 			}
 		}
 
@@ -739,55 +739,124 @@ FString UInstancePersistenceManager::GetTileJournalPath(FTileCoord TileCoord) co
 
 bool UInstancePersistenceManager::SerializeJournal(const FTileInstanceJournal& Journal, TArray<uint8>& OutData) const
 {
-	// Use UE5's built-in serialization with compression support
+	OutData.Reset();
 	FMemoryWriter Writer(OutData);
-	FObjectAndNameAsStringProxyArchive StringArchive(Writer, true);
-	
-	// Write file header
-	uint32 MagicNumber = 0x494E5354; // 'INST' in hex
-	StringArchive << const_cast<uint32&>(MagicNumber);
-	
+	FObjectAndNameAsStringProxyArchive Ar(Writer, /*bLoadIfFindFails*/ true);
+
+	// Header (use local, non-const lvalues for <<)
+	uint32 MagicNumber = 0x494E5354; // 'INST'
+	Ar << MagicNumber;
+
 	int32 FileVersion = 1;
-	StringArchive << FileVersion;
-	
-	// Write journal data
-	StringArchive << const_cast<FTileInstanceJournal&>(Journal);
-	
+	Ar << FileVersion;
+
+	// Journal header you want on disk
+	int32 EntryCount = Journal.Entries.Num();
+	Ar << EntryCount;
+
+	int32 JV = Journal.JournalVersion;
+	Ar << JV;
+
+	// Entries
+	for (const FInstanceJournalEntry& E : Journal.Entries)
+	{
+		// Primitive fields first (copy to non-consts)
+		FGuid InstanceId = E.InstanceId;              Ar << InstanceId;
+		uint8 OperationType = (uint8)E.Operation;     Ar << OperationType;
+		int64 Timestamp = E.Timestamp;                Ar << Timestamp;
+		bool  bIsPOI = E.bIsPOI;                      Ar << bIsPOI;
+		int32 Version = E.Version;                    Ar << Version;
+
+		// Payload (USTRUCTs) via UScriptStruct
+		if (E.Operation == EInstanceOperation::Add || E.Operation == EInstanceOperation::Modify)
+		{
+			if (E.bIsPOI)
+			{
+				FPOIData Tmp = E.POIData;
+				FPOIData::StaticStruct()->SerializeBin(Ar, &Tmp);
+			}
+			else
+			{
+				FPCGInstanceData Tmp = E.InstanceData;
+				FPCGInstanceData::StaticStruct()->SerializeBin(Ar, &Tmp);
+			}
+		}
+	}
+
 	return !Writer.IsError();
 }
 
 bool UInstancePersistenceManager::DeserializeJournal(const TArray<uint8>& InData, FTileInstanceJournal& OutJournal) const
 {
-	if (InData.Num() == 0)
-	{
-		return false;
-	}
-	
-	FMemoryReader Reader(const_cast<TArray<uint8>&>(InData));
-	FObjectAndNameAsStringProxyArchive StringArchive(Reader, true);
-	
-	// Read and validate file header
+	if (InData.Num() == 0) return false;
+
+	TArray<uint8>& Bytes = const_cast<TArray<uint8>&>(InData); // Reader needs non-const buffer
+	FMemoryReader Reader(Bytes);
+	FObjectAndNameAsStringProxyArchive Ar(Reader, /*bLoadIfFindFails*/ true);
+
+	// Header
 	uint32 MagicNumber = 0;
-	StringArchive << MagicNumber;
-	
+	Ar << MagicNumber;
 	if (MagicNumber != 0x494E5354)
 	{
-		UE_LOG(LogInstancePersistence, Error, TEXT("Invalid journal file format - wrong magic number"));
+		UE_LOG(LogInstancePersistence, Error, TEXT("Invalid journal: bad magic"));
 		return false;
 	}
-	
+
 	int32 FileVersion = 0;
-	StringArchive << FileVersion;
-	
+	Ar << FileVersion;
 	if (FileVersion > 1)
 	{
-		UE_LOG(LogInstancePersistence, Error, TEXT("Unsupported journal file version: %d"), FileVersion);
+		UE_LOG(LogInstancePersistence, Error, TEXT("Unsupported journal version: %d"), FileVersion);
 		return false;
 	}
-	
-	// Read journal data
-	StringArchive << OutJournal;
-	
+
+	int32 EntryCount = 0;
+	Ar << EntryCount;
+
+	int32 JV = 0;
+	Ar << JV; // you can compare with FTileInstanceJournal::JournalVersion if you want
+
+	if (EntryCount < 0 || EntryCount > 100000)
+	{
+		UE_LOG(LogInstancePersistence, Error, TEXT("Invalid entry count: %d"), EntryCount);
+		return false;
+	}
+
+	OutJournal.Entries.Empty(EntryCount);
+	OutJournal.Entries.Reserve(EntryCount);
+
+	for (int32 i = 0; i < EntryCount; ++i)
+	{
+		FInstanceJournalEntry E;
+
+		// Primitives
+		Ar << E.InstanceId;
+
+		uint8 OperationType = 0;
+		Ar << OperationType;
+		E.Operation = (EInstanceOperation)OperationType;
+
+		Ar << E.Timestamp;
+		Ar << E.bIsPOI;
+		Ar << E.Version;
+
+		// Payload
+		if (E.Operation == EInstanceOperation::Add || E.Operation == EInstanceOperation::Modify)
+		{
+			if (E.bIsPOI)
+			{
+				FPOIData::StaticStruct()->SerializeBin(Ar, &E.POIData);
+			}
+			else
+			{
+				FPCGInstanceData::StaticStruct()->SerializeBin(Ar, &E.InstanceData);
+			}
+		}
+
+		OutJournal.Entries.Add(MoveTemp(E));
+	}
+
 	return !Reader.IsError();
 }
 
