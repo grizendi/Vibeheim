@@ -4,6 +4,7 @@
 #include "Services/ClimateSystem.h"
 #include "Services/BiomeService.h"
 #include "Services/PCGWorldService.h"
+#include "Services/TileStreamingService.h"
 #include "Data/WorldGenTypes.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
@@ -34,6 +35,7 @@ AWorldGenManager::AWorldGenManager()
 	ClimateSystem = nullptr;
 	BiomeService = nullptr;
 	PCGWorldService = nullptr;
+	TileStreamingService = nullptr;
 }
 
 void AWorldGenManager::BeginPlay()
@@ -115,6 +117,14 @@ bool AWorldGenManager::InitializeWorldGenSystems()
 		return false;
 	}
 
+	// Initialize Tile Streaming Service
+	TileStreamingService = NewObject<UTileStreamingService>(this);
+	if (!TileStreamingService || !TileStreamingService->Initialize(WorldGenSettings->Settings, HeightfieldService, BiomeService, PCGWorldService))
+	{
+		UE_LOG(LogWorldGenManager, Error, TEXT("Failed to initialize Tile Streaming Service"));
+		return false;
+	}
+
 	// Connect services together
 	HeightfieldService->SetClimateSystem(ClimateSystem);
 	// HeightfieldService->SetNoiseSystem(NoiseSystem); // TODO: Add when NoiseSystem is available
@@ -125,39 +135,26 @@ bool AWorldGenManager::InitializeWorldGenSystems()
 
 void AWorldGenManager::UpdateWorldStreaming()
 {
-	if (!WorldGenSettings || !HeightfieldService)
+	if (!WorldGenSettings || !TileStreamingService)
 	{
 		return;
 	}
 
-	// Get current player position
+	// Get current player position and update streaming
 	FTileCoord CurrentPlayerTile = GetPlayerTileCoordinate();
-	
-	// Check if player has moved to a different tile
-	FVector CurrentPlayerPos = FVector(
-		CurrentPlayerTile.X * WorldGenSettings->Settings.TileSizeMeters,
-		CurrentPlayerTile.Y * WorldGenSettings->Settings.TileSizeMeters,
-		0.0f
-	);
+	TileStreamingService->UpdateStreaming(CurrentPlayerTile);
 
-	float DistanceMoved = FVector::Dist(LastPlayerPosition, CurrentPlayerPos);
+	// Update performance tracking from streaming service
+	FTileStreamingMetrics StreamingMetrics = TileStreamingService->GetPerformanceMetrics();
 	
-	// Only update streaming if player has moved significantly or this is the first update
-	if (DistanceMoved > WorldGenSettings->Settings.TileSizeMeters * 0.5f || LastPlayerPosition.IsZero())
+	// Log performance info periodically
+	static int32 UpdateCounter = 0;
+	UpdateCounter++;
+	if (UpdateCounter % 100 == 0) // Every 100 updates (roughly every 10 seconds)
 	{
-		LastPlayerPosition = CurrentPlayerPos;
-
-		// Calculate tiles that need to be generated
-		TArray<FTileCoord> TilesToGenerate = CalculateTilesToGenerate(CurrentPlayerTile);
-
-		if (TilesToGenerate.Num() > 0)
-		{
-			UE_LOG(LogWorldGenManager, Log, TEXT("Player moved to tile (%d, %d), generating %d tiles"), 
-				CurrentPlayerTile.X, CurrentPlayerTile.Y, TilesToGenerate.Num());
-
-			// Generate tiles around the player
-			GenerateSurroundingTiles(TilesToGenerate);
-		}
+		UE_LOG(LogWorldGenManager, Log, TEXT("Streaming Stats: Active=%d, Loaded=%d, Generated=%d, AvgGenTime=%.2fms, CacheEff=%.2f%%"),
+			StreamingMetrics.ActiveTiles, StreamingMetrics.LoadedTiles, StreamingMetrics.GeneratedTiles,
+			StreamingMetrics.AverageGenerationTimeMs, StreamingMetrics.CacheEfficiency * 100.0f);
 	}
 }
 
@@ -268,23 +265,23 @@ void AWorldGenManager::GenerateSurroundingTiles(const TArray<FTileCoord>& TilesT
 
 void AWorldGenManager::GetWorldGenPerformanceStats(float& OutTileGenerationTimeMs, float& OutPCGGenerationTimeMs, int32& OutLoadedTiles, int32& OutPendingLoads)
 {
-	OutTileGenerationTimeMs = TotalTilesGenerated > 0 ? TotalTileGenerationTime / TotalTilesGenerated : 0.0f;
-	OutPCGGenerationTimeMs = TotalTilesGenerated > 0 ? TotalPCGGenerationTime / TotalTilesGenerated : 0.0f;
-	
-	// Get loaded tiles from heightfield service
-	float AvgGenTime;
-	int32 CachedTiles;
-	if (HeightfieldService)
+	if (TileStreamingService)
 	{
-		HeightfieldService->GetPerformanceStats(AvgGenTime, CachedTiles);
-		OutLoadedTiles = CachedTiles;
+		// Get metrics from tile streaming service
+		FTileStreamingMetrics StreamingMetrics = TileStreamingService->GetPerformanceMetrics();
+		OutTileGenerationTimeMs = StreamingMetrics.AverageGenerationTimeMs;
+		OutPCGGenerationTimeMs = StreamingMetrics.AverageGenerationTimeMs; // PCG time is included in generation time
+		OutLoadedTiles = StreamingMetrics.LoadedTiles + StreamingMetrics.ActiveTiles;
+		OutPendingLoads = StreamingMetrics.PendingGenerations;
 	}
 	else
 	{
+		// Fallback to old system if streaming service unavailable
+		OutTileGenerationTimeMs = TotalTilesGenerated > 0 ? TotalTileGenerationTime / TotalTilesGenerated : 0.0f;
+		OutPCGGenerationTimeMs = TotalTilesGenerated > 0 ? TotalPCGGenerationTime / TotalTilesGenerated : 0.0f;
 		OutLoadedTiles = 0;
+		OutPendingLoads = 0;
 	}
-	
-	OutPendingLoads = 0; // TODO: Implement pending loads tracking when streaming system is added
 }
 
 void AWorldGenManager::HandleWorldGenerationError(const FString& ErrorMessage)

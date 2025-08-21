@@ -1,10 +1,16 @@
+# Vibeheim WorldGen — MVP (Valheim feel, minimal)
+
+Goal: Big outdoor world with ring-biased biomes, fast tile streaming, PCG trees/rocks, a few POIs, and three terrain brushes that persist. Single-player only.
+
+Out of Scope (Phase 2): Networking/replication, World Partition tuning, RVT/decals, undo/redo, fancy POI retries, compression/CRC, dynamic navmesh.
+Perf targets: TileGen ≤ ~2 ms (height+biome), PCG ≤ ~1 ms/tile typical.
+
+
+
+
 # Implementation Plan
 
 - [x] 1. Set up project structure and core interfaces
-
-
-
-
 
   - Create WorldGen module directory structure under Source/Vibeheim/WorldGen/
   - Update Vibeheim.Build.cs to include PCG Framework, World Partition, and RVT dependencies
@@ -13,8 +19,6 @@
   - _Requirements: 4.1, 4.2_
 
 - [x] 1.5. Define core coordinate and tiling contract
-
-
   - Lock units (meters), tile size (64m), sample spacing (1m), max height (120m)
   - Define world origin semantics with world-space sampling (no tile-local bias)
   - Document Generate/Load/Active radii semantics and FTileCoord hashing
@@ -22,11 +26,6 @@
   - _Requirements: 1.1_
 
 - [x] 2. Implement configuration and settings system
-
-
-
-
-
   - Create WorldGenSettings.h/.cpp with FWorldGenSettings structure
   - Implement JSON configuration loader for /Config/WorldGenSettings.json
   - Add validation for heightfield resolution, streaming radius, and PCG parameters
@@ -34,11 +33,6 @@
   - _Requirements: 1.1, 4.2_
 
 - [x] 3. Create custom runtime heightfield system
-
-
-
-
-
   - Implement CPU height generation v1 (deterministic, easy to debug)
   - Set up Virtual Heightfield Mesh (VHM) rendering for runtime-editable terrain
   - Generate height, normal, slope data with optional thermal smoothing
@@ -47,9 +41,6 @@
   - _Requirements: 1.1, 1.2, 4.1_
 
 - [x] 3.5. Implement climate and ring systems
-
-
-
   - Create Temperature(x,y) system (latitudinal + altitude lapse + noise)
   - Implement Moisture(x,y) system (coast distance + noise)
   - Add ring bias by distance from world center with exposed tunables
@@ -98,97 +89,40 @@
   - _Requirements: 5.3_
   - _Status: Complete instance persistence system implemented with journal-based tracking, POI persistence, file I/O operations, and comprehensive testing_
 
-- [ ] 7. Implement hybrid streaming system
-  - Set up World Partition for authored content only (towns, dungeons, vistas)
-  - Build separate procedural tile streamer with LRU cache
-  - Expose Generate/Load/Active radii (e.g., 9/5/3 tiles) in settings
-  - Implement player-anchored streaming with prioritization and eviction rules
-  - Add streaming metrics and performance monitoring
-  - _Requirements: 5.1, 5.2, 3.3, 3.4_
+- - [ ] 7) Procedural streaming + tiny LRU
+  - Procedural tile streamer (separate from WP). Respect radii: Generate=9, Load=5, Active=3.
+  - Simple LRU cache (≈9×9 cap). Evict tiles that drift outside Load radius.
+  - Perf counters: active tiles, avg tile-gen ms, spikes.
 
-- [ ] 7.5. Add networking and replication support
-  - Implement server authoritative system: server generates tiles & edits
-  - Create TileStateHash handshake with resync on mismatch
-  - Add edit stream: brush ops, instance add/remove, POI spawns (compact messages)
-  - Create network performance tests (rapid travel, mass edits)
-  - _Requirements: 5.5_
+- [ ] 9) Runtime terrain edits (3 brushes only)
+  - Raise / Flatten / Smooth (radius + strength), batched per frame, clipped per tile.
+  - When ground changes, clear nearby veg instances (HISM) deterministically.
+  - (No undo/redo; no navmesh rebuilds in MVP.)
 
-- [x] 8. Create WorldGenManager coordination actor (IMPLEMENTED)
-  - ✅ Implement AWorldGenManager as the main world generation coordinator
-  - ✅ Add BeginPlay initialization with settings loading and system setup
-  - ✅ Implement Tick method for streaming updates and performance monitoring
-  - ✅ Create player anchor tracking for dynamic world streaming
-  - ✅ Add error handling and fallback generation systems
-  - _Requirements: 1.4, 5.1, 5.5_
-  - _Status: Full implementation complete with all coordination functionality_
+- [ ] 10) Persistence (simple)
+  - `.terra` height-delta grid per tile (raw or RLE); apply on load before queries.
+  - `.inst` journal: add/remove instance GUIDs (trees/rocks/POIs).
+  - Save on checkpoints and on quit. (No CRC/migrations/background IO.)
 
-- [ ] 9. Implement runtime heightfield editing system
-  - Create brush ops: add/subtract/flatten/smooth with radius & strength
-  - Implement efficient batched height texture updates clipped per tile
-  - Add trigger for partial navmesh rebuild windows on commit (throttled)
-  - Create undo/redo stack per tile for terrain modifications
-  - Store height deltas per tile for persistence and server authority
-  - _Requirements: 5.3_
+- [ ] 11) POIs (single pass)
+  - Blue-noise (or stratified) placement with spacing + slope/altitude gates.
+  - Optional small flatten/clear stamp under POI.
+  - (No retries/backoff/collision gymnastics in MVP.)
 
-- [ ] 10. Build persistence system for world modifications
-  - Create chunk-based save format: .terra (height deltas, RLE/compressed), .inst (journal)
-  - Add version headers, CRC, migration hooks with autosave on checkpoints/shutdown
-  - Implement modification replay on tile load with background IO queues
-  - Store HISM instance removals (IDs) so chopped trees stay gone
-  - Create efficient delta compression for modified tiles only
-  - _Requirements: 5.3_
+- [ ] 14) Logging (minimal)
+  - One `LogWorldGen` category; include seed + tile coords.
+  - Basic timers around: height build, biome classify, PCG spawn, streaming tick.
 
-- [ ] 11. Create PCG-based POI placement system
-  - Implement blue-noise/stratified placement with rarity, slope/altitude/water gates
-  - Add POI prefab integration (scripts) with terrain stamping hooks (clear/flatten)
-  - Create retry & backoff for failed placements with exclusion radii
-  - Implement collision detection and terrain integration for POIs
-  - Add POI persistence and replication for multiplayer consistency
-  - _Requirements: 3.1, 3.2, 3.6_
+- [ ] 15) Sanity tests (3 only)
+  - Determinism: same seed/coords → same tile checksum.
+  - Seams: 2×2 tiles share identical border heights/biomes.
+  - PCG determinism: fixed (Seed, Tile, PrototypeId) → same instances.
 
-- [ ] 12. Implement Runtime Virtual Texturing integration
-  - Create RVT layers plan (albedo/normal/height/masks) with budget targets
-  - Implement foliage sampling from RVT with path/wear decals authored into RVT
-  - Add streaming/memory optimizations with layer audit tooling
-  - Set up ground texture blending with foliage footprints
-  - Create dynamic road/path rendering and POI clearing visualization
-  - _Requirements: 2.3, 4.3_
-
-- [x] 13. Add debug tools and console commands (COMPLETED)
-  - ✅ Implement console commands: wg.Seed, wg.StreamRadius, wg.ShowBiomes, wg.ShowPCGDebug
-  - ✅ Create dump per-tile PNGs (height/biome/temp/moisture/slope) with wg.ExportDebugPNG
-  - ✅ Add comprehensive test commands (wg.TestClimate, wg.TestHeightfield, wg.TestBiome, etc.)
-  - ✅ Implement performance monitoring commands (wg.PerfStats, wg.BasicTest)
-  - ✅ Create visual debug console variables for biome boundaries and climate data
-  - ✅ Add settings management commands (load/save/validate/reset JSON config)
-  - ✅ Provide comprehensive help system with wg.Help command
-  - _Requirements: 4.4_
-  - _Status: Full debug command suite implemented with 25+ commands and console variables_
-
-- [ ] 14. Implement comprehensive logging and error handling
-  - Create LogWorldGen category with detailed error reporting
-  - Add seed and chunk coordinates to all generation logs
-  - Implement performance monitoring with timing metrics
-  - Create fallback systems for failed heightfield generation
-  - Add memory pressure detection and automatic optimization
-  - _Requirements: 1.4, 4.4, 5.5_
-
-- [ ] 15. Create automated tests for world generation (BASIC TESTS ONLY)
-  - ❌ Create determinism tests (fixed seeds), border seam tests, checksum stability
-  - ❌ Add PCG determinism tests (seed adapter), LRU eviction correctness
-  - ❌ Implement streaming performance tests (rapid travel), save/load fuzzer
-  - ❌ Create visual golden-image tests for biome transitions/content layout
-  - ❌ Add memory usage profiling and cross-platform validation tests
-  - _Requirements: 1.2, 1.3, 5.4_
-  - _Status: BasicSystemTest.cpp exists with minimal functionality tests_
-
-- [ ] 16. Integration testing and performance optimization
-  - Run full pipeline soak: terrain → biomes → PCG → streaming → edits → persistence
-  - Tune tile gen budgets (≤2ms height+biome) and PCG (≤1ms/tile typical)
-  - Validate World Partition authored content + procedural tiles coexist cleanly
-  - Verify edits, persistence, navmesh, and replication under stress
-  - Test complete integration with performance targets and error handling
-  - _Requirements: 2.3, 3.4, 5.1, 5.4_
+- [ ] 16) Integration pass
+  - 60s fly-through with radii on; verify stable perf + no visual seams.
+  - Chop trees, leave area, return → instances persist removed.
+  - Edit ground with 3 brushes, leave/return → edits persist and veg cleared.
+  - POIs appear in sensible spots; stamp applied.
 
 ## Performance Guardrails
 
@@ -209,3 +143,13 @@ These values should be locked in WorldGenSettings.json:
   },
   "Seed": "global 64-bit; all RNG derived from (Seed, Tile, PrototypeId, Index)"
 }
+```
+
+## Phase 2 Backlog (post-MVP)
+- Networking & replication (server-auth tiles, edit delta stream, TileStateHash)
+- World Partition integration & priority tuning for authored sublevels
+- RVT (paths/wear, foliage RVT sampling), material polish
+- Undo/redo for terrain edits; dynamic navmesh rebuild windows
+- POI retries/backoff/exclusion radii refinements
+- Persistence compression + CRC/migrations + background IO
+- Stress/perf benches, fuzzers, visual golden-image tests

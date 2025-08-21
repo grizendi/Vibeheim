@@ -11,6 +11,7 @@ class UHeightfieldService;
 class UClimateSystem;
 class UBiomeService;
 class UPCGWorldService;
+class UTileStreamingService;
 struct FTileCoord;
 
 /**
@@ -75,6 +76,9 @@ protected:
 
     UPROPERTY(BlueprintReadOnly, Category = "World Generation")
     UPCGWorldService* PCGWorldService;
+
+    UPROPERTY(BlueprintReadOnly, Category = "World Generation")
+    UTileStreamingService* TileStreamingService;
 
     // Streaming parameters
     UPROPERTY(BlueprintReadOnly, Category = "World Generation")
