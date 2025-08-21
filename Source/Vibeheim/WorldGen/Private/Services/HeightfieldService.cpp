@@ -237,7 +237,7 @@ float UHeightfieldService::GenerateNoise(FVector2D Position, float Scale, int32 
 uint32 UHeightfieldService::HashPosition(FVector2D Position, int32 Seed) const
 {
 	// Quantize to mm (or whatever you want) in a deterministic way.
-	// Floor avoids -0.000… jitter flipping sign around 0.
+	// Floor avoids -0.000â€¦ jitter flipping sign around 0.
 	constexpr double kQuant = 1000.0;
 	const int32 Xi = static_cast<int32>(FMath::FloorToDouble(Position.X * kQuant));
 	const int32 Yi = static_cast<int32>(FMath::FloorToDouble(Position.Y * kQuant));
@@ -579,8 +579,147 @@ float UHeightfieldService::InterpolateHeight(FVector2D WorldPos) const
 
 void UHeightfieldService::ApplyModificationToCache(const FHeightfieldModification& Modification)
 {
-	// TODO: Apply modification to cached heightfield data
-	UE_LOG(LogHeightfieldService, Log, TEXT("Applied modification to cache"));
+	FTileCoord TileCoord = Modification.AffectedTile;
+	FHeightfieldData* CachedData = HeightfieldCache.Find(TileCoord);
+	
+	if (!CachedData)
+	{
+		UE_LOG(LogHeightfieldService, Warning, TEXT("Cannot apply modification to tile (%d, %d) - not in cache"), 
+			TileCoord.X, TileCoord.Y);
+		return;
+	}
+
+	// Calculate tile world bounds
+	FVector TileWorldPos = TileCoord.ToWorldPosition(64.0f);
+	FVector2D TileStart(TileWorldPos.X - 32.0f, TileWorldPos.Y - 32.0f);
+	FVector2D TileEnd(TileWorldPos.X + 32.0f, TileWorldPos.Y + 32.0f);
+	
+	// Skip if modification is outside this tile
+	if (Modification.Center.X + Modification.Radius < TileStart.X || 
+		Modification.Center.X - Modification.Radius > TileEnd.X ||
+		Modification.Center.Y + Modification.Radius < TileStart.Y || 
+		Modification.Center.Y - Modification.Radius > TileEnd.Y)
+	{
+		return;
+	}
+
+	const int32 Resolution = CachedData->Resolution;
+	const float SampleSpacing = 1.0f; // 1m per sample
+	bool bDataModified = false;
+
+	// Apply modification to affected samples
+	for (int32 Y = 0; Y < Resolution; Y++)
+	{
+		for (int32 X = 0; X < Resolution; X++)
+		{
+			// Calculate world position of this sample
+			FVector2D SampleWorldPos = TileStart + FVector2D(X * SampleSpacing, Y * SampleSpacing);
+			
+			// Calculate distance from modification center
+			float Distance = FVector2D::Distance(SampleWorldPos, Modification.Center);
+			if (Distance > Modification.Radius)
+			{
+				continue; // Outside modification radius
+			}
+
+			// Calculate falloff (1.0 at center, 0.0 at radius edge)
+			float Falloff = FMath::Clamp(1.0f - (Distance / Modification.Radius), 0.0f, 1.0f);
+			Falloff = FMath::SmoothStep(0.0f, 1.0f, Falloff); // Smooth falloff curve
+
+			int32 SampleIndex = Y * Resolution + X;
+			float& CurrentHeight = CachedData->HeightData[SampleIndex];
+			float OriginalHeight = CurrentHeight;
+
+			// Apply operation
+			switch (Modification.Operation)
+			{
+				case EHeightfieldOperation::Add:
+				{
+					CurrentHeight += Modification.Strength * Falloff;
+					break;
+				}
+				case EHeightfieldOperation::Subtract:
+				{
+					CurrentHeight -= Modification.Strength * Falloff;
+					break;
+				}
+				case EHeightfieldOperation::Flatten:
+				{
+					// Flatten towards the center height of the modification (or sea level)
+					float TargetHeight = 0.0f; // Could be parameterized to Modification.Center.Z or sea level
+					CurrentHeight = FMath::Lerp(CurrentHeight, TargetHeight, Modification.Strength * Falloff);
+					break;
+				}
+				case EHeightfieldOperation::Smooth:
+				{
+					// Smooth by averaging with neighbors (basic implementation)
+					float AverageHeight = 0.0f;
+					int32 NeighborCount = 0;
+					
+					// Sample 3x3 neighborhood
+					for (int32 DY = -1; DY <= 1; DY++)
+					{
+						for (int32 DX = -1; DX <= 1; DX++)
+						{
+							int32 NeighborX = X + DX;
+							int32 NeighborY = Y + DY;
+							
+							if (NeighborX >= 0 && NeighborX < Resolution && 
+								NeighborY >= 0 && NeighborY < Resolution)
+							{
+								int32 NeighborIndex = NeighborY * Resolution + NeighborX;
+								AverageHeight += CachedData->HeightData[NeighborIndex];
+								NeighborCount++;
+							}
+						}
+					}
+					
+					if (NeighborCount > 0)
+					{
+						AverageHeight /= NeighborCount;
+						CurrentHeight = FMath::Lerp(CurrentHeight, AverageHeight, Modification.Strength * Falloff);
+					}
+					break;
+				}
+			}
+
+			// Clamp to max terrain height
+			CurrentHeight = FMath::Clamp(CurrentHeight, -WorldGenSettings.MaxTerrainHeight, WorldGenSettings.MaxTerrainHeight);
+			
+			if (FMath::Abs(CurrentHeight - OriginalHeight) > KINDA_SMALL_NUMBER)
+			{
+				bDataModified = true;
+			}
+		}
+	}
+
+	if (bDataModified)
+	{
+		// Update min/max heights
+		float MinHeight = FLT_MAX;
+		float MaxHeight = -FLT_MAX;
+		for (float Height : CachedData->HeightData)
+		{
+			MinHeight = FMath::Min(MinHeight, Height);
+			MaxHeight = FMath::Max(MaxHeight, Height);
+		}
+		CachedData->MinHeight = MinHeight;
+		CachedData->MaxHeight = MaxHeight;
+
+		// Recalculate normals and slopes
+		CalculateNormalsAndSlopes(*CachedData);
+
+		// Clear vegetation in the modified area (TODO: Integrate with PCGWorldService)
+		ClearVegetationInArea(Modification.Center, Modification.Radius);
+
+		// Upload to GPU (placeholder for VHM integration)
+		UploadHeightfieldToGPU(*CachedData);
+
+		UE_LOG(LogHeightfieldService, Log, TEXT("Applied %s modification at (%.1f, %.1f) with radius %.1f and strength %.2f to tile (%d, %d)"),
+			*UEnum::GetValueAsString(Modification.Operation),
+			Modification.Center.X, Modification.Center.Y, Modification.Radius, Modification.Strength,
+			TileCoord.X, TileCoord.Y);
+	}
 }
 
 void UHeightfieldService::UpdatePerformanceStats(float GenerationTimeMs)
@@ -596,4 +735,26 @@ void UHeightfieldService::UpdatePerformanceStats(float GenerationTimeMs)
 		GenerationTimes.RemoveAt(0);
 		GenerationCount = GenerationTimes.Num();
 	}
+}
+
+void UHeightfieldService::ClearVegetationInArea(FVector2D Center, float Radius)
+{
+	// TODO: This should integrate with PCGWorldService to clear vegetation instances
+	// For now, we just log the action as a placeholder for the integration
+	
+	// Calculate affected tiles
+	FTileCoord CenterTile = FTileCoord::FromWorldPosition(FVector(Center.X, Center.Y, 0.0f));
+	int32 TileRadius = FMath::CeilToInt(Radius / 64.0f); // 64m per tile
+	
+	UE_LOG(LogHeightfieldService, Log, TEXT("Clearing vegetation in area centered at (%.1f, %.1f) with radius %.1f - affects ~%d tiles"), 
+		Center.X, Center.Y, Radius, (TileRadius * 2 + 1) * (TileRadius * 2 + 1));
+	
+	// In a full implementation, this would:
+	// 1. Find all PCG instances within the radius
+	// 2. Remove them from HISM components
+	// 3. Update the instance persistence system
+	// 4. Mark affected tiles as needing PCG regeneration
+	
+	// For MVP, vegetation clearing will be handled when the PCGWorldService
+	// detects terrain height changes during the next streaming update
 }

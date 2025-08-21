@@ -808,6 +808,299 @@ static FAutoConsoleCommand WorldGenSetPOIDensityCommand(
 	})
 );
 
+// Terrain editing commands
+static FAutoConsoleCommand WorldGenTerrainRaiseCommand(
+	TEXT("wg.TerrainRaise"),
+	TEXT("Raise terrain at a specific location. Usage: wg.TerrainRaise <X> <Y> [Radius] [Strength]"),
+	FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+	{
+		if (Args.Num() < 2)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Usage: wg.TerrainRaise <X> <Y> [Radius] [Strength]"));
+			UE_LOG(LogTemp, Log, TEXT("Defaults: Radius=10.0, Strength=5.0"));
+			return;
+		}
+
+		float X = FCString::Atof(*Args[0]);
+		float Y = FCString::Atof(*Args[1]);
+		float Radius = Args.Num() > 2 ? FCString::Atof(*Args[2]) : 10.0f;
+		float Strength = Args.Num() > 3 ? FCString::Atof(*Args[3]) : 5.0f;
+
+		// Get world gen settings
+		UWorldGenSettings* Settings = UWorldGenSettings::GetWorldGenSettings();
+		if (!Settings)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Failed to get WorldGen settings"));
+			return;
+		}
+
+		// Create heightfield service
+		UHeightfieldService* HeightfieldService = NewObject<UHeightfieldService>();
+		HeightfieldService->Initialize(Settings->Settings);
+
+		// Generate some terrain data first if needed (simple test case)
+		FTileCoord TileCoord = FTileCoord::FromWorldPosition(FVector(X, Y, 0.0f));
+		
+		UNoiseSystem* NoiseSystem = NewObject<UNoiseSystem>();
+		NoiseSystem->Initialize(Settings->Settings.Seed);
+		HeightfieldService->SetNoiseSystem(NoiseSystem);
+		
+		// Generate heightfield for the tile first
+		FHeightfieldData HeightfieldData = HeightfieldService->GenerateHeightfield(Settings->Settings.Seed, TileCoord);
+
+		// Apply terrain modification
+		FVector Location(X, Y, 0.0f);
+		bool bSuccess = HeightfieldService->ModifyHeightfield(Location, Radius, Strength, EHeightfieldOperation::Add);
+
+		if (bSuccess)
+		{
+			UE_LOG(LogTemp, Log, TEXT("✓ Successfully raised terrain at (%.1f, %.1f) with radius %.1f and strength %.1f"), 
+				X, Y, Radius, Strength);
+		}
+		else
+		{
+			UE_LOG(LogTemp, Error, TEXT("✗ Failed to raise terrain at (%.1f, %.1f)"), X, Y);
+		}
+	})
+);
+
+static FAutoConsoleCommand WorldGenTerrainLowerCommand(
+	TEXT("wg.TerrainLower"),
+	TEXT("Lower terrain at a specific location. Usage: wg.TerrainLower <X> <Y> [Radius] [Strength]"),
+	FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+	{
+		if (Args.Num() < 2)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Usage: wg.TerrainLower <X> <Y> [Radius] [Strength]"));
+			UE_LOG(LogTemp, Log, TEXT("Defaults: Radius=10.0, Strength=5.0"));
+			return;
+		}
+
+		float X = FCString::Atof(*Args[0]);
+		float Y = FCString::Atof(*Args[1]);
+		float Radius = Args.Num() > 2 ? FCString::Atof(*Args[2]) : 10.0f;
+		float Strength = Args.Num() > 3 ? FCString::Atof(*Args[3]) : 5.0f;
+
+		// Get world gen settings
+		UWorldGenSettings* Settings = UWorldGenSettings::GetWorldGenSettings();
+		if (!Settings)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Failed to get WorldGen settings"));
+			return;
+		}
+
+		// Create heightfield service
+		UHeightfieldService* HeightfieldService = NewObject<UHeightfieldService>();
+		HeightfieldService->Initialize(Settings->Settings);
+
+		// Generate terrain data first
+		FTileCoord TileCoord = FTileCoord::FromWorldPosition(FVector(X, Y, 0.0f));
+		
+		UNoiseSystem* NoiseSystem = NewObject<UNoiseSystem>();
+		NoiseSystem->Initialize(Settings->Settings.Seed);
+		HeightfieldService->SetNoiseSystem(NoiseSystem);
+		
+		// Generate heightfield for the tile first
+		FHeightfieldData HeightfieldData = HeightfieldService->GenerateHeightfield(Settings->Settings.Seed, TileCoord);
+
+		// Apply terrain modification
+		FVector Location(X, Y, 0.0f);
+		bool bSuccess = HeightfieldService->ModifyHeightfield(Location, Radius, Strength, EHeightfieldOperation::Subtract);
+
+		if (bSuccess)
+		{
+			UE_LOG(LogTemp, Log, TEXT("✓ Successfully lowered terrain at (%.1f, %.1f) with radius %.1f and strength %.1f"), 
+				X, Y, Radius, Strength);
+		}
+		else
+		{
+			UE_LOG(LogTemp, Error, TEXT("✗ Failed to lower terrain at (%.1f, %.1f)"), X, Y);
+		}
+	})
+);
+
+static FAutoConsoleCommand WorldGenTerrainFlattenCommand(
+	TEXT("wg.TerrainFlatten"),
+	TEXT("Flatten terrain at a specific location. Usage: wg.TerrainFlatten <X> <Y> [Radius] [Strength]"),
+	FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+	{
+		if (Args.Num() < 2)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Usage: wg.TerrainFlatten <X> <Y> [Radius] [Strength]"));
+			UE_LOG(LogTemp, Log, TEXT("Defaults: Radius=15.0, Strength=0.5"));
+			return;
+		}
+
+		float X = FCString::Atof(*Args[0]);
+		float Y = FCString::Atof(*Args[1]);
+		float Radius = Args.Num() > 2 ? FCString::Atof(*Args[2]) : 15.0f;
+		float Strength = Args.Num() > 3 ? FCString::Atof(*Args[3]) : 0.5f;
+
+		// Get world gen settings
+		UWorldGenSettings* Settings = UWorldGenSettings::GetWorldGenSettings();
+		if (!Settings)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Failed to get WorldGen settings"));
+			return;
+		}
+
+		// Create heightfield service
+		UHeightfieldService* HeightfieldService = NewObject<UHeightfieldService>();
+		HeightfieldService->Initialize(Settings->Settings);
+
+		// Generate terrain data first
+		FTileCoord TileCoord = FTileCoord::FromWorldPosition(FVector(X, Y, 0.0f));
+		
+		UNoiseSystem* NoiseSystem = NewObject<UNoiseSystem>();
+		NoiseSystem->Initialize(Settings->Settings.Seed);
+		HeightfieldService->SetNoiseSystem(NoiseSystem);
+		
+		// Generate heightfield for the tile first
+		FHeightfieldData HeightfieldData = HeightfieldService->GenerateHeightfield(Settings->Settings.Seed, TileCoord);
+
+		// Apply terrain modification
+		FVector Location(X, Y, 0.0f);
+		bool bSuccess = HeightfieldService->ModifyHeightfield(Location, Radius, Strength, EHeightfieldOperation::Flatten);
+
+		if (bSuccess)
+		{
+			UE_LOG(LogTemp, Log, TEXT("✓ Successfully flattened terrain at (%.1f, %.1f) with radius %.1f and strength %.1f"), 
+				X, Y, Radius, Strength);
+		}
+		else
+		{
+			UE_LOG(LogTemp, Error, TEXT("✗ Failed to flatten terrain at (%.1f, %.1f)"), X, Y);
+		}
+	})
+);
+
+static FAutoConsoleCommand WorldGenTerrainSmoothCommand(
+	TEXT("wg.TerrainSmooth"),
+	TEXT("Smooth terrain at a specific location. Usage: wg.TerrainSmooth <X> <Y> [Radius] [Strength]"),
+	FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+	{
+		if (Args.Num() < 2)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Usage: wg.TerrainSmooth <X> <Y> [Radius] [Strength]"));
+			UE_LOG(LogTemp, Log, TEXT("Defaults: Radius=12.0, Strength=0.3"));
+			return;
+		}
+
+		float X = FCString::Atof(*Args[0]);
+		float Y = FCString::Atof(*Args[1]);
+		float Radius = Args.Num() > 2 ? FCString::Atof(*Args[2]) : 12.0f;
+		float Strength = Args.Num() > 3 ? FCString::Atof(*Args[3]) : 0.3f;
+
+		// Get world gen settings
+		UWorldGenSettings* Settings = UWorldGenSettings::GetWorldGenSettings();
+		if (!Settings)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Failed to get WorldGen settings"));
+			return;
+		}
+
+		// Create heightfield service
+		UHeightfieldService* HeightfieldService = NewObject<UHeightfieldService>();
+		HeightfieldService->Initialize(Settings->Settings);
+
+		// Generate terrain data first
+		FTileCoord TileCoord = FTileCoord::FromWorldPosition(FVector(X, Y, 0.0f));
+		
+		UNoiseSystem* NoiseSystem = NewObject<UNoiseSystem>();
+		NoiseSystem->Initialize(Settings->Settings.Seed);
+		HeightfieldService->SetNoiseSystem(NoiseSystem);
+		
+		// Generate heightfield for the tile first
+		FHeightfieldData HeightfieldData = HeightfieldService->GenerateHeightfield(Settings->Settings.Seed, TileCoord);
+
+		// Apply terrain modification
+		FVector Location(X, Y, 0.0f);
+		bool bSuccess = HeightfieldService->ModifyHeightfield(Location, Radius, Strength, EHeightfieldOperation::Smooth);
+
+		if (bSuccess)
+		{
+			UE_LOG(LogTemp, Log, TEXT("✓ Successfully smoothed terrain at (%.1f, %.1f) with radius %.1f and strength %.1f"), 
+				X, Y, Radius, Strength);
+		}
+		else
+		{
+			UE_LOG(LogTemp, Error, TEXT("✗ Failed to smooth terrain at (%.1f, %.1f)"), X, Y);
+		}
+	})
+);
+
+static FAutoConsoleCommand WorldGenTestTerrainEditingCommand(
+	TEXT("wg.TestTerrainEdits"),
+	TEXT("Test all terrain editing operations at a location. Usage: wg.TestTerrainEdits <X> <Y>"),
+	FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+	{
+		if (Args.Num() < 2)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Usage: wg.TestTerrainEdits <X> <Y>"));
+			return;
+		}
+
+		float X = FCString::Atof(*Args[0]);
+		float Y = FCString::Atof(*Args[1]);
+
+		UE_LOG(LogTemp, Log, TEXT("=== Testing Terrain Editing at (%.1f, %.1f) ==="), X, Y);
+
+		// Get world gen settings
+		UWorldGenSettings* Settings = UWorldGenSettings::GetWorldGenSettings();
+		if (!Settings)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Failed to get WorldGen settings"));
+			return;
+		}
+
+		// Create services
+		UHeightfieldService* HeightfieldService = NewObject<UHeightfieldService>();
+		HeightfieldService->Initialize(Settings->Settings);
+
+		UNoiseSystem* NoiseSystem = NewObject<UNoiseSystem>();
+		NoiseSystem->Initialize(Settings->Settings.Seed);
+		HeightfieldService->SetNoiseSystem(NoiseSystem);
+
+		// Generate terrain data first
+		FTileCoord TileCoord = FTileCoord::FromWorldPosition(FVector(X, Y, 0.0f));
+		FHeightfieldData HeightfieldData = HeightfieldService->GenerateHeightfield(Settings->Settings.Seed, TileCoord);
+		
+		// Get original height
+		float OriginalHeight = HeightfieldService->GetHeightAtLocation(FVector2D(X, Y));
+		UE_LOG(LogTemp, Log, TEXT("Original height: %.2f"), OriginalHeight);
+
+		FVector Location(X, Y, 0.0f);
+
+		// Test 1: Raise terrain
+		bool bRaiseSuccess = HeightfieldService->ModifyHeightfield(Location, 10.0f, 5.0f, EHeightfieldOperation::Add);
+		float HeightAfterRaise = HeightfieldService->GetHeightAtLocation(FVector2D(X, Y));
+		UE_LOG(LogTemp, Log, TEXT("Raise test: %s - Height: %.2f (change: +%.2f)"), 
+			bRaiseSuccess ? TEXT("✓") : TEXT("✗"), HeightAfterRaise, HeightAfterRaise - OriginalHeight);
+
+		// Test 2: Lower terrain
+		bool bLowerSuccess = HeightfieldService->ModifyHeightfield(Location, 8.0f, 3.0f, EHeightfieldOperation::Subtract);
+		float HeightAfterLower = HeightfieldService->GetHeightAtLocation(FVector2D(X, Y));
+		UE_LOG(LogTemp, Log, TEXT("Lower test: %s - Height: %.2f (change: %.2f)"), 
+			bLowerSuccess ? TEXT("✓") : TEXT("✗"), HeightAfterLower, HeightAfterLower - HeightAfterRaise);
+
+		// Test 3: Flatten terrain
+		bool bFlattenSuccess = HeightfieldService->ModifyHeightfield(Location, 15.0f, 0.5f, EHeightfieldOperation::Flatten);
+		float HeightAfterFlatten = HeightfieldService->GetHeightAtLocation(FVector2D(X, Y));
+		UE_LOG(LogTemp, Log, TEXT("Flatten test: %s - Height: %.2f (change: %.2f)"), 
+			bFlattenSuccess ? TEXT("✓") : TEXT("✗"), HeightAfterFlatten, HeightAfterFlatten - HeightAfterLower);
+
+		// Test 4: Smooth terrain
+		bool bSmoothSuccess = HeightfieldService->ModifyHeightfield(Location, 12.0f, 0.3f, EHeightfieldOperation::Smooth);
+		float HeightAfterSmooth = HeightfieldService->GetHeightAtLocation(FVector2D(X, Y));
+		UE_LOG(LogTemp, Log, TEXT("Smooth test: %s - Height: %.2f (change: %.2f)"), 
+			bSmoothSuccess ? TEXT("✓") : TEXT("✗"), HeightAfterSmooth, HeightAfterSmooth - HeightAfterFlatten);
+
+		UE_LOG(LogTemp, Log, TEXT("=== Terrain Editing Test Complete ==="));
+		UE_LOG(LogTemp, Log, TEXT("Total height change: %.2f → %.2f (Δ%.2f)"), 
+			OriginalHeight, HeightAfterSmooth, HeightAfterSmooth - OriginalHeight);
+	})
+);
+
 // Help command
 static FAutoConsoleCommand WorldGenListDebugCommandsCommand(
 	TEXT("wg.Help"),
@@ -842,6 +1135,13 @@ static FAutoConsoleCommand WorldGenListDebugCommandsCommand(
 		UE_LOG(LogTemp, Log, TEXT("  wg.TestBiome <x> <y> [alt] - Test biome determination"));
 		UE_LOG(LogTemp, Log, TEXT("  wg.TestNoise <x> <y> [type] [scale] - Test noise generation"));
 		UE_LOG(LogTemp, Log, TEXT("  wg.TestPCG <x> <y> [biome] - Test PCG generation"));
+		UE_LOG(LogTemp, Log, TEXT(""));
+		UE_LOG(LogTemp, Log, TEXT("Terrain Editing:"));
+		UE_LOG(LogTemp, Log, TEXT("  wg.TerrainRaise <x> <y> [radius] [strength] - Raise terrain"));
+		UE_LOG(LogTemp, Log, TEXT("  wg.TerrainLower <x> <y> [radius] [strength] - Lower terrain"));
+		UE_LOG(LogTemp, Log, TEXT("  wg.TerrainFlatten <x> <y> [radius] [strength] - Flatten terrain"));
+		UE_LOG(LogTemp, Log, TEXT("  wg.TerrainSmooth <x> <y> [radius] [strength] - Smooth terrain"));
+		UE_LOG(LogTemp, Log, TEXT("  wg.TestTerrainEdits <x> <y> - Test all terrain editing ops"));
 		UE_LOG(LogTemp, Log, TEXT(""));
 		UE_LOG(LogTemp, Log, TEXT("Debug Visualization (Console Variables):"));
 		UE_LOG(LogTemp, Log, TEXT("  wg.ShowBiomes - Toggle biome boundary overlay"));

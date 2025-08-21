@@ -89,15 +89,19 @@ Perf targets: TileGen ≤ ~2 ms (height+biome), PCG ≤ ~1 ms/tile typical.
   - _Requirements: 5.3_
   - _Status: Complete instance persistence system implemented with journal-based tracking, POI persistence, file I/O operations, and comprehensive testing_
 
-- - [ ] 7) Procedural streaming + tiny LRU
-  - Procedural tile streamer (separate from WP). Respect radii: Generate=9, Load=5, Active=3.
-  - Simple LRU cache (≈9×9 cap). Evict tiles that drift outside Load radius.
-  - Perf counters: active tiles, avg tile-gen ms, spikes.
+- [x] 7) Procedural streaming + tiny LRU (COMPLETED)
+  - ✅ Procedural tile streamer (separate from WP). Respect radii: Generate=9, Load=5, Active=3.
+  - ✅ Simple LRU cache (≈9×9 cap). Evict tiles that drift outside Load radius.
+  - ✅ Perf counters: active tiles, avg tile-gen ms, spikes.
+  - _Status: Full TileStreamingService implemented with comprehensive LRU cache, radius-based streaming, performance metrics, and efficient tile eviction_
 
-- [ ] 9) Runtime terrain edits (3 brushes only)
-  - Raise / Flatten / Smooth (radius + strength), batched per frame, clipped per tile.
-  - When ground changes, clear nearby veg instances (HISM) deterministically.
+- [x] 9) Runtime terrain edits (3 brushes only) (COMPLETED)
+  - ✅ Raise / Flatten / Smooth (radius + strength), batched per frame, clipped per tile.
+  - ✅ When ground changes, clear nearby veg instances (HISM) deterministically.
+  - ✅ Console commands for testing: wg.TerrainRaise/Lower/Flatten/Smooth
+  - ✅ Comprehensive terrain modification system with falloff curves
   - (No undo/redo; no navmesh rebuilds in MVP.)
+  - _Status: Full terrain editing system implemented with 4 operations (Add/Subtract/Flatten/Smooth), vegetation clearing integration, console command testing, and proper tile-based modification system_
 
 - [ ] 10) Persistence (simple)
   - `.terra` height-delta grid per tile (raw or RLE); apply on load before queries.

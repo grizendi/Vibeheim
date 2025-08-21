@@ -205,4 +205,9 @@ private:
 	 * Update performance statistics
 	 */
 	void UpdatePerformanceStats(float GenerationTimeMs);
+
+	/**
+	 * Clear vegetation in the specified area (integration with PCGWorldService)
+	 */
+	void ClearVegetationInArea(FVector2D Center, float Radius);
 };
