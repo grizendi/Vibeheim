@@ -71,6 +71,16 @@ struct VIBEHEIM_API FHeightfieldGenerationSettings
 	float ThermalSmoothingStrength = 0.1f; // Thermal smoothing intensity
 };
 
+USTRUCT()
+struct VIBEHEIM_API FHeightfieldModificationList
+{
+	GENERATED_BODY()
+
+	UPROPERTY()
+	TArray<FHeightfieldModification> Modifications; // or Mods, name it as you like
+};
+
+
 /**
  * CPU-based heightfield service implementation
  * Provides deterministic heightfield generation with noise and climate integration
@@ -125,6 +135,24 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Heightfield")
 	void SetNoiseSystem(UNoiseSystem* InNoiseSystem);
 
+	/**
+	 * Save terrain modifications for a specific tile
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Persistence")
+	bool SaveTileTerrainDeltas(FTileCoord TileCoord);
+
+	/**
+	 * Load terrain modifications for a specific tile
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Persistence")
+	bool LoadTileTerrainDeltas(FTileCoord TileCoord);
+
+	/**
+	 * Get all modifications affecting a specific tile
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Persistence")
+	TArray<FHeightfieldModification> GetTileModifications(FTileCoord TileCoord) const;
+
 private:
 	UPROPERTY()
 	FWorldGenConfig WorldGenSettings;
@@ -145,6 +173,14 @@ private:
 	// Heightfield modifications
 	UPROPERTY()
 	TArray<FHeightfieldModification> PendingModifications;
+
+	// Persistence system
+	FString PersistenceDirectory;
+
+	UPROPERTY()
+	TMap<FTileCoord, FHeightfieldModificationList> TileModifications;
+
+	TSet<FTileCoord> DirtyTiles;
 
 	// Performance tracking
 	TArray<float> GenerationTimes;
@@ -210,4 +246,29 @@ private:
 	 * Clear vegetation in the specified area (integration with PCGWorldService)
 	 */
 	void ClearVegetationInArea(FVector2D Center, float Radius);
+
+	/**
+	 * Get file path for .terra file
+	 */
+	FString GetTerraDeltaPath(FTileCoord TileCoord) const;
+
+	/**
+	 * Serialize terrain delta data to binary format
+	 */
+	bool SerializeTerrainDeltas(const TArray<FHeightfieldModification>& Deltas, TArray<uint8>& OutData) const;
+
+	/**
+	 * Deserialize terrain delta data from binary format
+	 */
+	bool DeserializeTerrainDeltas(const TArray<uint8>& InData, TArray<FHeightfieldModification>& OutDeltas) const;
+
+	/**
+	* Apply heightfield modification directly to a heightfield data object
+	*/
+	void ApplyModificationToHeightfield(FHeightfieldData& HeightfieldData, const FHeightfieldModification& Modification);
+
+	/**
+	 * Apply all modifications to a tile's heightfield data
+	 */
+	void ApplyModificationsToTile(FTileCoord TileCoord, FHeightfieldData& HeightfieldData);
 };

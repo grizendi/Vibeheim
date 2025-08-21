@@ -1101,6 +1101,299 @@ static FAutoConsoleCommand WorldGenTestTerrainEditingCommand(
 	})
 );
 
+// Terrain persistence commands
+static FAutoConsoleCommand WorldGenSaveTerrainCommand(
+	TEXT("wg.SaveTerrain"),
+	TEXT("Save all terrain modifications to disk"),
+	FConsoleCommandDelegate::CreateLambda([]()
+	{
+		// Get world gen settings
+		UWorldGenSettings* Settings = UWorldGenSettings::GetWorldGenSettings();
+		if (!Settings)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Failed to get WorldGen settings"));
+			return;
+		}
+
+		// Create heightfield service
+		UHeightfieldService* HeightfieldService = NewObject<UHeightfieldService>();
+		HeightfieldService->Initialize(Settings->Settings);
+
+		// Save terrain modifications
+		bool bSuccess = HeightfieldService->SaveHeightfieldModifications();
+		
+		if (bSuccess)
+		{
+			UE_LOG(LogTemp, Log, TEXT("✓ Successfully saved all terrain modifications"));
+		}
+		else
+		{
+			UE_LOG(LogTemp, Error, TEXT("✗ Failed to save terrain modifications"));
+		}
+	})
+);
+
+static FAutoConsoleCommand WorldGenLoadTerrainCommand(
+	TEXT("wg.LoadTerrain"),
+	TEXT("Load terrain modifications from disk"),
+	FConsoleCommandDelegate::CreateLambda([]()
+	{
+		// Get world gen settings
+		UWorldGenSettings* Settings = UWorldGenSettings::GetWorldGenSettings();
+		if (!Settings)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Failed to get WorldGen settings"));
+			return;
+		}
+
+		// Create heightfield service
+		UHeightfieldService* HeightfieldService = NewObject<UHeightfieldService>();
+		HeightfieldService->Initialize(Settings->Settings);
+
+		// Load terrain modifications
+		bool bSuccess = HeightfieldService->LoadHeightfieldModifications();
+		
+		if (bSuccess)
+		{
+			UE_LOG(LogTemp, Log, TEXT("✓ Successfully loaded terrain modifications"));
+		}
+		else
+		{
+			UE_LOG(LogTemp, Error, TEXT("✗ Failed to load terrain modifications"));
+		}
+	})
+);
+
+static FAutoConsoleCommand WorldGenSaveTileTerrainCommand(
+	TEXT("wg.SaveTileTerrain"),
+	TEXT("Save terrain modifications for a specific tile. Usage: wg.SaveTileTerrain <TileX> <TileY>"),
+	FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+	{
+		if (Args.Num() < 2)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Usage: wg.SaveTileTerrain <TileX> <TileY>"));
+			return;
+		}
+
+		int32 TileX = FCString::Atoi(*Args[0]);
+		int32 TileY = FCString::Atoi(*Args[1]);
+
+		// Get world gen settings
+		UWorldGenSettings* Settings = UWorldGenSettings::GetWorldGenSettings();
+		if (!Settings)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Failed to get WorldGen settings"));
+			return;
+		}
+
+		// Create heightfield service
+		UHeightfieldService* HeightfieldService = NewObject<UHeightfieldService>();
+		HeightfieldService->Initialize(Settings->Settings);
+
+		// Save terrain modifications for this tile
+		FTileCoord TileCoord(TileX, TileY);
+		bool bSuccess = HeightfieldService->SaveTileTerrainDeltas(TileCoord);
+		
+		if (bSuccess)
+		{
+			UE_LOG(LogTemp, Log, TEXT("✓ Successfully saved terrain modifications for tile (%d, %d)"), TileX, TileY);
+		}
+		else
+		{
+			UE_LOG(LogTemp, Error, TEXT("✗ Failed to save terrain modifications for tile (%d, %d)"), TileX, TileY);
+		}
+	})
+);
+
+static FAutoConsoleCommand WorldGenLoadTileTerrainCommand(
+	TEXT("wg.LoadTileTerrain"),
+	TEXT("Load terrain modifications for a specific tile. Usage: wg.LoadTileTerrain <TileX> <TileY>"),
+	FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+	{
+		if (Args.Num() < 2)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Usage: wg.LoadTileTerrain <TileX> <TileY>"));
+			return;
+		}
+
+		int32 TileX = FCString::Atoi(*Args[0]);
+		int32 TileY = FCString::Atoi(*Args[1]);
+
+		// Get world gen settings
+		UWorldGenSettings* Settings = UWorldGenSettings::GetWorldGenSettings();
+		if (!Settings)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Failed to get WorldGen settings"));
+			return;
+		}
+
+		// Create heightfield service
+		UHeightfieldService* HeightfieldService = NewObject<UHeightfieldService>();
+		HeightfieldService->Initialize(Settings->Settings);
+
+		// Load terrain modifications for this tile
+		FTileCoord TileCoord(TileX, TileY);
+		bool bSuccess = HeightfieldService->LoadTileTerrainDeltas(TileCoord);
+		
+		if (bSuccess)
+		{
+			UE_LOG(LogTemp, Log, TEXT("✓ Successfully loaded terrain modifications for tile (%d, %d)"), TileX, TileY);
+			
+			// Show loaded modifications
+			TArray<FHeightfieldModification> Modifications = HeightfieldService->GetTileModifications(TileCoord);
+			UE_LOG(LogTemp, Log, TEXT("  Loaded %d terrain modifications"), Modifications.Num());
+		}
+		else
+		{
+			UE_LOG(LogTemp, Error, TEXT("✗ Failed to load terrain modifications for tile (%d, %d)"), TileX, TileY);
+		}
+	})
+);
+
+static FAutoConsoleCommand WorldGenTestPersistenceCommand(
+	TEXT("wg.TestPersistence"),
+	TEXT("Test terrain persistence system at a location. Usage: wg.TestPersistence <X> <Y>"),
+	FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+	{
+		if (Args.Num() < 2)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Usage: wg.TestPersistence <X> <Y>"));
+			return;
+		}
+
+		float X = FCString::Atof(*Args[0]);
+		float Y = FCString::Atof(*Args[1]);
+
+		UE_LOG(LogTemp, Log, TEXT("=== Testing Terrain Persistence at (%.1f, %.1f) ==="), X, Y);
+
+		// Get world gen settings
+		UWorldGenSettings* Settings = UWorldGenSettings::GetWorldGenSettings();
+		if (!Settings)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Failed to get WorldGen settings"));
+			return;
+		}
+
+		// Create services
+		UHeightfieldService* HeightfieldService = NewObject<UHeightfieldService>();
+		HeightfieldService->Initialize(Settings->Settings);
+
+		UNoiseSystem* NoiseSystem = NewObject<UNoiseSystem>();
+		NoiseSystem->Initialize(Settings->Settings.Seed);
+		HeightfieldService->SetNoiseSystem(NoiseSystem);
+
+		// Generate initial terrain
+		FTileCoord TileCoord = FTileCoord::FromWorldPosition(FVector(X, Y, 0.0f));
+		FHeightfieldData HeightfieldData = HeightfieldService->GenerateHeightfield(Settings->Settings.Seed, TileCoord);
+		
+		float OriginalHeight = HeightfieldService->GetHeightAtLocation(FVector2D(X, Y));
+		UE_LOG(LogTemp, Log, TEXT("1. Original height: %.2f"), OriginalHeight);
+
+		// Step 1: Apply terrain modification
+		FVector Location(X, Y, 0.0f);
+		bool bModifySuccess = HeightfieldService->ModifyHeightfield(Location, 10.0f, 15.0f, EHeightfieldOperation::Add);
+		float ModifiedHeight = HeightfieldService->GetHeightAtLocation(FVector2D(X, Y));
+		UE_LOG(LogTemp, Log, TEXT("2. Modified height: %.2f (change: +%.2f) - %s"), 
+			ModifiedHeight, ModifiedHeight - OriginalHeight, bModifySuccess ? TEXT("✓") : TEXT("✗"));
+
+		// Step 2: Save modifications
+		bool bSaveSuccess = HeightfieldService->SaveTileTerrainDeltas(TileCoord);
+		UE_LOG(LogTemp, Log, TEXT("3. Save modifications: %s"), bSaveSuccess ? TEXT("✓") : TEXT("✗"));
+
+		// Step 3: Create new service instance (simulate reload)
+		UHeightfieldService* NewHeightfieldService = NewObject<UHeightfieldService>();
+		NewHeightfieldService->Initialize(Settings->Settings);
+		NewHeightfieldService->SetNoiseSystem(NoiseSystem);
+
+		// Generate fresh terrain (should be at original height)
+		FHeightfieldData FreshHeightfieldData = NewHeightfieldService->GenerateHeightfield(Settings->Settings.Seed, TileCoord);
+		float FreshHeight = NewHeightfieldService->GetHeightAtLocation(FVector2D(X, Y));
+		UE_LOG(LogTemp, Log, TEXT("4. Fresh terrain height: %.2f"), FreshHeight);
+
+		// Step 4: Load modifications
+		bool bLoadSuccess = NewHeightfieldService->LoadTileTerrainDeltas(TileCoord);
+		UE_LOG(LogTemp, Log, TEXT("5. Load modifications: %s"), bLoadSuccess ? TEXT("✓") : TEXT("✗"));
+
+		if (bLoadSuccess)
+		{
+			TArray<FHeightfieldModification> LoadedMods = NewHeightfieldService->GetTileModifications(TileCoord);
+			UE_LOG(LogTemp, Log, TEXT("   Loaded %d modifications"), LoadedMods.Num());
+		}
+
+		// Step 5: Regenerate terrain with loaded modifications
+		FHeightfieldData RestoredHeightfieldData = NewHeightfieldService->GenerateHeightfield(Settings->Settings.Seed, TileCoord);
+		float RestoredHeight = NewHeightfieldService->GetHeightAtLocation(FVector2D(X, Y));
+		UE_LOG(LogTemp, Log, TEXT("6. Restored height: %.2f"), RestoredHeight);
+
+		// Step 6: Verify persistence
+		float HeightDifference = FMath::Abs(ModifiedHeight - RestoredHeight);
+		bool bPersistenceWorking = HeightDifference < 0.1f; // Allow small floating point errors
+		
+		UE_LOG(LogTemp, Log, TEXT("=== Persistence Test Results ==="));
+		UE_LOG(LogTemp, Log, TEXT("Expected height: %.2f"), ModifiedHeight);
+		UE_LOG(LogTemp, Log, TEXT("Restored height: %.2f"), RestoredHeight);
+		UE_LOG(LogTemp, Log, TEXT("Height difference: %.4f"), HeightDifference);
+		UE_LOG(LogTemp, Log, TEXT("Persistence test: %s"), bPersistenceWorking ? TEXT("✓ PASSED") : TEXT("✗ FAILED"));
+
+		if (!bPersistenceWorking)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Terrain modifications were not properly persisted and restored!"));
+		}
+	})
+);
+
+static FAutoConsoleCommand WorldGenListTerrainModificationsCommand(
+	TEXT("wg.ListTerrainMods"),
+	TEXT("List terrain modifications for a tile. Usage: wg.ListTerrainMods <TileX> <TileY>"),
+	FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+	{
+		if (Args.Num() < 2)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Usage: wg.ListTerrainMods <TileX> <TileY>"));
+			return;
+		}
+
+		int32 TileX = FCString::Atoi(*Args[0]);
+		int32 TileY = FCString::Atoi(*Args[1]);
+
+		// Get world gen settings
+		UWorldGenSettings* Settings = UWorldGenSettings::GetWorldGenSettings();
+		if (!Settings)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Failed to get WorldGen settings"));
+			return;
+		}
+
+		// Create heightfield service
+		UHeightfieldService* HeightfieldService = NewObject<UHeightfieldService>();
+		HeightfieldService->Initialize(Settings->Settings);
+
+		// Try to load modifications
+		FTileCoord TileCoord(TileX, TileY);
+		HeightfieldService->LoadTileTerrainDeltas(TileCoord);
+
+		// Get modifications
+		TArray<FHeightfieldModification> Modifications = HeightfieldService->GetTileModifications(TileCoord);
+
+		UE_LOG(LogTemp, Log, TEXT("=== Terrain Modifications for Tile (%d, %d) ==="), TileX, TileY);
+		if (Modifications.Num() == 0)
+		{
+			UE_LOG(LogTemp, Log, TEXT("No terrain modifications found"));
+		}
+		else
+		{
+			UE_LOG(LogTemp, Log, TEXT("Found %d terrain modifications:"), Modifications.Num());
+			for (int32 i = 0; i < Modifications.Num(); i++)
+			{
+				const FHeightfieldModification& Mod = Modifications[i];
+				FString OperationName = UEnum::GetValueAsString(Mod.Operation);
+				UE_LOG(LogTemp, Log, TEXT("  %d. %s at (%.1f, %.1f) - Radius: %.1f, Strength: %.2f"), 
+					i + 1, *OperationName, Mod.Center.X, Mod.Center.Y, Mod.Radius, Mod.Strength);
+			}
+		}
+	})
+);
+
 // Help command
 static FAutoConsoleCommand WorldGenListDebugCommandsCommand(
 	TEXT("wg.Help"),
@@ -1142,6 +1435,14 @@ static FAutoConsoleCommand WorldGenListDebugCommandsCommand(
 		UE_LOG(LogTemp, Log, TEXT("  wg.TerrainFlatten <x> <y> [radius] [strength] - Flatten terrain"));
 		UE_LOG(LogTemp, Log, TEXT("  wg.TerrainSmooth <x> <y> [radius] [strength] - Smooth terrain"));
 		UE_LOG(LogTemp, Log, TEXT("  wg.TestTerrainEdits <x> <y> - Test all terrain editing ops"));
+		UE_LOG(LogTemp, Log, TEXT(""));
+		UE_LOG(LogTemp, Log, TEXT("Terrain Persistence:"));
+		UE_LOG(LogTemp, Log, TEXT("  wg.SaveTerrain - Save all terrain modifications"));
+		UE_LOG(LogTemp, Log, TEXT("  wg.LoadTerrain - Load terrain modifications"));
+		UE_LOG(LogTemp, Log, TEXT("  wg.SaveTileTerrain <x> <y> - Save modifications for specific tile"));
+		UE_LOG(LogTemp, Log, TEXT("  wg.LoadTileTerrain <x> <y> - Load modifications for specific tile"));
+		UE_LOG(LogTemp, Log, TEXT("  wg.TestPersistence <x> <y> - Test terrain persistence system"));
+		UE_LOG(LogTemp, Log, TEXT("  wg.ListTerrainMods <x> <y> - List modifications for tile"));
 		UE_LOG(LogTemp, Log, TEXT(""));
 		UE_LOG(LogTemp, Log, TEXT("Debug Visualization (Console Variables):"));
 		UE_LOG(LogTemp, Log, TEXT("  wg.ShowBiomes - Toggle biome boundary overlay"));
