@@ -233,4 +233,14 @@ private:
 	 * Estimate current memory usage for performance tracking
 	 */
 	float EstimateMemoryUsage();
+
+	/**
+	 * Find suitable POI location using stratified sampling
+	 */
+	bool FindPOILocationStratified(FTileCoord TileCoord, const FPOISpawnRule& POIRule, const TArray<float>& HeightData, FRandomStream& RandomStream, FVector& OutLocation);
+
+	/**
+	 * Apply terrain modification stamp for POI placement
+	 */
+	void ApplyPOITerrainStamp(FVector Location, float Radius);
 };

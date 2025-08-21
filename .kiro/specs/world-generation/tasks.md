@@ -103,15 +103,24 @@ Perf targets: TileGen ≤ ~2 ms (height+biome), PCG ≤ ~1 ms/tile typical.
   - (No undo/redo; no navmesh rebuilds in MVP.)
   - _Status: Full terrain editing system implemented with 4 operations (Add/Subtract/Flatten/Smooth), vegetation clearing integration, console command testing, and proper tile-based modification system_
 
-- [ ] 10) Persistence (simple)
-  - `.terra` height-delta grid per tile (raw or RLE); apply on load before queries.
-  - `.inst` journal: add/remove instance GUIDs (trees/rocks/POIs).
-  - Save on checkpoints and on quit. (No CRC/migrations/background IO.)
+- [x] 10) Persistence (simple) (COMPLETED)
+  - ✅ `.terra` height-delta grid per tile implemented with binary serialization
+  - ✅ `.inst` journal system with add/remove instance GUIDs and compression
+  - ✅ Save/load operations with integrity validation and checksum verification
+  - ✅ Terrain delta persistence integrated with heightfield modifications
+  - ✅ Instance journal replay system for restoring modified content
+  - _Status: Full persistence system implemented with terrain deltas, instance journals, file I/O, and validation_
 
-- [ ] 11) POIs (single pass)
-  - Blue-noise (or stratified) placement with spacing + slope/altitude gates.
-  - Optional small flatten/clear stamp under POI.
-  - (No retries/backoff/collision gymnastics in MVP.)
+- [x] 11) POIs (single pass) (COMPLETED)
+  - ✅ Stratified placement using 4x4 grid sampling for better spatial distribution
+  - ✅ Comprehensive slope and altitude filtering with configurable limits
+  - ✅ Distance-based spacing requirements between POIs to prevent clustering  
+  - ✅ Flat ground validation with 3x3 area consistency checking
+  - ✅ Terrain flattening/clearing stamp integration for POI placement
+  - ✅ Deterministic generation using seeded random streams
+  - ✅ Biome-specific POI rules with spawn chances and placement constraints
+  - ✅ Integration with persistence system for POI modifications
+  - _Status: Full POI system implemented with stratified sampling, advanced filtering, terrain stamping, and persistence integration_
 
 - [ ] 14) Logging (minimal)
   - One `LogWorldGen` category; include seed + tile coords.

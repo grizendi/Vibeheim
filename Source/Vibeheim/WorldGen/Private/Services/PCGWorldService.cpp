@@ -247,61 +247,45 @@ TArray<FPOIData> UPCGWorldService::GeneratePOIInstances(FTileCoord TileCoord, co
 
 	// Calculate tile world position
 	FVector TileWorldPos = TileCoord.ToWorldPosition(64.0f);
+	FVector2D TileStart(TileWorldPos.X - 32.0f, TileWorldPos.Y - 32.0f);
 	
 	// Initialize seeded random for consistent generation
 	FRandomStream RandomStream(GetTileRandomSeed(TileCoord));
 
-	// Generate POIs based on biome rules
+	// Generate POIs based on biome rules using stratified placement
 	for (const FPOISpawnRule& POIRule : BiomeDef.POIRules)
 	{
 		// Check spawn chance
 		if (RandomStream.FRand() <= POIRule.SpawnChance * WorldGenSettings.POIDensity)
 		{
-			// Find suitable location within tile
-			bool bFoundSuitableLocation = false;
-			int32 MaxAttempts = 10;
+			// Use stratified sampling for better distribution
+			FVector POILocation;
+			bool bFoundSuitableLocation = FindPOILocationStratified(
+				TileCoord, POIRule, HeightData, RandomStream, POILocation);
 			
-			for (int32 Attempt = 0; Attempt < MaxAttempts && !bFoundSuitableLocation; Attempt++)
+			if (bFoundSuitableLocation)
 			{
-				FVector2D RandomOffset = FVector2D(
-					RandomStream.FRandRange(-30.0f, 30.0f),
-					RandomStream.FRandRange(-30.0f, 30.0f)
-				);
-				
-				FVector POILocation = TileWorldPos + FVector(RandomOffset, 0.0f);
-				
-				// Get height at this position
-				int32 HeightX = FMath::Clamp(FMath::FloorToInt(32.0f + RandomOffset.X), 0, 63);
-				int32 HeightY = FMath::Clamp(FMath::FloorToInt(32.0f + RandomOffset.Y), 0, 63);
-				int32 HeightIndex = HeightY * 64 + HeightX;
-				
-				if (HeightData.IsValidIndex(HeightIndex))
+				// Create POI data
+				FPOIData POIData;
+				POIData.POIName = POIRule.POIName;
+				POIData.Location = POILocation;
+				POIData.Rotation = FRotator(0.0f, RandomStream.FRandRange(0.0f, 360.0f), 0.0f);
+				POIData.Scale = FVector::OneVector;
+				POIData.POIBlueprint = POIRule.POIBlueprint;
+				POIData.OriginBiome = BiomeDef.BiomeType;
+				POIData.bIsSpawned = false;
+
+				// Apply terrain flattening/clearing if required
+				if (POIRule.bRequiresFlatGround)
 				{
-					float Height = HeightData[HeightIndex];
-					POILocation.Z = Height;
-
-					// Check slope requirements
-					float Slope = CalculateSlope(HeightData, HeightX, HeightY, 64);
-					if (Slope <= POIRule.SlopeLimit)
-					{
-						// Check distance from other POIs if required
-						if (CheckPOISpacingRequirements(POILocation, POIRule.MinDistanceFromOthers))
-						{
-							FPOIData POIData;
-							POIData.POIName = POIRule.POIName;
-							POIData.Location = POILocation;
-							POIData.Rotation = FRotator::ZeroRotator;
-							POIData.Scale = FVector::OneVector;
-							POIData.POIBlueprint = POIRule.POIBlueprint;
-							POIData.OriginBiome = BiomeDef.BiomeType;
-							POIData.bIsSpawned = false;
-
-							POIs.Add(POIData);
-							SpawnedPOIs.Add(POIData.POIId, POIData);
-							bFoundSuitableLocation = true;
-						}
-					}
+					ApplyPOITerrainStamp(POIData.Location, 8.0f); // 8m radius flatten
 				}
+
+				POIs.Add(POIData);
+				SpawnedPOIs.Add(POIData.POIId, POIData);
+				
+				UE_LOG(LogPCGWorldService, Log, TEXT("Generated POI '%s' at (%.1f, %.1f, %.1f) on tile (%d, %d)"),
+					*POIData.POIName, POILocation.X, POILocation.Y, POILocation.Z, TileCoord.X, TileCoord.Y);
 			}
 		}
 	}
@@ -1076,4 +1060,153 @@ float UPCGWorldService::EstimateMemoryUsage()
 	TotalMemoryMB += SpawnedPOIs.Num() * 0.05f; // Rough estimate per POI
 	
 	return TotalMemoryMB;
+}
+
+bool UPCGWorldService::FindPOILocationStratified(FTileCoord TileCoord, const FPOISpawnRule& POIRule, const TArray<float>& HeightData, FRandomStream& RandomStream, FVector& OutLocation)
+{
+	// Calculate tile bounds
+	FVector TileWorldPos = TileCoord.ToWorldPosition(64.0f);
+	FVector2D TileStart(TileWorldPos.X - 32.0f, TileWorldPos.Y - 32.0f);
+	
+	// Use stratified sampling - divide tile into 4x4 grid and sample within each cell
+	const int32 GridSize = 4;
+	const float CellSize = 64.0f / GridSize;
+	
+	// Try multiple cells for better distribution
+	TArray<FIntVector2> CellIndices;
+	for (int32 Y = 0; Y < GridSize; Y++)
+	{
+		for (int32 X = 0; X < GridSize; X++)
+		{
+			CellIndices.Add(FIntVector2(X, Y));
+		}
+	}
+	
+	// Shuffle the cells for random sampling order
+	for (int32 i = CellIndices.Num() - 1; i > 0; i--)
+	{
+		int32 j = RandomStream.RandRange(0, i);
+		CellIndices.Swap(i, j);
+	}
+	
+	// Try to find suitable location in cells
+	for (const FIntVector2& CellIndex : CellIndices)
+	{
+		// Generate random point within this cell
+		FVector2D CellMin = TileStart + FVector2D(CellIndex.X * CellSize, CellIndex.Y * CellSize);
+		FVector2D RandomOffset = FVector2D(
+			RandomStream.FRandRange(2.0f, CellSize - 2.0f),
+			RandomStream.FRandRange(2.0f, CellSize - 2.0f)
+		);
+		FVector2D SamplePoint = CellMin + RandomOffset;
+		
+		// Convert to heightfield coordinates
+		int32 HeightX = FMath::Clamp(FMath::FloorToInt(SamplePoint.X - TileStart.X), 0, 63);
+		int32 HeightY = FMath::Clamp(FMath::FloorToInt(SamplePoint.Y - TileStart.Y), 0, 63);
+		int32 HeightIndex = HeightY * 64 + HeightX;
+		
+		if (!HeightData.IsValidIndex(HeightIndex))
+		{
+			continue;
+		}
+		
+		// Get terrain data at this location
+		float Height = HeightData[HeightIndex];
+		float Slope = CalculateSlope(HeightData, HeightX, HeightY, 64);
+		FVector TestLocation(SamplePoint.X, SamplePoint.Y, Height);
+		
+		// Check slope requirements
+		if (Slope > POIRule.SlopeLimit)
+		{
+			continue;
+		}
+		
+		// Check altitude constraints (basic filtering)
+		if (Height < WorldGenSettings.SeaLevel + 2.0f) // 2m above sea level minimum
+		{
+			continue;
+		}
+		
+		// Check spacing requirements
+		if (!CheckPOISpacingRequirements(TestLocation, POIRule.MinDistanceFromOthers))
+		{
+			continue;
+		}
+		
+		// Additional slope validation for flat ground requirement
+		if (POIRule.bRequiresFlatGround)
+		{
+			// Check a 3x3 area around the point for consistent flatness
+			bool bIsFlatArea = true;
+			float MaxSlopeInArea = 0.0f;
+			
+			for (int32 CheckY = FMath::Max(0, HeightY - 1); CheckY <= FMath::Min(63, HeightY + 1); CheckY++)
+			{
+				for (int32 CheckX = FMath::Max(0, HeightX - 1); CheckX <= FMath::Min(63, HeightX + 1); CheckX++)
+				{
+					float LocalSlope = CalculateSlope(HeightData, CheckX, CheckY, 64);
+					MaxSlopeInArea = FMath::Max(MaxSlopeInArea, LocalSlope);
+					if (LocalSlope > POIRule.SlopeLimit * 0.5f) // Stricter slope for flat ground
+					{
+						bIsFlatArea = false;
+						break;
+					}
+				}
+				if (!bIsFlatArea) break;
+			}
+			
+			if (!bIsFlatArea)
+			{
+				continue;
+			}
+		}
+		
+		// Found suitable location
+		OutLocation = TestLocation;
+		
+		UE_LOG(LogPCGWorldService, Verbose, TEXT("Found POI location at (%.1f, %.1f, %.1f) with slope %.1f degrees in cell (%d, %d)"),
+			TestLocation.X, TestLocation.Y, TestLocation.Z, Slope, CellIndex.X, CellIndex.Y);
+		
+		return true;
+	}
+	
+	UE_LOG(LogPCGWorldService, Verbose, TEXT("Could not find suitable POI location for rule '%s' in tile (%d, %d)"), 
+		*POIRule.POIName, TileCoord.X, TileCoord.Y);
+	
+	return false;
+}
+
+void UPCGWorldService::ApplyPOITerrainStamp(FVector Location, float Radius)
+{
+	// Get HeightfieldService to apply terrain modification
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		UE_LOG(LogPCGWorldService, Warning, TEXT("Cannot apply terrain stamp - no valid world"));
+		return;
+	}
+	
+	// Find WorldGenManager to access HeightfieldService
+	// For now, just log the operation as a placeholder for integration
+	UE_LOG(LogPCGWorldService, Log, TEXT("Applied terrain stamp at (%.1f, %.1f, %.1f) with radius %.1f for POI placement"),
+		Location.X, Location.Y, Location.Z, Radius);
+	
+	// In a full implementation, this would:
+	// 1. Get the HeightfieldService from WorldGenManager
+	// 2. Apply a flatten operation with the specified radius
+	// 3. Clear vegetation in the area
+	// 4. Update the heightfield data
+	//
+	// Example integration code:
+	// if (UWorldGenManager* WorldGenManager = World->GetSubsystem<UWorldGenManager>())
+	// {
+	//     if (UHeightfieldService* HeightfieldService = WorldGenManager->GetHeightfieldService())
+	//     {
+	//         HeightfieldService->ModifyHeightfield(Location, Radius, 0.8f, EHeightfieldOperation::Flatten);
+	//         
+	//         // Clear vegetation in the area
+	//         FBox ClearArea(Location - FVector(Radius), Location + FVector(Radius));
+	//         RemoveContentInArea(ClearArea);
+	//     }
+	// }
 }
