@@ -8,6 +8,8 @@
 #include "HAL/PlatformFilemanager.h"
 #include "Misc/DateTime.h"
 
+DEFINE_LOG_CATEGORY_STATIC(LogTileStreaming, Log, All);
+
 UTileStreamingService::UTileStreamingService()
 {
 	HeightfieldService = nullptr;

@@ -5,6 +5,7 @@
 #include "Services/BiomeService.h"
 #include "Services/PCGWorldService.h"
 #include "Services/TileStreamingService.h"
+#include "Services/POIService.h"
 #include "Data/WorldGenTypes.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
@@ -36,6 +37,7 @@ AWorldGenManager::AWorldGenManager()
 	BiomeService = nullptr;
 	PCGWorldService = nullptr;
 	TileStreamingService = nullptr;
+	POIService = nullptr;
 }
 
 void AWorldGenManager::BeginPlay()
@@ -117,6 +119,14 @@ bool AWorldGenManager::InitializeWorldGenSystems()
 		return false;
 	}
 
+	// Initialize POI Service
+	POIService = NewObject<UPOIService>(this);
+	if (!POIService || !POIService->Initialize(WorldGenSettings->Settings))
+	{
+		UE_LOG(LogWorldGenManager, Error, TEXT("Failed to initialize POI Service"));
+		return false;
+	}
+
 	// Initialize Tile Streaming Service
 	TileStreamingService = NewObject<UTileStreamingService>(this);
 	if (!TileStreamingService || !TileStreamingService->Initialize(WorldGenSettings->Settings, HeightfieldService, BiomeService, PCGWorldService))
@@ -127,6 +137,8 @@ bool AWorldGenManager::InitializeWorldGenSystems()
 
 	// Connect services together
 	HeightfieldService->SetClimateSystem(ClimateSystem);
+	POIService->SetBiomeService(BiomeService);
+	POIService->SetHeightfieldService(HeightfieldService);
 	// HeightfieldService->SetNoiseSystem(NoiseSystem); // TODO: Add when NoiseSystem is available
 
 	UE_LOG(LogWorldGenManager, Log, TEXT("All world generation systems initialized successfully"));

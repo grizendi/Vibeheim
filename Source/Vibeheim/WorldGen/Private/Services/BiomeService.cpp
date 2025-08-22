@@ -9,6 +9,8 @@
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonWriter.h"
 
+DEFINE_LOG_CATEGORY_STATIC(LogBiomeService, Log, All);
+
 UBiomeService::UBiomeService()
 {
 	ClimateSystem = nullptr;

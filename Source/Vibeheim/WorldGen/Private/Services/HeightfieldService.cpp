@@ -8,6 +8,8 @@
 #include "Misc/Paths.h"
 #include "Misc/DateTime.h"
 
+DEFINE_LOG_CATEGORY_STATIC(LogHeightfieldService, Log, All);
+
 UHeightfieldService::UHeightfieldService()
 {
 	ClimateSystem = nullptr;
