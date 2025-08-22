@@ -122,7 +122,7 @@ struct VIBEHEIM_API FTestConfiguration
 	GENERATED_BODY()
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Test Config")
-	uint64 TestSeed = 12345;
+	int32 TestSeed = 12345;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Test Config")
 	FTileCoord TestTileCoord = FTileCoord(0, 0);
@@ -279,8 +279,16 @@ protected:
 	void RemoveTempDirectory();
 
 	// Service instance management
-	void CreateServiceInstances();
+	bool CreateServiceInstances();
+	bool InitializeServices();
 	void CleanupServiceInstances();
+	
+	// State restoration
+	void RestoreSystemState();
+	
+	// Error recovery and validation
+	bool ValidateTestEnvironment();
+	void HandleTestFailure(const FString& TestName, const FString& ErrorMessage);
 
 private:
 	// Service instances for testing
@@ -311,4 +319,8 @@ private:
 	// Test state tracking
 	bool bIsInitialized = false;
 	FString TempDirectoryPath;
+	
+	// Helper methods for test data management
+	FString GetTempDataPath(const FString& SubDirectory = TEXT("")) const;
+	bool EnsureDirectoryExists(const FString& DirectoryPath) const;
 };
