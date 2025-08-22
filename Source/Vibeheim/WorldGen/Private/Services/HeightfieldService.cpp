@@ -1,13 +1,12 @@
 #include "Services/HeightfieldService.h"
 #include "Services/ClimateSystem.h"
 #include "Services/NoiseSystem.h"
+#include "Utils/WorldGenLogging.h"
 #include "Engine/Engine.h"
 #include "HAL/FileManager.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Misc/DateTime.h"
-
-DEFINE_LOG_CATEGORY_STATIC(LogHeightfieldService, Log, All);
 
 UHeightfieldService::UHeightfieldService()
 {
@@ -106,8 +105,7 @@ FHeightfieldData UHeightfieldService::GenerateHeightfield(int32 Seed, FTileCoord
 	float GenerationTimeMs = static_cast<float>((EndTime - StartTime) * 1000.0);
 	UpdatePerformanceStats(GenerationTimeMs);
 
-	UE_LOG(LogHeightfieldService, Log, TEXT("Generated heightfield for tile (%d, %d) in %.2fms"),
-		TileCoord.X, TileCoord.Y, GenerationTimeMs);
+	WORLDGEN_LOG_WITH_SEED_TILE(Log, Seed, TileCoord, TEXT("Height build completed in %.2fms"), GenerationTimeMs);
 
 	return HeightfieldData;
 }float UHeightfieldService::GenerateBaseHeight(FVector2D WorldPosition, int32 Seed) const

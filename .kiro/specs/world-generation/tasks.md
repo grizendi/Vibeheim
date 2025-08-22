@@ -122,20 +122,41 @@ Perf targets: TileGen ≤ ~2 ms (height+biome), PCG ≤ ~1 ms/tile typical.
   - ✅ Integration with persistence system for POI modifications
   - _Status: Full POI system implemented with stratified sampling, advanced filtering, terrain stamping, and persistence integration_
 
+- [ ] 12) Implement terrain editing system (4 brushes)
+  - Create terrain modification service with Add/Subtract/Flatten/Smooth operations
+  - Implement brush falloff curves and strength parameters
+  - Add console commands: wg.TerrainRaise/Lower/Flatten/Smooth with radius and strength
+  - Integrate with heightfield service for real-time terrain updates
+  - Add vegetation clearing when terrain is modified
+  - _Requirements: 5.3_
+
+- [ ] 13) Implement POI placement system
+  - Create POI service with stratified placement using 4x4 grid sampling
+  - Add slope and altitude filtering with configurable limits
+  - Implement distance-based spacing requirements between POIs
+  - Add flat ground validation with 3x3 area consistency checking
+  - Create terrain flattening/clearing stamp integration for POI placement
+  - Integrate with biome-specific POI rules from BiomeDefinitions.json
+  - _Requirements: 3.1, 3.6_
+
 - [ ] 14) Logging (minimal)
-  - One `LogWorldGen` category; include seed + tile coords.
-  - Basic timers around: height build, biome classify, PCG spawn, streaming tick.
+  - Create `LogWorldGen` category with seed + tile coords in messages
+  - Add basic timers around: height build, biome classify, PCG spawn, streaming tick
+  - Implement performance logging for tile generation and PCG operations
+  - _Requirements: 4.2_
 
 - [ ] 15) Sanity tests (3 only)
-  - Determinism: same seed/coords → same tile checksum.
-  - Seams: 2×2 tiles share identical border heights/biomes.
-  - PCG determinism: fixed (Seed, Tile, PrototypeId) → same instances.
+  - Determinism: same seed/coords → same tile checksum validation
+  - Seams: 2×2 tiles share identical border heights/biomes verification
+  - PCG determinism: fixed (Seed, Tile, PrototypeId) → same instances test
+  - _Requirements: 1.2, 1.3_
 
 - [ ] 16) Integration pass
-  - 60s fly-through with radii on; verify stable perf + no visual seams.
-  - Chop trees, leave area, return → instances persist removed.
-  - Edit ground with 3 brushes, leave/return → edits persist and veg cleared.
-  - POIs appear in sensible spots; stamp applied.
+  - 60s fly-through with radii on; verify stable perf + no visual seams
+  - Chop trees, leave area, return → instances persist removed
+  - Edit ground with 4 brushes, leave/return → edits persist and veg cleared
+  - POIs appear in sensible spots; stamp applied correctly
+  - _Requirements: 5.1, 5.2, 5.4_
 
 ## Performance Guardrails
 

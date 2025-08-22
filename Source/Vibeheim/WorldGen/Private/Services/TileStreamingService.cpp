@@ -3,11 +3,10 @@
 #include "Services/BiomeService.h"
 #include "Services/PCGWorldService.h"
 #include "Data/WorldGenTypes.h"
+#include "Utils/WorldGenLogging.h"
 #include "Engine/Engine.h"
 #include "HAL/PlatformFilemanager.h"
 #include "Misc/DateTime.h"
-
-DEFINE_LOG_CATEGORY_STATIC(LogTileStreaming, Log, All);
 
 UTileStreamingService::UTileStreamingService()
 {
@@ -31,7 +30,7 @@ bool UTileStreamingService::Initialize(const FWorldGenConfig& Settings,
 
 	if (!HeightfieldService || !BiomeService || !PCGWorldService)
 	{
-		UE_LOG(LogTileStreaming, Error, TEXT("Failed to initialize TileStreamingService: Missing required services"));
+		WORLDGEN_LOG_WITH_SEED(Error, WorldGenSettings.Seed, TEXT("Failed to initialize TileStreamingService: Missing required services"));
 		return false;
 	}
 
@@ -43,12 +42,14 @@ bool UTileStreamingService::Initialize(const FWorldGenConfig& Settings,
 	PerformanceMetrics = FTileStreamingMetrics();
 	RecentGenerationTimes.Empty();
 
-	UE_LOG(LogTileStreaming, Log, TEXT("TileStreamingService initialized with cache size %d"), MaxCacheSize);
+	WORLDGEN_LOG_WITH_SEED(Log, WorldGenSettings.Seed, TEXT("TileStreamingService initialized with cache size %d"), MaxCacheSize);
 	return true;
 }
 
 void UTileStreamingService::UpdateStreaming(const FTileCoord& PlayerTileCoord)
 {
+	WORLDGEN_TIMER_WITH_CONTEXT("Streaming tick", WorldGenSettings.Seed, PlayerTileCoord);
+	
 	CurrentTime = FPlatformTime::Seconds();
 
 	// Skip update if player hasn't moved significantly
@@ -59,8 +60,7 @@ void UTileStreamingService::UpdateStreaming(const FTileCoord& PlayerTileCoord)
 
 	LastPlayerTileCoord = PlayerTileCoord;
 
-	UE_LOG(LogTileStreaming, Verbose, TEXT("Updating streaming for player tile (%d, %d)"), 
-		PlayerTileCoord.X, PlayerTileCoord.Y);
+	WORLDGEN_LOG_WITH_SEED_TILE(Verbose, WorldGenSettings.Seed, PlayerTileCoord, TEXT("Updating streaming for player tile"));
 
 	// Calculate required tiles based on streaming radii
 	TArray<FTileCoord> ActiveTiles, LoadTiles, GenerateTiles;
@@ -81,7 +81,7 @@ void UTileStreamingService::UpdateStreaming(const FTileCoord& PlayerTileCoord)
 	// Update performance metrics
 	UpdatePerformanceMetrics();
 
-	UE_LOG(LogTileStreaming, Verbose, TEXT("Streaming update complete: %d active, %d loaded, %d generated tiles"), 
+	WORLDGEN_LOG_WITH_SEED_TILE(Verbose, WorldGenSettings.Seed, PlayerTileCoord, TEXT("Streaming update complete: %d active, %d loaded, %d generated tiles"), 
 		ActiveTiles.Num(), LoadTiles.Num(), GenerateTiles.Num());
 }
 
@@ -152,13 +152,12 @@ void UTileStreamingService::ProcessTileGeneration(const TArray<FTileCoord>& Tile
 			NewTileData.State = ETileState::Generated;
 			AddTileToCache(TileCoord, NewTileData);
 			
-			UE_LOG(LogTileStreaming, Verbose, TEXT("Generated tile (%d, %d) in %.2fms"), 
-				TileCoord.X, TileCoord.Y, NewTileData.GenerationTimeMs);
+			WORLDGEN_LOG_WITH_SEED_TILE(Verbose, WorldGenSettings.Seed, TileCoord, TEXT("Generated tile in %.2fms"), 
+				NewTileData.GenerationTimeMs);
 		}
 		else
 		{
-			UE_LOG(LogTileStreaming, Warning, TEXT("Failed to generate tile (%d, %d)"), 
-				TileCoord.X, TileCoord.Y);
+			WORLDGEN_LOG_WITH_SEED_TILE(Warning, WorldGenSettings.Seed, TileCoord, TEXT("Failed to generate tile"));
 		}
 	}
 }
@@ -175,7 +174,7 @@ void UTileStreamingService::ProcessTileLoading(const TArray<FTileCoord>& TilesTo
 			TileData->LastAccessTime = CurrentTime;
 			UpdateLRUAccess(TileCoord);
 
-			UE_LOG(LogTileStreaming, Verbose, TEXT("Loaded tile (%d, %d)"), TileCoord.X, TileCoord.Y);
+			WORLDGEN_LOG_WITH_SEED_TILE(Verbose, WorldGenSettings.Seed, TileCoord, TEXT("Loaded tile"));
 		}
 	}
 }

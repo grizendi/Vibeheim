@@ -1,4 +1,5 @@
 #include "Services/PCGWorldService.h"
+#include "Utils/WorldGenLogging.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "Components/HierarchicalInstancedStaticMeshComponent.h"
@@ -93,8 +94,8 @@ FPCGGenerationData UPCGWorldService::GenerateBiomeContent(FTileCoord TileCoord, 
 	float GenerationTimeMs = static_cast<float>((EndTime - StartTime) * 1000.0);
 	UpdatePerformanceStats(GenerationTimeMs, GenerationData.TotalInstanceCount);
 
-	UE_LOG(LogPCGWorldService, Log, TEXT("Generated biome content for tile (%d, %d) - %d instances in %.2fms"), 
-		TileCoord.X, TileCoord.Y, GenerationData.TotalInstanceCount, GenerationTimeMs);
+	WORLDGEN_LOG_WITH_SEED_TILE(Log, WorldGenSettings.Seed, TileCoord, TEXT("PCG spawn completed - %d instances in %.2fms"), 
+		GenerationData.TotalInstanceCount, GenerationTimeMs);
 
 	return GenerationData;
 }

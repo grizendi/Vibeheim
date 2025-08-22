@@ -1,4 +1,5 @@
 #include "Services/BiomeService.h"
+#include "Utils/WorldGenLogging.h"
 #include "Engine/Engine.h"
 #include "HAL/FileManager.h"
 #include "Misc/Paths.h"
@@ -7,8 +8,6 @@
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonWriter.h"
-
-DEFINE_LOG_CATEGORY_STATIC(LogBiomeService, Log, All);
 
 UBiomeService::UBiomeService()
 {
@@ -108,9 +107,11 @@ FBiomeResult UBiomeService::DetermineBiome(FVector2D WorldPosition, float Altitu
 
 EBiomeType UBiomeService::DetermineTileBiome(FTileCoord Tile, const TArray<float>& HeightData) const
 {
+	WORLDGEN_TIMER_WITH_CONTEXT("Biome classify", WorldGenSettings.Seed, Tile);
+	
 	if (!ClimateSystem)
 	{
-		UE_LOG(LogBiomeService, Warning, TEXT("Climate system not set, defaulting to Meadows biome for tile (%d, %d)"), Tile.X, Tile.Y);
+		WORLDGEN_LOG_WITH_TILE(Warning, Tile, TEXT("Climate system not set, defaulting to Meadows biome"));
 		return EBiomeType::Meadows;
 	}
 
