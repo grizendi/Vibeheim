@@ -122,7 +122,12 @@ Perf targets: TileGen ≤ ~2 ms (height+biome), PCG ≤ ~1 ms/tile typical.
   - ✅ Integration with persistence system for POI modifications
   - _Status: Full POI system implemented with stratified sampling, advanced filtering, terrain stamping, and persistence integration_
 
-- [ ] 12) Implement terrain editing system (4 brushes)
+- [x] 12) Implement terrain editing system (4 brushes)
+
+
+
+
+
   - Create terrain modification service with Add/Subtract/Flatten/Smooth operations
   - Implement brush falloff curves and strength parameters
   - Add console commands: wg.TerrainRaise/Lower/Flatten/Smooth with radius and strength
@@ -130,7 +135,11 @@ Perf targets: TileGen ≤ ~2 ms (height+biome), PCG ≤ ~1 ms/tile typical.
   - Add vegetation clearing when terrain is modified
   - _Requirements: 5.3_
 
-- [ ] 13) Implement POI placement system
+- [x] 13) Implement POI placement system
+
+
+
+
   - Create POI service with stratified placement using 4x4 grid sampling
   - Add slope and altitude filtering with configurable limits
   - Implement distance-based spacing requirements between POIs
