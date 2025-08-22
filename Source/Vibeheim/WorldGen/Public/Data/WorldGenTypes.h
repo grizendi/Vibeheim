@@ -352,7 +352,7 @@ struct VIBEHEIM_API FHeightfieldModification
 	FTileCoord AffectedTile;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Modification")
-	FGuid ModificationId;
+	FGuid ModificationId = FGuid();
 
 	FHeightfieldModification()
 	{
@@ -370,7 +370,7 @@ struct VIBEHEIM_API FPOIData
 	GENERATED_BODY()
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "POI")
-	FGuid POIId;
+	FGuid POIId = FGuid();
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "POI")
 	FString POIName;
@@ -448,7 +448,7 @@ struct VIBEHEIM_API FPCGInstanceData
 	GENERATED_BODY()
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Instance")
-	FGuid InstanceId;
+	FGuid InstanceId = FGuid();
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Instance")
 	FVector Location = FVector::ZeroVector;

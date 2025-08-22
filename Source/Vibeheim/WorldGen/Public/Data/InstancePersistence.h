@@ -30,7 +30,7 @@ struct VIBEHEIM_API FInstanceJournalEntry
 
 	// Unique instance identifier
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Journal")
-	FGuid InstanceId;
+	FGuid InstanceId = FGuid();
 
 	// Operation performed on this instance
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Journal")

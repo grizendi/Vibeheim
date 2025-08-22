@@ -38,7 +38,7 @@ Target engine: **Unreal Engine 5.6** (Editor + Game)
 Engine\Binaries\Win64\UnrealEditor.exe "D:\UnrealProjects\Vibeheim\Vibeheim.uproject"
 
 :: Full editor target build via UBT (when necessary)
-Engine\Build\BatchFiles\Build.bat VibeheimEditor Win64 Development -WaitMutex -Project="D:\UnrealProjects\Vibeheim\Vibeheim.uproject"
+dotnet "..\..\Engine\Binaries\DotNET\UnrealBuildTool\UnrealBuildTool.dll" VibeheimEditor Win64 Development -Project="D:\UnrealProjects\Vibeheim\Vibeheim.uproject" -WaitMutex -FromMsBuild -architecture=x64
 
 :: Automation (UAT) only if explicitly required
 Engine\Build\BatchFiles\RunUAT.bat BuildCookRun -project="D:\UnrealProjects\Vibeheim\Vibeheim.uproject" -noP4 -clientconfig=Development -ue4exe=UnrealEditor-Cmd.exe -targetplatform=Win64 -build
