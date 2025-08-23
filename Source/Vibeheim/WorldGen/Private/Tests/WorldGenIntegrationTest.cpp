@@ -9,10 +9,12 @@
 #include "Services/TileStreamingService.h"
 #include "HAL/PlatformFilemanager.h"
 #include "HAL/PlatformProcess.h"
+#include "HAL/PlatformMemory.h"
 #include "Misc/Paths.h"
 #include "Misc/DateTime.h"
 #include "Misc/FileHelper.h"
 #include "Engine/Engine.h"
+#include "Misc/CRC.h"
 
 UWorldGenIntegrationTest::UWorldGenIntegrationTest()
 {
@@ -2385,9 +2387,367 @@ FIntegrationTestResult UWorldGenIntegrationTest::RunPOIIntegrationTest()
 FIntegrationTestResult UWorldGenIntegrationTest::RunPerformanceTest()
 {
 	FIntegrationTestResult Result(TEXT("Performance Validation"));
+	double StartTime = FPlatformTime::Seconds();
 	
-	// TODO: Implement in task 9
-	Result.SetFailed(TEXT("Test not yet implemented"));
+	WORLDGEN_LOG(Log, TEXT("Starting performance validation test..."));
 	
-	return Result;
+	// Validate that required services are available
+	if (!HeightfieldService || !PCGService || !TileStreamingService)
+	{
+		Result.SetFailed(TEXT("Required services not available for performance testing"));
+		Result.AddDetailedInfo(TEXT("HeightfieldService"), HeightfieldService ? TEXT("Available") : TEXT("Missing"));
+		Result.AddDetailedInfo(TEXT("PCGService"), PCGService ? TEXT("Available") : TEXT("Missing"));
+		Result.AddDetailedInfo(TEXT("TileStreamingService"), TileStreamingService ? TEXT("Available") : TEXT("Missing"));
+		return Result;
+	}
+	
+	try
+	{
+		// Performance test configuration
+		const int32 PerformanceTestTiles = TestConfig.PerformanceTestTiles;
+		const float MaxTileGenTimeMs = TestConfig.MaxTileGenTimeMs;
+		const float MaxPCGGenTimeMs = TestConfig.MaxPCGGenTimeMs;
+		const int32 TestSeed = TestConfig.TestSeed;
+		
+		WORLDGEN_LOG(Log, TEXT("Performance test configuration:"));
+		WORLDGEN_LOG(Log, TEXT("  - Test tiles: %d"), PerformanceTestTiles);
+		WORLDGEN_LOG(Log, TEXT("  - Max tile generation time: %.2fms"), MaxTileGenTimeMs);
+		WORLDGEN_LOG(Log, TEXT("  - Max PCG generation time: %.2fms"), MaxPCGGenTimeMs);
+		WORLDGEN_LOG(Log, TEXT("  - Test seed: %d"), TestSeed);
+		
+		// Test 1: Measure tile generation times and compare against target thresholds
+		WORLDGEN_LOG(Log, TEXT("Test 1: Measuring tile generation performance..."));
+		
+		TArray<float> TileGenerationTimes;
+		TArray<FTileCoord> TestTiles;
+		bool bTileGenPerformancePassed = true;
+		FString TileGenPerformanceError;
+		
+		// Generate test tiles in a grid pattern around origin
+		for (int32 i = 0; i < PerformanceTestTiles; i++)
+		{
+			int32 GridSize = FMath::CeilToInt(FMath::Sqrt(static_cast<float>(PerformanceTestTiles)));
+			int32 X = (i % GridSize) - GridSize / 2;
+			int32 Y = (i / GridSize) - GridSize / 2;
+			TestTiles.Add(FTileCoord(X, Y));
+		}
+		
+		for (int32 i = 0; i < TestTiles.Num(); i++)
+		{
+			const FTileCoord& TestTile = TestTiles[i];
+			
+			// Clear cache to ensure fresh generation
+			HeightfieldService->ClearHeightfieldCache();
+			
+			// Measure tile generation time
+			double TileStartTime = FPlatformTime::Seconds();
+			
+			FHeightfieldData HeightfieldData = HeightfieldService->GenerateHeightfield(TestSeed, TestTile);
+			
+			double TileEndTime = FPlatformTime::Seconds();
+			float TileGenTimeMs = (TileEndTime - TileStartTime) * 1000.0f;
+			
+			TileGenerationTimes.Add(TileGenTimeMs);
+			
+			// Validate that tile was generated successfully
+			if (HeightfieldData.HeightData.Num() == 0)
+			{
+				bTileGenPerformancePassed = false;
+				TileGenPerformanceError = FString::Printf(TEXT("Failed to generate tile (%d, %d)"), TestTile.X, TestTile.Y);
+				break;
+			}
+			
+			// Check if generation time exceeds threshold
+			if (TileGenTimeMs > MaxTileGenTimeMs)
+			{
+				bTileGenPerformancePassed = false;
+				TileGenPerformanceError = FString::Printf(TEXT("Tile (%d, %d) generation time %.2fms exceeds threshold %.2fms"), 
+					TestTile.X, TestTile.Y, TileGenTimeMs, MaxTileGenTimeMs);
+				break;
+			}
+			
+			WORLDGEN_LOG(Log, TEXT("  Tile (%d, %d): %.2fms (resolution: %dx%d)"), 
+				TestTile.X, TestTile.Y, TileGenTimeMs, HeightfieldData.Resolution, HeightfieldData.Resolution);
+		}
+		
+		// Calculate tile generation statistics
+		float TotalTileGenTime = 0.0f;
+		float MinTileGenTime = TileGenerationTimes.Num() > 0 ? TileGenerationTimes[0] : 0.0f;
+		float MaxTileGenTime = 0.0f;
+		
+		for (float Time : TileGenerationTimes)
+		{
+			TotalTileGenTime += Time;
+			MinTileGenTime = FMath::Min(MinTileGenTime, Time);
+			MaxTileGenTime = FMath::Max(MaxTileGenTime, Time);
+		}
+		
+		float AverageTileGenTime = TileGenerationTimes.Num() > 0 ? TotalTileGenTime / TileGenerationTimes.Num() : 0.0f;
+		
+		Result.AddDetailedInfo(TEXT("Tile Generation - Average Time"), FString::Printf(TEXT("%.2fms"), AverageTileGenTime));
+		Result.AddDetailedInfo(TEXT("Tile Generation - Min Time"), FString::Printf(TEXT("%.2fms"), MinTileGenTime));
+		Result.AddDetailedInfo(TEXT("Tile Generation - Max Time"), FString::Printf(TEXT("%.2fms"), MaxTileGenTime));
+		Result.AddDetailedInfo(TEXT("Tile Generation - Threshold"), FString::Printf(TEXT("%.2fms"), MaxTileGenTimeMs));
+		
+		if (!bTileGenPerformancePassed)
+		{
+			Result.SetFailed(FString::Printf(TEXT("Tile generation performance test failed: %s"), *TileGenPerformanceError));
+			Result.AddDetailedInfo(TEXT("Tile Generation Test"), TEXT("Failed"));
+			return Result;
+		}
+		
+		WORLDGEN_LOG(Log, TEXT("✓ Tile generation performance test passed (average: %.2fms, max: %.2fms, threshold: %.2fms)"), 
+			AverageTileGenTime, MaxTileGenTime, MaxTileGenTimeMs);
+		
+		// Test 2: Monitor PCG generation times per tile and memory usage
+		WORLDGEN_LOG(Log, TEXT("Test 2: Measuring PCG generation performance..."));
+		
+		TArray<float> PCGGenerationTimes;
+		bool bPCGPerformancePassed = true;
+		FString PCGPerformanceError;
+		
+		// Get initial memory usage
+		FPlatformMemoryStats InitialMemStats = FPlatformMemory::GetStats();
+		SIZE_T InitialUsedPhysical = InitialMemStats.UsedPhysical;
+		
+		for (int32 i = 0; i < TestTiles.Num(); i++)
+		{
+			const FTileCoord& TestTile = TestTiles[i];
+			
+			// Measure PCG generation time
+			double PCGStartTime = FPlatformTime::Seconds();
+			
+			// Generate PCG content for this tile using a simple height array
+			TArray<float> SimpleHeightData;
+			SimpleHeightData.SetNum(64 * 64);
+			for (int32 j = 0; j < SimpleHeightData.Num(); j++)
+			{
+				SimpleHeightData[j] = 100.0f; // Simple flat terrain for testing
+			}
+			
+			FPCGGenerationData PCGData = PCGService->GenerateBiomeContent(TestTile, EBiomeType::Meadows, SimpleHeightData);
+			
+			double PCGEndTime = FPlatformTime::Seconds();
+			float PCGGenTimeMs = (PCGEndTime - PCGStartTime) * 1000.0f;
+			
+			PCGGenerationTimes.Add(PCGGenTimeMs);
+			
+			// Check if PCG generation time exceeds threshold
+			if (PCGGenTimeMs > MaxPCGGenTimeMs)
+			{
+				bPCGPerformancePassed = false;
+				PCGPerformanceError = FString::Printf(TEXT("PCG generation for tile (%d, %d) took %.2fms, exceeds threshold %.2fms"), 
+					TestTile.X, TestTile.Y, PCGGenTimeMs, MaxPCGGenTimeMs);
+				break;
+			}
+			
+			WORLDGEN_LOG(Log, TEXT("  PCG Tile (%d, %d): %.2fms (%d instances)"), TestTile.X, TestTile.Y, PCGGenTimeMs, PCGData.TotalInstanceCount);
+		}
+		
+		// Get final memory usage and calculate memory increase
+		FPlatformMemoryStats FinalMemStats = FPlatformMemory::GetStats();
+		SIZE_T FinalUsedPhysical = FinalMemStats.UsedPhysical;
+		SIZE_T MemoryIncreaseMB = (FinalUsedPhysical - InitialUsedPhysical) / (1024 * 1024);
+		
+		// Calculate PCG generation statistics
+		float TotalPCGGenTime = 0.0f;
+		float MinPCGGenTime = PCGGenerationTimes.Num() > 0 ? PCGGenerationTimes[0] : 0.0f;
+		float MaxPCGGenTime = 0.0f;
+		
+		for (float Time : PCGGenerationTimes)
+		{
+			TotalPCGGenTime += Time;
+			MinPCGGenTime = FMath::Min(MinPCGGenTime, Time);
+			MaxPCGGenTime = FMath::Max(MaxPCGGenTime, Time);
+		}
+		
+		float AveragePCGGenTime = PCGGenerationTimes.Num() > 0 ? TotalPCGGenTime / PCGGenerationTimes.Num() : 0.0f;
+		
+		Result.AddDetailedInfo(TEXT("PCG Generation - Average Time"), FString::Printf(TEXT("%.2fms"), AveragePCGGenTime));
+		Result.AddDetailedInfo(TEXT("PCG Generation - Min Time"), FString::Printf(TEXT("%.2fms"), MinPCGGenTime));
+		Result.AddDetailedInfo(TEXT("PCG Generation - Max Time"), FString::Printf(TEXT("%.2fms"), MaxPCGGenTime));
+		Result.AddDetailedInfo(TEXT("PCG Generation - Threshold"), FString::Printf(TEXT("%.2fms"), MaxPCGGenTimeMs));
+		Result.AddDetailedInfo(TEXT("Memory Usage Increase"), FString::Printf(TEXT("%llu MB"), MemoryIncreaseMB));
+		
+		// Validate memory usage (should not exceed reasonable limits)
+		const SIZE_T MaxMemoryIncreaseMB = 500; // 500MB threshold for test tiles
+		bool bMemoryUsageAcceptable = MemoryIncreaseMB <= MaxMemoryIncreaseMB;
+		
+		if (!bPCGPerformancePassed)
+		{
+			Result.SetFailed(FString::Printf(TEXT("PCG generation performance test failed: %s"), *PCGPerformanceError));
+			Result.AddDetailedInfo(TEXT("PCG Generation Test"), TEXT("Failed"));
+			return Result;
+		}
+		
+		if (!bMemoryUsageAcceptable)
+		{
+			Result.SetFailed(FString::Printf(TEXT("Memory usage exceeded threshold: %llu MB > %llu MB"), 
+				MemoryIncreaseMB, MaxMemoryIncreaseMB));
+			Result.AddDetailedInfo(TEXT("Memory Usage Test"), TEXT("Failed"));
+			return Result;
+		}
+		
+		WORLDGEN_LOG(Log, TEXT("✓ PCG generation performance test passed (average: %.2fms, max: %.2fms, memory: %llu MB)"), 
+			AveragePCGGenTime, MaxPCGGenTime, MemoryIncreaseMB);
+		
+		// Test 3: Validate streaming performance meets frame rate targets
+		WORLDGEN_LOG(Log, TEXT("Test 3: Measuring streaming performance..."));
+		
+		// Simulate streaming scenario by loading/unloading tiles rapidly
+		const float TargetFrameTimeMs = 16.67f; // 60 FPS target (16.67ms per frame)
+		const int32 StreamingTestIterations = 10;
+		
+		TArray<float> StreamingFrameTimes;
+		bool bStreamingPerformancePassed = true;
+		FString StreamingPerformanceError;
+		
+		for (int32 Iteration = 0; Iteration < StreamingTestIterations; Iteration++)
+		{
+			double FrameStartTime = FPlatformTime::Seconds();
+			
+			// Simulate frame processing with streaming operations
+			FTileCoord StreamingTile = FTileCoord(Iteration % 3, Iteration / 3);
+			
+			// Generate tile (which loads it into the streaming system)
+			bool bTileGenerated = TileStreamingService->GenerateTile(StreamingTile);
+			
+			// Simulate some frame processing time
+			FPlatformProcess::Sleep(0.001f); // 1ms simulated processing
+			
+			// Get tile data to simulate access
+			FTileStreamingData TileData;
+			bool bTileDataAvailable = TileStreamingService->GetTileData(StreamingTile, TileData);
+			
+			double FrameEndTime = FPlatformTime::Seconds();
+			float FrameTimeMs = (FrameEndTime - FrameStartTime) * 1000.0f;
+			
+			StreamingFrameTimes.Add(FrameTimeMs);
+			
+			// Check if frame time exceeds target
+			if (FrameTimeMs > TargetFrameTimeMs)
+			{
+				bStreamingPerformancePassed = false;
+				StreamingPerformanceError = FString::Printf(TEXT("Frame %d took %.2fms, exceeds target %.2fms"), 
+					Iteration + 1, FrameTimeMs, TargetFrameTimeMs);
+				break;
+			}
+			
+			WORLDGEN_LOG(Log, TEXT("  Streaming frame %d: %.2fms (tile gen: %s, data: %s)"), 
+				Iteration + 1, FrameTimeMs, bTileGenerated ? TEXT("success") : TEXT("failed"),
+				bTileDataAvailable ? TEXT("available") : TEXT("unavailable"));
+		}
+		
+		// Calculate streaming performance statistics
+		float TotalStreamingTime = 0.0f;
+		float MinFrameTime = StreamingFrameTimes.Num() > 0 ? StreamingFrameTimes[0] : 0.0f;
+		float MaxFrameTime = 0.0f;
+		
+		for (float Time : StreamingFrameTimes)
+		{
+			TotalStreamingTime += Time;
+			MinFrameTime = FMath::Min(MinFrameTime, Time);
+			MaxFrameTime = FMath::Max(MaxFrameTime, Time);
+		}
+		
+		float AverageFrameTime = StreamingFrameTimes.Num() > 0 ? TotalStreamingTime / StreamingFrameTimes.Num() : 0.0f;
+		float EffectiveFPS = AverageFrameTime > 0.0f ? 1000.0f / AverageFrameTime : 0.0f;
+		
+		Result.AddDetailedInfo(TEXT("Streaming - Average Frame Time"), FString::Printf(TEXT("%.2fms"), AverageFrameTime));
+		Result.AddDetailedInfo(TEXT("Streaming - Min Frame Time"), FString::Printf(TEXT("%.2fms"), MinFrameTime));
+		Result.AddDetailedInfo(TEXT("Streaming - Max Frame Time"), FString::Printf(TEXT("%.2fms"), MaxFrameTime));
+		Result.AddDetailedInfo(TEXT("Streaming - Effective FPS"), FString::Printf(TEXT("%.1f"), EffectiveFPS));
+		Result.AddDetailedInfo(TEXT("Streaming - Target Frame Time"), FString::Printf(TEXT("%.2fms"), TargetFrameTimeMs));
+		
+		if (!bStreamingPerformancePassed)
+		{
+			Result.SetFailed(FString::Printf(TEXT("Streaming performance test failed: %s"), *StreamingPerformanceError));
+			Result.AddDetailedInfo(TEXT("Streaming Performance Test"), TEXT("Failed"));
+			return Result;
+		}
+		
+		WORLDGEN_LOG(Log, TEXT("✓ Streaming performance test passed (average: %.2fms, effective FPS: %.1f)"), 
+			AverageFrameTime, EffectiveFPS);
+		
+		// Test 4: Performance bottleneck identification
+		WORLDGEN_LOG(Log, TEXT("Test 4: Identifying performance bottlenecks..."));
+		
+		// Analyze performance data to identify bottlenecks
+		TArray<FString> PerformanceBottlenecks;
+		
+		// Check if tile generation is the bottleneck
+		if (AverageTileGenTime > MaxTileGenTimeMs * 0.8f) // 80% of threshold
+		{
+			PerformanceBottlenecks.Add(FString::Printf(TEXT("Tile generation approaching threshold (%.2fms / %.2fms)"), 
+				AverageTileGenTime, MaxTileGenTimeMs));
+		}
+		
+		// Check if PCG generation is the bottleneck
+		if (AveragePCGGenTime > MaxPCGGenTimeMs * 0.8f) // 80% of threshold
+		{
+			PerformanceBottlenecks.Add(FString::Printf(TEXT("PCG generation approaching threshold (%.2fms / %.2fms)"), 
+				AveragePCGGenTime, MaxPCGGenTimeMs));
+		}
+		
+		// Check if streaming is the bottleneck
+		if (AverageFrameTime > TargetFrameTimeMs * 0.8f) // 80% of target
+		{
+			PerformanceBottlenecks.Add(FString::Printf(TEXT("Streaming performance approaching limit (%.2fms / %.2fms)"), 
+				AverageFrameTime, TargetFrameTimeMs));
+		}
+		
+		// Check memory usage
+		if (MemoryIncreaseMB > MaxMemoryIncreaseMB * 0.8f) // 80% of threshold
+		{
+			PerformanceBottlenecks.Add(FString::Printf(TEXT("Memory usage approaching limit (%llu MB / %llu MB)"), 
+				MemoryIncreaseMB, MaxMemoryIncreaseMB));
+		}
+		
+		// Report bottlenecks
+		if (PerformanceBottlenecks.Num() > 0)
+		{
+			WORLDGEN_LOG(Warning, TEXT("Performance bottlenecks identified:"));
+			for (int32 i = 0; i < PerformanceBottlenecks.Num(); i++)
+			{
+				WORLDGEN_LOG(Warning, TEXT("  %d. %s"), i + 1, *PerformanceBottlenecks[i]);
+				Result.AddDetailedInfo(FString::Printf(TEXT("Bottleneck %d"), i + 1), PerformanceBottlenecks[i]);
+			}
+		}
+		else
+		{
+			WORLDGEN_LOG(Log, TEXT("✓ No significant performance bottlenecks detected"));
+			Result.AddDetailedInfo(TEXT("Performance Bottlenecks"), TEXT("None detected"));
+		}
+		
+		// Calculate total execution time
+		double EndTime = FPlatformTime::Seconds();
+		float ExecutionTimeMs = (EndTime - StartTime) * 1000.0f;
+		
+		// All performance tests passed
+		Result.SetPassed(ExecutionTimeMs);
+		Result.AddDetailedInfo(TEXT("Total Test Execution Time"), FString::Printf(TEXT("%.2fms"), ExecutionTimeMs));
+		Result.AddDetailedInfo(TEXT("Test Tiles Count"), FString::Printf(TEXT("%d"), PerformanceTestTiles));
+		
+		WORLDGEN_LOG(Log, TEXT("✓ Performance validation test completed successfully"));
+		WORLDGEN_LOG(Log, TEXT("  - Tile generation: %.2fms average (threshold: %.2fms)"), AverageTileGenTime, MaxTileGenTimeMs);
+		WORLDGEN_LOG(Log, TEXT("  - PCG generation: %.2fms average (threshold: %.2fms)"), AveragePCGGenTime, MaxPCGGenTimeMs);
+		WORLDGEN_LOG(Log, TEXT("  - Streaming performance: %.1f FPS effective (target: %.1f FPS)"), EffectiveFPS, 1000.0f / TargetFrameTimeMs);
+		WORLDGEN_LOG(Log, TEXT("  - Memory usage: %llu MB increase"), MemoryIncreaseMB);
+		WORLDGEN_LOG(Log, TEXT("  - Performance bottlenecks: %d identified"), PerformanceBottlenecks.Num());
+		
+		return Result;
+	}
+	catch (const std::exception& e)
+	{
+		double EndTime = FPlatformTime::Seconds();
+		float ExecutionTimeMs = (EndTime - StartTime) * 1000.0f;
+		
+		FString ErrorMessage = FString::Printf(TEXT("Exception during performance validation test: %s"), ANSI_TO_TCHAR(e.what()));
+		Result.SetFailed(ErrorMessage, ExecutionTimeMs);
+		Result.AddDetailedInfo(TEXT("Exception Type"), TEXT("std::exception"));
+		Result.AddDetailedInfo(TEXT("Exception Message"), ANSI_TO_TCHAR(e.what()));
+		
+		WORLDGEN_LOG(Error, TEXT("Exception in performance validation test: %s"), ANSI_TO_TCHAR(e.what()));
+		return Result;
+	}
 }

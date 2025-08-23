@@ -9,6 +9,7 @@
 #include "Services/PCGWorldService.h"
 #include "Services/TileStreamingService.h"
 #include "Services/POIService.h"
+#include "Tests/WorldGenIntegrationTest.h"
 
 
 
@@ -1470,6 +1471,13 @@ static FAutoConsoleCommand WorldGenListDebugCommandsCommand(
 		UE_LOG(LogTemp, Log, TEXT(""));
 		UE_LOG(LogTemp, Log, TEXT("Integration Testing:"));
 		UE_LOG(LogTemp, Log, TEXT("  wg.IntegrationTest - Run comprehensive integration test"));
+		UE_LOG(LogTemp, Log, TEXT("  wg.TestSystemInit - Run system initialization test"));
+		UE_LOG(LogTemp, Log, TEXT("  wg.TestTerrain - Run terrain consistency test"));
+		UE_LOG(LogTemp, Log, TEXT("  wg.TestPersistenceIntegration - Run persistence test"));
+		UE_LOG(LogTemp, Log, TEXT("  wg.TestBiomesIntegration - Run biome integration test"));
+		UE_LOG(LogTemp, Log, TEXT("  wg.TestPCGIntegration - Run PCG integration test"));
+		UE_LOG(LogTemp, Log, TEXT("  wg.TestPOIsIntegration - Run POI integration test"));
+		UE_LOG(LogTemp, Log, TEXT("  wg.TestPerformanceIntegration - Run performance test"));
 		UE_LOG(LogTemp, Log, TEXT(""));
 		UE_LOG(LogTemp, Log, TEXT("Diagnostics:"));
 		UE_LOG(LogTemp, Log, TEXT("  wg.PerfStats - Show performance statistics"));
@@ -1841,290 +1849,208 @@ static FAutoConsoleCommand WorldGenIntegrationTestCommand(
 	TEXT("Run comprehensive integration test for all world generation systems"),
 	FConsoleCommandDelegate::CreateLambda([]()
 	{
-		UE_LOG(LogTemp, Warning, TEXT("=== WORLD GENERATION INTEGRATION TEST ==="));
-		UE_LOG(LogTemp, Log, TEXT("Testing all systems working together..."));
-		
-		// Get world gen settings
-		UWorldGenSettings* Settings = UWorldGenSettings::GetWorldGenSettings();
-		if (!Settings)
+		// Create and execute the integration test using the proper test class
+		UWorldGenIntegrationTest* IntegrationTest = NewObject<UWorldGenIntegrationTest>();
+		if (!IntegrationTest)
 		{
-			UE_LOG(LogTemp, Error, TEXT("✗ CRITICAL: Failed to get WorldGen settings"));
+			UE_LOG(LogTemp, Error, TEXT("Failed to create integration test instance"));
 			return;
 		}
 
-		bool bAllTestsPassed = true;
-		int32 TestCount = 0;
-		int32 PassedTests = 0;
+		// Execute the complete integration test suite
+		FIntegrationTestSuite TestResults = IntegrationTest->ExecuteIntegrationTest();
 
-		// Test 1: Basic System Initialization
-		UE_LOG(LogTemp, Log, TEXT(""));
-		UE_LOG(LogTemp, Log, TEXT("--- Test 1: System Initialization ---"));
-		TestCount++;
-		
-		UNoiseSystem* NoiseSystem = NewObject<UNoiseSystem>();
-		UClimateSystem* ClimateSystem = NewObject<UClimateSystem>();
-		UHeightfieldService* HeightfieldService = NewObject<UHeightfieldService>();
-		UBiomeService* BiomeService = NewObject<UBiomeService>();
-		UPCGWorldService* PCGService = NewObject<UPCGWorldService>();
-		UPOIService* POIService = NewObject<UPOIService>();
-		
-		if (NoiseSystem && ClimateSystem && HeightfieldService && BiomeService && PCGService && POIService)
+		// The test class handles all logging internally, so we don't need to duplicate it here
+		// The ExecuteIntegrationTest method already provides the formatted output matching the expected format
+	})
+);
+
+// Individual integration test category commands
+static FAutoConsoleCommand WorldGenTestSystemInitCommand(
+	TEXT("wg.TestSystemInit"),
+	TEXT("Run only the system initialization integration test"),
+	FConsoleCommandDelegate::CreateLambda([]()
+	{
+		UWorldGenIntegrationTest* IntegrationTest = NewObject<UWorldGenIntegrationTest>();
+		if (!IntegrationTest)
 		{
-			// Initialize all services
-			NoiseSystem->Initialize(Settings->Settings.Seed);
-			FClimateSettings ClimateSettings;
-			ClimateSystem->Initialize(ClimateSettings, Settings->Settings.Seed);
-			HeightfieldService->Initialize(Settings->Settings);
-			HeightfieldService->SetNoiseSystem(NoiseSystem);
-			HeightfieldService->SetClimateSystem(ClimateSystem);
-			BiomeService->Initialize(ClimateSystem, Settings->Settings);
-			PCGService->Initialize(Settings->Settings);
-			POIService->Initialize(Settings->Settings);
-			POIService->SetBiomeService(BiomeService);
-			POIService->SetHeightfieldService(HeightfieldService);
-			
-			UE_LOG(LogTemp, Log, TEXT("✓ All services initialized successfully"));
-			PassedTests++;
+			UE_LOG(LogTemp, Error, TEXT("Failed to create integration test instance"));
+			return;
+		}
+
+		UE_LOG(LogTemp, Warning, TEXT("=== SYSTEM INITIALIZATION TEST ==="));
+		FIntegrationTestResult Result = IntegrationTest->ExecuteTestCategory(1);
+		
+		if (Result.bPassed)
+		{
+			UE_LOG(LogTemp, Log, TEXT("✓ System initialization test passed (%.2fms)"), Result.ExecutionTimeMs);
 		}
 		else
 		{
-			UE_LOG(LogTemp, Error, TEXT("✗ Failed to create one or more services"));
-			bAllTestsPassed = false;
+			UE_LOG(LogTemp, Error, TEXT("✗ System initialization test failed (%.2fms)"), Result.ExecutionTimeMs);
+			UE_LOG(LogTemp, Error, TEXT("Error: %s"), *Result.ErrorMessage);
+		}
+	})
+);
+
+static FAutoConsoleCommand WorldGenTestTerrainCommand(
+	TEXT("wg.TestTerrain"),
+	TEXT("Run only the terrain generation consistency integration test"),
+	FConsoleCommandDelegate::CreateLambda([]()
+	{
+		UWorldGenIntegrationTest* IntegrationTest = NewObject<UWorldGenIntegrationTest>();
+		if (!IntegrationTest)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Failed to create integration test instance"));
+			return;
 		}
 
-		// Test 2: Terrain Generation and Consistency
-		UE_LOG(LogTemp, Log, TEXT(""));
-		UE_LOG(LogTemp, Log, TEXT("--- Test 2: Terrain Generation Consistency ---"));
-		TestCount++;
+		UE_LOG(LogTemp, Warning, TEXT("=== TERRAIN CONSISTENCY TEST ==="));
+		FIntegrationTestResult Result = IntegrationTest->ExecuteTestCategory(2);
 		
-		FTileCoord TestTile(0, 0);
-		FHeightfieldData HeightfieldData1 = HeightfieldService->GenerateHeightfield(Settings->Settings.Seed, TestTile);
-		FHeightfieldData HeightfieldData2 = HeightfieldService->GenerateHeightfield(Settings->Settings.Seed, TestTile);
-		
-		bool bConsistentGeneration = (HeightfieldData1.HeightData.Num() == HeightfieldData2.HeightData.Num());
-		if (bConsistentGeneration && HeightfieldData1.HeightData.Num() > 0)
+		if (Result.bPassed)
 		{
-			// Check first few height values for consistency
-			for (int32 i = 0; i < FMath::Min(10, HeightfieldData1.HeightData.Num()); i++)
-			{
-				if (FMath::Abs(HeightfieldData1.HeightData[i] - HeightfieldData2.HeightData[i]) > 0.001f)
-				{
-					bConsistentGeneration = false;
-					break;
-				}
-			}
-		}
-		
-		if (bConsistentGeneration)
-		{
-			UE_LOG(LogTemp, Log, TEXT("✓ Terrain generation is deterministic (same seed = same result)"));
-			UE_LOG(LogTemp, Log, TEXT("  Generated %d height samples, range: %.2f to %.2f"), 
-				HeightfieldData1.HeightData.Num(), HeightfieldData1.MinHeight, HeightfieldData1.MaxHeight);
-			PassedTests++;
+			UE_LOG(LogTemp, Log, TEXT("✓ Terrain consistency test passed (%.2fms)"), Result.ExecutionTimeMs);
 		}
 		else
 		{
-			UE_LOG(LogTemp, Error, TEXT("✗ Terrain generation is not consistent"));
-			bAllTestsPassed = false;
+			UE_LOG(LogTemp, Error, TEXT("✗ Terrain consistency test failed (%.2fms)"), Result.ExecutionTimeMs);
+			UE_LOG(LogTemp, Error, TEXT("Error: %s"), *Result.ErrorMessage);
+		}
+	})
+);
+
+static FAutoConsoleCommand WorldGenTestPersistenceIntegrationCommand(
+	TEXT("wg.TestPersistenceIntegration"),
+	TEXT("Run only the terrain editing and persistence integration test"),
+	FConsoleCommandDelegate::CreateLambda([]()
+	{
+		UWorldGenIntegrationTest* IntegrationTest = NewObject<UWorldGenIntegrationTest>();
+		if (!IntegrationTest)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Failed to create integration test instance"));
+			return;
 		}
 
-		// Test 3: Terrain Editing and Persistence
-		UE_LOG(LogTemp, Log, TEXT(""));
-		UE_LOG(LogTemp, Log, TEXT("--- Test 3: Terrain Editing and Persistence ---"));
-		TestCount++;
+		UE_LOG(LogTemp, Warning, TEXT("=== PERSISTENCE TEST ==="));
+		FIntegrationTestResult Result = IntegrationTest->ExecuteTestCategory(3);
 		
-		FVector TestLocation(100.0f, 100.0f, 0.0f);
-		float OriginalHeight = HeightfieldService->GetHeightAtLocation(FVector2D(TestLocation.X, TestLocation.Y));
-		
-		// Apply terrain modification (raise terrain)
-		bool bModifySuccess = HeightfieldService->ModifyHeightfield(TestLocation, 10.0f, 15.0f, EHeightfieldOperation::Add);
-		float ModifiedHeight = HeightfieldService->GetHeightAtLocation(FVector2D(TestLocation.X, TestLocation.Y));
-		
-		// Save modifications
-		bool bSaveSuccess = HeightfieldService->SaveTileTerrainDeltas(TestTile);
-		
-		// Create new service to test persistence
-		UHeightfieldService* NewHeightfieldService = NewObject<UHeightfieldService>();
-		NewHeightfieldService->Initialize(Settings->Settings);
-		NewHeightfieldService->SetNoiseSystem(NoiseSystem);
-		NewHeightfieldService->SetClimateSystem(ClimateSystem);
-		
-		// Load modifications
-		bool bLoadSuccess = NewHeightfieldService->LoadTileTerrainDeltas(TestTile);
-		FHeightfieldData RestoredData = NewHeightfieldService->GenerateHeightfield(Settings->Settings.Seed, TestTile);
-		float RestoredHeight = NewHeightfieldService->GetHeightAtLocation(FVector2D(TestLocation.X, TestLocation.Y));
-		
-		bool bPersistenceWorking = (FMath::Abs(ModifiedHeight - RestoredHeight) < 0.5f) && 
-								   (FMath::Abs(ModifiedHeight - OriginalHeight) > 1.0f);
-		
-		if (bModifySuccess && bSaveSuccess && bLoadSuccess && bPersistenceWorking)
+		if (Result.bPassed)
 		{
-			UE_LOG(LogTemp, Log, TEXT("✓ Terrain editing and persistence working"));
-			UE_LOG(LogTemp, Log, TEXT("  Original: %.2f → Modified: %.2f → Restored: %.2f"), 
-				OriginalHeight, ModifiedHeight, RestoredHeight);
-			PassedTests++;
+			UE_LOG(LogTemp, Log, TEXT("✓ Persistence test passed (%.2fms)"), Result.ExecutionTimeMs);
 		}
 		else
 		{
-			UE_LOG(LogTemp, Error, TEXT("✗ Terrain editing or persistence failed"));
-			UE_LOG(LogTemp, Error, TEXT("  Modify: %s, Save: %s, Load: %s, Persistence: %s"),
-				bModifySuccess ? TEXT("OK") : TEXT("FAIL"),
-				bSaveSuccess ? TEXT("OK") : TEXT("FAIL"),
-				bLoadSuccess ? TEXT("OK") : TEXT("FAIL"),
-				bPersistenceWorking ? TEXT("OK") : TEXT("FAIL"));
-			bAllTestsPassed = false;
+			UE_LOG(LogTemp, Error, TEXT("✗ Persistence test failed (%.2fms)"), Result.ExecutionTimeMs);
+			UE_LOG(LogTemp, Error, TEXT("Error: %s"), *Result.ErrorMessage);
+		}
+	})
+);
+
+static FAutoConsoleCommand WorldGenTestBiomesIntegrationCommand(
+	TEXT("wg.TestBiomesIntegration"),
+	TEXT("Run only the biome system integration test"),
+	FConsoleCommandDelegate::CreateLambda([]()
+	{
+		UWorldGenIntegrationTest* IntegrationTest = NewObject<UWorldGenIntegrationTest>();
+		if (!IntegrationTest)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Failed to create integration test instance"));
+			return;
 		}
 
-		// Test 4: Biome System Integration
-		UE_LOG(LogTemp, Log, TEXT(""));
-		UE_LOG(LogTemp, Log, TEXT("--- Test 4: Biome System Integration ---"));
-		TestCount++;
+		UE_LOG(LogTemp, Warning, TEXT("=== BIOME INTEGRATION TEST ==="));
+		FIntegrationTestResult Result = IntegrationTest->ExecuteTestCategory(4);
 		
-		FVector2D BiomeTestPos(500.0f, 500.0f);
-		FBiomeResult BiomeResult = BiomeService->DetermineBiome(BiomeTestPos, 50.0f);
-		
-		bool bBiomeSystemWorking = (BiomeResult.PrimaryBiome != EBiomeType::None) && 
-								   (BiomeResult.BiomeWeights.Num() > 0);
-		
-		if (bBiomeSystemWorking)
+		if (Result.bPassed)
 		{
-			UE_LOG(LogTemp, Log, TEXT("✓ Biome system working"));
-			UE_LOG(LogTemp, Log, TEXT("  Primary biome: %s, Weights: %d"), 
-				*UEnum::GetValueAsString(BiomeResult.PrimaryBiome), BiomeResult.BiomeWeights.Num());
-			PassedTests++;
+			UE_LOG(LogTemp, Log, TEXT("✓ Biome integration test passed (%.2fms)"), Result.ExecutionTimeMs);
 		}
 		else
 		{
-			UE_LOG(LogTemp, Error, TEXT("✗ Biome system failed"));
-			bAllTestsPassed = false;
+			UE_LOG(LogTemp, Error, TEXT("✗ Biome integration test failed (%.2fms)"), Result.ExecutionTimeMs);
+			UE_LOG(LogTemp, Error, TEXT("Error: %s"), *Result.ErrorMessage);
+		}
+	})
+);
+
+static FAutoConsoleCommand WorldGenTestPCGIntegrationCommand(
+	TEXT("wg.TestPCGIntegration"),
+	TEXT("Run only the PCG content generation integration test"),
+	FConsoleCommandDelegate::CreateLambda([]()
+	{
+		UWorldGenIntegrationTest* IntegrationTest = NewObject<UWorldGenIntegrationTest>();
+		if (!IntegrationTest)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Failed to create integration test instance"));
+			return;
 		}
 
-		// Test 5: PCG Content Generation
-		UE_LOG(LogTemp, Log, TEXT(""));
-		UE_LOG(LogTemp, Log, TEXT("--- Test 5: PCG Content Generation ---"));
-		TestCount++;
+		UE_LOG(LogTemp, Warning, TEXT("=== PCG INTEGRATION TEST ==="));
+		FIntegrationTestResult Result = IntegrationTest->ExecuteTestCategory(5);
 		
-		FPCGGenerationData PCGData = PCGService->GenerateBiomeContent(TestTile, EBiomeType::Meadows, HeightfieldData1.HeightData);
-		
-		bool bPCGWorking = (PCGData.TotalInstanceCount > 0) && (PCGData.GenerationTimeMs > 0.0f);
-		
-		if (bPCGWorking)
+		if (Result.bPassed)
 		{
-			UE_LOG(LogTemp, Log, TEXT("✓ PCG content generation working"));
-			UE_LOG(LogTemp, Log, TEXT("  Generated %d instances in %.2fms"), 
-				PCGData.TotalInstanceCount, PCGData.GenerationTimeMs);
-			PassedTests++;
+			UE_LOG(LogTemp, Log, TEXT("✓ PCG integration test passed (%.2fms)"), Result.ExecutionTimeMs);
 		}
 		else
 		{
-			UE_LOG(LogTemp, Error, TEXT("✗ PCG content generation failed"));
-			UE_LOG(LogTemp, Error, TEXT("  Instances: %d, Time: %.2fms"), 
-				PCGData.TotalInstanceCount, PCGData.GenerationTimeMs);
-			bAllTestsPassed = false;
+			UE_LOG(LogTemp, Error, TEXT("✗ PCG integration test failed (%.2fms)"), Result.ExecutionTimeMs);
+			UE_LOG(LogTemp, Error, TEXT("Error: %s"), *Result.ErrorMessage);
+		}
+	})
+);
+
+static FAutoConsoleCommand WorldGenTestPOIsIntegrationCommand(
+	TEXT("wg.TestPOIsIntegration"),
+	TEXT("Run only the POI generation and placement integration test"),
+	FConsoleCommandDelegate::CreateLambda([]()
+	{
+		UWorldGenIntegrationTest* IntegrationTest = NewObject<UWorldGenIntegrationTest>();
+		if (!IntegrationTest)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Failed to create integration test instance"));
+			return;
 		}
 
-		// Test 6: POI Generation and Placement
-		UE_LOG(LogTemp, Log, TEXT(""));
-		UE_LOG(LogTemp, Log, TEXT("--- Test 6: POI Generation and Placement ---"));
-		TestCount++;
+		UE_LOG(LogTemp, Warning, TEXT("=== POI INTEGRATION TEST ==="));
+		FIntegrationTestResult Result = IntegrationTest->ExecuteTestCategory(6);
 		
-		TArray<FPOIData> GeneratedPOIs = POIService->GenerateTilePOIs(TestTile, EBiomeType::Meadows, HeightfieldData1.HeightData);
-		
-		bool bPOISystemWorking = true;
-		int32 ValidPOIs = 0;
-		
-		for (const FPOIData& POI : GeneratedPOIs)
+		if (Result.bPassed)
 		{
-			// Validate POI placement
-			FPOISpawnRule TestRule;
-			TestRule.POIName = POI.POIName;
-			TestRule.SlopeLimit = 30.0f;
-			TestRule.bRequiresFlatGround = true;
-			
-			if (POIService->ValidatePOIPlacement(POI.Location, TestRule, HeightfieldData1.HeightData, TestTile))
-			{
-				ValidPOIs++;
-			}
-		}
-		
-		bPOISystemWorking = (GeneratedPOIs.Num() > 0) && (ValidPOIs > 0);
-		
-		if (bPOISystemWorking)
-		{
-			UE_LOG(LogTemp, Log, TEXT("✓ POI system working"));
-			UE_LOG(LogTemp, Log, TEXT("  Generated %d POIs, %d valid placements"), 
-				GeneratedPOIs.Num(), ValidPOIs);
-			PassedTests++;
+			UE_LOG(LogTemp, Log, TEXT("✓ POI integration test passed (%.2fms)"), Result.ExecutionTimeMs);
 		}
 		else
 		{
-			UE_LOG(LogTemp, Error, TEXT("✗ POI system failed"));
-			UE_LOG(LogTemp, Error, TEXT("  Generated: %d, Valid: %d"), GeneratedPOIs.Num(), ValidPOIs);
-			bAllTestsPassed = false;
+			UE_LOG(LogTemp, Error, TEXT("✗ POI integration test failed (%.2fms)"), Result.ExecutionTimeMs);
+			UE_LOG(LogTemp, Error, TEXT("Error: %s"), *Result.ErrorMessage);
+		}
+	})
+);
+
+static FAutoConsoleCommand WorldGenTestPerformanceIntegrationCommand(
+	TEXT("wg.TestPerformanceIntegration"),
+	TEXT("Run only the performance validation integration test"),
+	FConsoleCommandDelegate::CreateLambda([]()
+	{
+		UWorldGenIntegrationTest* IntegrationTest = NewObject<UWorldGenIntegrationTest>();
+		if (!IntegrationTest)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Failed to create integration test instance"));
+			return;
 		}
 
-		// Test 7: Performance Validation
-		UE_LOG(LogTemp, Log, TEXT(""));
-		UE_LOG(LogTemp, Log, TEXT("--- Test 7: Performance Validation ---"));
-		TestCount++;
+		UE_LOG(LogTemp, Warning, TEXT("=== PERFORMANCE TEST ==="));
+		FIntegrationTestResult Result = IntegrationTest->ExecuteTestCategory(7);
 		
-		double StartTime = FPlatformTime::Seconds();
-		
-		// Generate multiple tiles to test performance
-		for (int32 x = -1; x <= 1; x++)
+		if (Result.bPassed)
 		{
-			for (int32 y = -1; y <= 1; y++)
-			{
-				FTileCoord PerfTestTile(x, y);
-				FHeightfieldData PerfData = HeightfieldService->GenerateHeightfield(Settings->Settings.Seed, PerfTestTile);
-				FPCGGenerationData PerfPCGData = PCGService->GenerateBiomeContent(PerfTestTile, EBiomeType::Forest, PerfData.HeightData);
-			}
-		}
-		
-		double EndTime = FPlatformTime::Seconds();
-		double TotalTime = (EndTime - StartTime) * 1000.0; // Convert to ms
-		double AvgTimePerTile = TotalTime / 9.0; // 3x3 grid
-		
-		bool bPerformanceAcceptable = (AvgTimePerTile < Settings->Settings.TileGenTargetMs);
-		
-		if (bPerformanceAcceptable)
-		{
-			UE_LOG(LogTemp, Log, TEXT("✓ Performance within acceptable limits"));
-			UE_LOG(LogTemp, Log, TEXT("  Average time per tile: %.2fms (target: %.2fms)"), 
-				AvgTimePerTile, Settings->Settings.TileGenTargetMs);
-			PassedTests++;
+			UE_LOG(LogTemp, Log, TEXT("✓ Performance test passed (%.2fms)"), Result.ExecutionTimeMs);
 		}
 		else
 		{
-			UE_LOG(LogTemp, Warning, TEXT("⚠ Performance slower than target"));
-			UE_LOG(LogTemp, Warning, TEXT("  Average time per tile: %.2fms (target: %.2fms)"), 
-				AvgTimePerTile, Settings->Settings.TileGenTargetMs);
-			// Don't fail the test for performance, just warn
-			PassedTests++;
+			UE_LOG(LogTemp, Error, TEXT("✗ Performance test failed (%.2fms)"), Result.ExecutionTimeMs);
+			UE_LOG(LogTemp, Error, TEXT("Error: %s"), *Result.ErrorMessage);
 		}
-
-		// Final Results
-		UE_LOG(LogTemp, Log, TEXT(""));
-		UE_LOG(LogTemp, Warning, TEXT("=== INTEGRATION TEST RESULTS ==="));
-		UE_LOG(LogTemp, Log, TEXT("Tests Passed: %d/%d"), PassedTests, TestCount);
-		
-		if (bAllTestsPassed && PassedTests == TestCount)
-		{
-			UE_LOG(LogTemp, Log, TEXT("✓ ALL INTEGRATION TESTS PASSED"));
-			UE_LOG(LogTemp, Log, TEXT("World generation system is ready for gameplay testing"));
-		}
-		else
-		{
-			UE_LOG(LogTemp, Error, TEXT("✗ SOME INTEGRATION TESTS FAILED"));
-			UE_LOG(LogTemp, Error, TEXT("System requires fixes before gameplay testing"));
-		}
-		
-		UE_LOG(LogTemp, Log, TEXT(""));
-		UE_LOG(LogTemp, Log, TEXT("Manual Testing Checklist:"));
-		UE_LOG(LogTemp, Log, TEXT("1. 60s fly-through with radii on - verify stable perf + no visual seams"));
-		UE_LOG(LogTemp, Log, TEXT("2. Chop trees, leave area, return - instances persist removed"));
-		UE_LOG(LogTemp, Log, TEXT("3. Edit ground with 4 brushes, leave/return - edits persist and veg cleared"));
-		UE_LOG(LogTemp, Log, TEXT("4. POIs appear in sensible spots - stamp applied correctly"));
-		UE_LOG(LogTemp, Warning, TEXT("=== END INTEGRATION TEST ==="));
 	})
 );
