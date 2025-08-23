@@ -30,7 +30,7 @@ struct VIBEHEIM_API FInstanceJournalEntry
 
 	// Unique instance identifier
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Journal")
-	FGuid InstanceId;
+	FGuid InstanceId = FGuid::NewGuid();
 
 	// Operation performed on this instance
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Journal")
@@ -57,9 +57,13 @@ struct VIBEHEIM_API FInstanceJournalEntry
 	int32 Version = 1;
 
 	FInstanceJournalEntry()
-		: InstanceId(FGuid::NewGuid())
 	{
 		Timestamp = FDateTime::Now().ToUnixTimestamp();
+		// Validate Instance ID is properly initialized (in-class initializer should handle this)
+		if (!InstanceId.IsValid())
+		{
+			InstanceId = FGuid::NewGuid();
+		}
 		ensureMsgf(InstanceId.IsValid(), TEXT("FInstanceJournalEntry: InstanceId must be valid after construction"));
 	}
 
@@ -81,15 +85,14 @@ struct VIBEHEIM_API FInstanceJournalEntry
 };
 
 // TStructOpsTypeTraits for FInstanceJournalEntry
-// WithZeroConstructor = false because we use NewGuid() for unique IDs in default constructor
+// WithZeroConstructor = false because we use NewGuid() for unique IDs in member initializer
 template<>
 struct TStructOpsTypeTraits<FInstanceJournalEntry> : public TStructOpsTypeTraitsBase2<FInstanceJournalEntry>
 {
 	enum
 	{
-		WithZeroConstructor = false,  // We use NewGuid() for unique IDs
-		WithNoInitConstructor = false,  // We properly initialize all members
-		WithSerializer = false  // No custom serialization
+		WithZeroConstructor = false,      // We use NewGuid() for unique IDs
+		WithSerializer = false            // No custom serialization
 	};
 };
 
