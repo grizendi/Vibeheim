@@ -35,7 +35,7 @@ static bool IsZeroOrValid(const FGuid& Guid)
  */
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStructDeterminismValidationTest, 
 	"Vibeheim.WorldGen.StructInitialization.DeterminismValidation", 
-	EAutomationTestFlags::ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
 
 bool FStructDeterminismValidationTest::RunTest(const FString& Parameters)
 {
