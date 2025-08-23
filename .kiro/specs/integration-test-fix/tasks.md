@@ -132,14 +132,17 @@
   - Format output to match expected test result display format
   - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5_
 
-- [ ] 11. Add individual test category console commands
+- [x] 11. Add individual test category console commands
+
   - Implement individual test commands (wg.TestSystemInit, wg.TestTerrain, etc.)
   - Create ExecuteTestCategory() method for running specific test categories
   - Add detailed logging and error context for individual tests
   - Integrate with existing WorldGen logging system and categories
   - _Requirements: 1.1, 1.5_
 
-- [ ] 12. Implement test cleanup and error recovery
+- [x] 12. Implement test cleanup and error recovery
+
+
   - Create comprehensive cleanup methods for temporary test data
   - Add error recovery for test failures to prevent cascade issues
   - Implement atomic file operations for test data integrity
