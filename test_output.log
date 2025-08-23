@@ -1,0 +1,230 @@
+LogInit: Display: Running engine for game: Vibeheim
+LogCore: Display: Requested channels: 'cpu,gpu,frame,log,bookmark,screenshot,region'
+LogTrace: Display: Control listening on port 1985
+LogCsvProfiler: Display: Metadata set : platform="Windows"
+LogCsvProfiler: Display: Metadata set : config="Development"
+LogCsvProfiler: Display: Metadata set : buildversion="++UE5+Release-5.6-CL-44394996"
+LogCsvProfiler: Display: Metadata set : engineversion="5.6.1-44394996+++UE5+Release-5.6"
+LogCsvProfiler: Display: Metadata set : os="Windows 11 (24H2) [10.0.26100.4946] "
+LogCsvProfiler: Display: Metadata set : cpu="GenuineIntel|12th Gen Intel(R) Core(TM) i7-12700H"
+LogCsvProfiler: Display: Metadata set : pgoenabled="0"
+LogCsvProfiler: Display: Metadata set : pgoprofilingenabled="0"
+LogCsvProfiler: Display: Metadata set : ltoenabled="0"
+LogCsvProfiler: Display: Metadata set : asan="0"
+LogCsvProfiler: Display: Metadata set : commandline="" D:\UnrealProjects\Vibeheim\Vibeheim.uproject -ExecCmds=wg.IntegrationTest;quit -log -stdout""
+LogCsvProfiler: Display: Metadata set : loginid="c67c290743084e727cb1798669aae14b"
+LogCsvProfiler: Display: Metadata set : llm="0"
+LogCsvProfiler: Display: Metadata set : systemresolution.resx="1280"
+LogCsvProfiler: Display: Metadata set : systemresolution.resy="720"
+LogAudio: Display: Pre-Initializing Audio Device Manager...
+LogAudio: Display: AudioInfo: 'OPUS' Registered
+LogAudioDebug: Display: Lib vorbis DLL was dynamically loaded.
+LogAudio: Display: AudioInfo: 'OGG' Registered
+LogAudio: Display: AudioInfo: 'ADPCM' Registered
+LogAudio: Display: AudioInfo: 'PCM' Registered
+LogAudio: Display: AudioInfo: 'BINKA' Registered
+LogAudio: Display: AudioInfo: 'RADA' Registered
+LogAudio: Display: Audio Device Manager Pre-Initialized
+LogConfig: Display: Loading VulkanPC ini files took 0.05 seconds
+LogConfig: Display: Loading IOS ini files took 0.05 seconds
+LogConfig: Display: Loading Mac ini files took 0.05 seconds
+LogConfig: Display: Loading Android ini files took 0.05 seconds
+LogAssetRegistry: Display: Asset registry cache read as 74.1 MiB from D:/UnrealProjects/Vibeheim/Intermediate/CachedAssetRegistry_0.bin.
+LogConfig: Display: Loading Unix ini files took 0.06 seconds
+LogConfig: Display: Loading VisionOS ini files took 0.07 seconds
+LogConfig: Display: Loading TVOS ini files took 0.07 seconds
+LogConfig: Display: Loading Windows ini files took 0.07 seconds
+LogConfig: Display: Loading Linux ini files took 0.07 seconds
+RenderDocPlugin: Display: RenderDoc plugin will not be loaded. Use '-AttachRenderDoc' on the cmd line or enable 'renderdoc.AutoAttach' in the plugin settings.
+[2025.08.23-03.23.30:278][  0]LogCsvProfiler: Display: Metadata set : systemresolution.resx="3440"
+[2025.08.23-03.23.30:279][  0]LogCsvProfiler: Display: Metadata set : systemresolution.resy="1440"
+[2025.08.23-03.23.30:736][  0]LogHAL: Display: Platform has ~ 64 GB [68368334848 / 68719476736 / 64], which maps to Largest [LargestMinGB=32, LargerMinGB=12, DefaultMinGB=8, SmallerMinGB=6, SmallestMinGB=0)
+[2025.08.23-03.23.30:744][  0]LogCsvProfiler: Display: Metadata set : extradevelopmentmemorymb="0"
+[2025.08.23-03.23.31:130][  0]LogWindowsTouchpad: Display: CacheForceMaxTouchpadSensitivityMode SetMaxTouchpadSensitivity
+[2025.08.23-03.23.31:132][  0]LogObj: Display: Attempting to load config data for Default__SlateThemeManager before the Class has been constructed/registered/linked (likely during module loading or early startup). This will result in the load silently failing and should be fixed.
+[2025.08.23-03.23.31:245][  0]LogD3D12RHI: Display: Creating D3D12 RHI with Max Feature Level SM6
+[2025.08.23-03.23.31:452][  0]LogD3D12RHI: Display: Not using pipeline state disk cache per r.D3D12.PSO.DiskCache=0
+[2025.08.23-03.23.31:453][  0]LogD3D12RHI: Display: Not using driver-optimized pipeline state disk cache per r.D3D12.PSO.DriverOptimizedDiskCache=0
+[2025.08.23-03.23.31:625][  0]LogD3D12RHI: Display: Batched command list execution is disabled for async queues due to known bugs in the current driver.
+[2025.08.23-03.23.31:638][  0]LogCsvProfiler: Display: Metadata set : verbatimrhiname="D3D12"
+[2025.08.23-03.23.31:639][  0]LogCsvProfiler: Display: Metadata set : rhiname="D3D12"
+[2025.08.23-03.23.31:640][  0]LogCsvProfiler: Display: Metadata set : rhifeaturelevel="SM6"
+[2025.08.23-03.23.31:640][  0]LogCsvProfiler: Display: Metadata set : shaderplatform="PCD3D_SM6"
+[2025.08.23-03.23.31:651][  0]LogTextureFormatASTC: Display: ASTCEnc version 5.0.1 library loaded
+[2025.08.23-03.23.31:652][  0]LogTextureFormatManager: Display: Loaded Base TextureFormat: TextureFormatASTC
+[2025.08.23-03.23.31:653][  0]LogTextureFormatManager: Display: Loaded Base TextureFormat: TextureFormatDXT
+[2025.08.23-03.23.31:653][  0]LogTextureFormatManager: Display: Loaded Base TextureFormat: TextureFormatETC2
+[2025.08.23-03.23.31:653][  0]LogTextureFormatManager: Display: Loaded Base TextureFormat: TextureFormatIntelISPCTexComp
+[2025.08.23-03.23.31:654][  0]LogTextureFormatManager: Display: Loaded Base TextureFormat: TextureFormatUncompressed
+[2025.08.23-03.23.31:654][  0]LogTextureFormatOodle: Display: Oodle Texture TFO init; latest sdk version = 2.9.13
+[2025.08.23-03.23.31:654][  0]LogTextureFormatOodle: Display: Oodle Texture loading DLL: oo2tex_win64_2.9.13.dll
+[2025.08.23-03.23.31:654][  0]LogTextureFormatOodle: Display: Oodle Texture loading DLL: oo2tex_win64_2.9.5.dll
+[2025.08.23-03.23.31:654][  0]LogTextureFormatManager: Display: Loaded Base TextureFormat: TextureFormatOodle
+[2025.08.23-03.23.31:681][  0]LogTargetPlatformManager: Display: Loaded TargetPlatform 'Android'
+[2025.08.23-03.23.31:683][  0]LogTargetPlatformManager: Display: Loaded TargetPlatform 'Android_ASTC'
+[2025.08.23-03.23.31:683][  0]LogTargetPlatformManager: Display: Loaded TargetPlatform 'Android_DXT'
+[2025.08.23-03.23.31:683][  0]LogTargetPlatformManager: Display: Loaded TargetPlatform 'Android_ETC2'
+[2025.08.23-03.23.31:683][  0]LogTargetPlatformManager: Display: Loaded TargetPlatform 'Android_OpenXR'
+[2025.08.23-03.23.31:683][  0]LogTargetPlatformManager: Display: Loaded TargetPlatform 'AndroidClient'
+[2025.08.23-03.23.31:684][  0]LogTargetPlatformManager: Display: Loaded TargetPlatform 'Android_ASTCClient'
+[2025.08.23-03.23.31:684][  0]LogTargetPlatformManager: Display: Loaded TargetPlatform 'Android_DXTClient'
+[2025.08.23-03.23.31:684][  0]LogTargetPlatformManager: Display: Loaded TargetPlatform 'Android_ETC2Client'
+[2025.08.23-03.23.31:684][  0]LogTargetPlatformManager: Display: Loaded TargetPlatform 'Android_OpenXRClient'
+[2025.08.23-03.23.31:684][  0]LogTargetPlatformManager: Display: Loaded TargetPlatform 'Android_Multi'
+[2025.08.23-03.23.31:684][  0]LogTargetPlatformManager: Display: Loaded TargetPlatform 'Android_MultiClient'
+[2025.08.23-03.23.31:695][  0]LogTargetPlatformManager: Display: Loaded TargetPlatform 'IOS'
+[2025.08.23-03.23.31:696][  0]LogTargetPlatformManager: Display: Loaded TargetPlatform 'IOSClient'
+[2025.08.23-03.23.31:708][  0]LogTargetPlatformManager: Display: Loaded TargetPlatform 'Linux'
+[2025.08.23-03.23.31:709][  0]LogTargetPlatformManager: Display: Loaded TargetPlatform 'LinuxEditor'
+[2025.08.23-03.23.31:709][  0]LogTargetPlatformManager: Display: Loaded TargetPlatform 'LinuxServer'
+[2025.08.23-03.23.31:709][  0]LogTargetPlatformManager: Display: Loaded TargetPlatform 'LinuxClient'
+[2025.08.23-03.23.31:722][  0]LogTargetPlatformManager: Display: Loaded TargetPlatform 'Mac'
+[2025.08.23-03.23.31:723][  0]LogTargetPlatformManager: Display: Loaded TargetPlatform 'MacEditor'
+[2025.08.23-03.23.31:723][  0]LogTargetPlatformManager: Display: Loaded TargetPlatform 'MacServer'
+[2025.08.23-03.23.31:723][  0]LogTargetPlatformManager: Display: Loaded TargetPlatform 'MacClient'
+[2025.08.23-03.23.31:734][  0]LogTargetPlatformManager: Display: Loaded TargetPlatform 'TVOS'
+[2025.08.23-03.23.31:734][  0]LogTargetPlatformManager: Display: Loaded TargetPlatform 'TVOSClient'
+[2025.08.23-03.23.31:748][  0]LogTargetPlatformManager: Display: Loaded TargetPlatform 'Windows'
+[2025.08.23-03.23.31:749][  0]LogTargetPlatformManager: Display: Loaded TargetPlatform 'WindowsEditor'
+[2025.08.23-03.23.31:750][  0]LogTargetPlatformManager: Display: Loaded TargetPlatform 'WindowsServer'
+[2025.08.23-03.23.31:750][  0]LogTargetPlatformManager: Display: Loaded TargetPlatform 'WindowsClient'
+[2025.08.23-03.23.31:750][  0]LogTargetPlatformManager: Display: Building Assets For WindowsEditor
+[2025.08.23-03.23.31:793][  0]LogDerivedDataCache: Display: Memory: Max Cache Size: -1 MB
+[2025.08.23-03.23.32:009][  0]LogDerivedDataCache: Display: ../../../Engine/DerivedDataCache/Compressed.ddp: Opened pak cache for reading. (1350 MiB)
+[2025.08.23-03.23.32:012][  0]LogZenServiceInstance: Display: Launching executable 'C:/Users/grize/AppData/Local/UnrealEngine/Common/Zen/Install/zenserver.exe', working dir 'C:/Users/grize/AppData/Local/UnrealEngine/Common/Zen/Install', data dir 'C:/Users/grize/AppData/Local/UnrealEngine/Common/Zen/Data', args '--port 8558 --data-dir "C:\Users\grize\AppData\Local\UnrealEngine\Common\Zen\Data" --http asio --gc-cache-duration-seconds 1209600 --gc-interval-seconds 21600 --gc-low-diskspace-threshold 2147483648 --quiet --http-forceloopback --owner-pid 22768  --child-id Zen_22768_Startup'
+[2025.08.23-03.23.32:119][  0]LogZenServiceInstance: Display: Unreal Zen Storage Server HTTP service at [::1]:8558 status: OK!.
+[2025.08.23-03.23.32:121][  0]LogDerivedDataCache: Display: ZenLocal: Using ZenServer HTTP service at http://[::1]:8558/ with namespace ue.ddc status: OK!.
+[2025.08.23-03.23.32:127][  0]LogDerivedDataCache: Display: C:/Users/grize/AppData/Local/UnrealEngine/Common/DerivedDataCache: Performance: Latency=0.02ms. RandomReadSpeed=1450.82MBs, RandomWriteSpeed=183.06MBs. Assigned SpeedClass 'Local'
+[2025.08.23-03.23.32:130][  0]LogUbaHorde: Display: UBA/Horde Configuration [Uba.Provider.Horde]: Not Enabled
+[2025.08.23-03.23.32:131][  0]LogShaderCompilers: Display: Using 10 local workers for shader compilation
+[2025.08.23-03.23.32:131][  0]LogShaderCompilers: Display: Compiling shader autogen file: D:/UnrealProjects/Vibeheim/Intermediate/ShaderAutogen/PCD3D_SM6/AutogenShaderHeaders.ush
+[2025.08.23-03.23.32:133][  0]LogShaderCompilers: Display: Autogen file is unchanged, skipping write.
+[2025.08.23-03.23.33:823][  0]LogStreaming: Warning: Failed to read file '../../../Engine/Platforms/VisionOS/Content/Editor/Slate/Launcher/Platform_VisionOS_128x.png' error.
+[2025.08.23-03.23.33:824][  0]LogStreaming: Warning: Failed to read file '../../../Engine/Platforms/VisionOS/Content/Editor/Slate/Launcher/Platform_VisionOS_24x.png' error.
+[2025.08.23-03.23.33:844][  0]LogEditorDomain: Display: EditorDomain is Disabled
+[2025.08.23-03.23.33:905][  0]LogAssetRegistry: Display: AssetDataGatherer spent 0.000s loading caches D:/UnrealProjects/Vibeheim/Intermediate/CachedAssetRegistry_*.bin.
+[2025.08.23-03.23.34:083][  0]LogDeviceProfileManager: Display: Deviceprofile LinuxArm64Editor not found.
+[2025.08.23-03.23.34:084][  0]LogDeviceProfileManager: Display: Deviceprofile LinuxArm64 not found.
+[2025.08.23-03.23.34:110][  0]LogCsvProfiler: Display: Metadata set : deviceprofile="WindowsEditor"
+[2025.08.23-03.23.34:113][  0]LogStreaming: Display: FlushAsyncLoading(1): 1 QueuedPackages, 0 AsyncPackages
+[2025.08.23-03.23.34:115][  0]LogTextureEncodingSettings: Display: Texture Encode Speed: FinalIfAvailable (editor).
+[2025.08.23-03.23.34:115][  0]LogTextureEncodingSettings: Display: Oodle Texture Encode Speed settings: Fast: RDO Off Lambda=0, Effort=Normal Final: RDO Off Lambda=0, Effort=Normal
+[2025.08.23-03.23.34:115][  0]LogTextureEncodingSettings: Display: Shared linear texture encoding: Disabled
+[2025.08.23-03.23.34:152][  0]LogStreaming: Display: Flushing package /Engine/Functions/Engine_MaterialFunctions01/Shading/PowerToRoughness (state: WaitingForIo) recursively from another package /Engine/EngineMaterials/DefaultTextMaterialOpaque (state: CreateLinkerLoadExports) will result in a partially loaded package to avoid a deadlock.
+[2025.08.23-03.23.34:154][  0]LogStreaming: Display: Package /Engine/EngineMaterials/DefaultTextMaterialOpaque is adding a dynamic import to package /Engine/Functions/Engine_MaterialFunctions01/Shading/PowerToRoughness because of a recursive sync load
+[2025.08.23-03.23.34:154][  0]LogStreaming: Display: Flushing package /Engine/Functions/Engine_MaterialFunctions01/Shading/PowerToRoughness (state: DeferredPostLoad) recursively from another package /Engine/EngineMaterials/DefaultTextMaterialOpaque (state: CreateLinkerLoadExports) will result in a partially loaded package to avoid a deadlock.
+[2025.08.23-03.23.34:154][  0]LogStreaming: Display: Flushing package /Engine/Functions/Engine_MaterialFunctions01/Shading/ConvertFromDiffSpec (state: WaitingForIo) recursively from another package /Engine/EngineMaterials/DefaultTextMaterialOpaque (state: CreateLinkerLoadExports) will result in a partially loaded package to avoid a deadlock.
+[2025.08.23-03.23.34:154][  0]LogStreaming: Display: Package /Engine/EngineMaterials/DefaultTextMaterialOpaque is adding a dynamic import to package /Engine/Functions/Engine_MaterialFunctions01/Shading/ConvertFromDiffSpec because of a recursive sync load
+[2025.08.23-03.23.34:154][  0]LogStreaming: Display: Flushing package /Engine/Functions/Engine_MaterialFunctions01/Shading/ConvertFromDiffSpec (state: DeferredPostLoad) recursively from another package /Engine/EngineMaterials/DefaultTextMaterialOpaque (state: CreateLinkerLoadExports) will result in a partially loaded package to avoid a deadlock.
+[2025.08.23-03.23.34:154][  0]LogStreaming: Display: Flushing package /Engine/EngineMaterials/WorldGridMaterial (state: WaitingForIo) recursively from another package /Engine/EngineMaterials/DefaultTextMaterialOpaque (state: CreateLinkerLoadExports) will result in a partially loaded package to avoid a deadlock.
+[2025.08.23-03.23.34:155][  0]LogStreaming: Display: Package /Engine/EngineMaterials/DefaultTextMaterialOpaque is adding a dynamic import to package /Engine/EngineMaterials/T_Default_Material_Grid_M because of a recursive sync load
+[2025.08.23-03.23.34:155][  0]LogStreaming: Display: Package /Engine/EngineMaterials/DefaultTextMaterialOpaque is adding a dynamic import to package /Engine/EngineMaterials/T_Default_Material_Grid_N because of a recursive sync load
+[2025.08.23-03.23.34:156][  0]LogStreaming: Display: Package /Engine/EngineMaterials/DefaultTextMaterialOpaque is adding a dynamic import to package /Engine/Functions/Engine_MaterialFunctions01/Opacity/CameraDepthFade because of a recursive sync load
+[2025.08.23-03.23.34:157][  0]LogStreaming: Display: Flushing package /Engine/EngineMaterials/DefaultDeferredDecalMaterial (state: WaitingForIo) recursively from another package /Engine/EngineMaterials/WorldGridMaterial (state: CreateLinkerLoadExports) will result in a partially loaded package to avoid a deadlock.
+[2025.08.23-03.23.34:157][  0]LogStreaming: Display: Flushing package /Engine/EngineMaterials/DefaultLightFunctionMaterial (state: WaitingForIo) recursively from another package /Engine/EngineMaterials/DefaultDeferredDecalMaterial (state: CreateLinkerLoadExports) will result in a partially loaded package to avoid a deadlock.
+[2025.08.23-03.23.34:158][  0]LogStreaming: Display: Flushing package /Engine/EngineMaterials/DefaultPostProcessMaterial (state: WaitingForIo) recursively from another package /Engine/EngineMaterials/DefaultLightFunctionMaterial (state: CreateLinkerLoadExports) will result in a partially loaded package to avoid a deadlock.
+[2025.08.23-03.23.34:159][  0]LogStreaming: Display: Package /Engine/EngineMaterials/DefaultLightFunctionMaterial is adding a dynamic import to package /Engine/EngineMaterials/DefaultDiffuse because of a recursive sync load
+[2025.08.23-03.23.34:159][  0]LogStreaming: Display: Package /Engine/EngineMaterials/DefaultLightFunctionMaterial is adding a dynamic import to package /Engine/Functions/Engine_MaterialFunctions02/Utility/BreakOutFloat2Components because of a recursive sync load
+[2025.08.23-03.23.34:160][  0]LogStreaming: Display: Package /Engine/EngineMaterials/DefaultLightFunctionMaterial is adding a dynamic import to package /Engine/EngineMaterials/DefaultPostProcessMaterial because of a recursive sync load
+[2025.08.23-03.23.34:160][  0]LogStreaming: Display: Flushing package /Engine/EngineMaterials/DefaultPostProcessMaterial (state: DeferredPostLoad) recursively from another package /Engine/EngineMaterials/DefaultLightFunctionMaterial (state: CreateLinkerLoadExports) will result in a partially loaded package to avoid a deadlock.
+[2025.08.23-03.23.34:191][  0]LogStreaming: Display: Package /Engine/EngineMaterials/DefaultDeferredDecalMaterial is adding a dynamic import to package /Engine/EngineMaterials/DefaultLightFunctionMaterial because of a recursive sync load
+[2025.08.23-03.23.34:192][  0]LogStreaming: Display: Flushing package /Engine/EngineMaterials/DefaultLightFunctionMaterial (state: DeferredPostLoad) recursively from another package /Engine/EngineMaterials/DefaultDeferredDecalMaterial (state: CreateLinkerLoadExports) will result in a partially loaded package to avoid a deadlock.
+[2025.08.23-03.23.34:209][  0]LogStreaming: Display: Package /Engine/EngineMaterials/WorldGridMaterial is adding a dynamic import to package /Engine/EngineMaterials/DefaultDeferredDecalMaterial because of a recursive sync load
+[2025.08.23-03.23.34:210][  0]LogStreaming: Display: Flushing package /Engine/EngineMaterials/DefaultDeferredDecalMaterial (state: DeferredPostLoad) recursively from another package /Engine/EngineMaterials/WorldGridMaterial (state: CreateLinkerLoadExports) will result in a partially loaded package to avoid a deadlock.
+[2025.08.23-03.23.34:225][  0]LogStreaming: Display: Package /Engine/EngineMaterials/DefaultTextMaterialOpaque is adding a dynamic import to package /Engine/EngineMaterials/WorldGridMaterial because of a recursive sync load
+[2025.08.23-03.23.34:226][  0]LogStreaming: Display: Flushing package /Engine/EngineMaterials/WorldGridMaterial (state: DeferredPostLoad) recursively from another package /Engine/EngineMaterials/DefaultTextMaterialOpaque (state: CreateLinkerLoadExports) will result in a partially loaded package to avoid a deadlock.
+[2025.08.23-03.23.34:391][  0]LogMeshReduction: Display: Using QuadricMeshReduction for automatic static mesh reduction
+[2025.08.23-03.23.34:393][  0]LogMeshReduction: Display: Using SkeletalMeshReduction for automatic skeletal mesh reduction
+[2025.08.23-03.23.34:393][  0]LogMeshReduction: Display: Using ProxyLODMeshReduction for automatic mesh merging
+[2025.08.23-03.23.34:393][  0]LogMeshReduction: Display: No distributed automatic mesh merging module available
+[2025.08.23-03.23.34:834][  0]LogVirtualization: Display: VirtualizationSystem name found in ini file: None
+[2025.08.23-03.23.34:836][  0]LogVirtualization: Display: FNullVirtualizationSystem mounted, virtualization will be disabled
+[2025.08.23-03.23.34:837][  0]LogLiveCoding: Display: Starting LiveCoding
+[2025.08.23-03.23.34:837][  0]LogLiveCoding: Display: LiveCodingConsole Arguments: UnrealEditor Win64 Development
+[2025.08.23-03.23.34:839][  0]LogLiveCoding: Display: First instance in process group "UE_Vibeheim_0x9385654d", spawning console
+[2025.08.23-03.23.34:842][  0]LogLiveCoding: Display: Waiting for server
+[2025.08.23-03.23.34:916][  0]LogWorldPartition: Display: FWorldPartitionClassDescRegistry::Initialize started...
+[2025.08.23-03.23.34:919][  0]LogWorldPartition: Display: FWorldPartitionClassDescRegistry::Initialize took 2.884 ms
+LogWindowsTouchpad: Display: CacheForceMaxTouchpadSensitivityMode SetMaxTouchpadSensitivity
+[2025.08.23-03.23.35:452][  0]LogMetaSound: Display: MetaSound Page Target Initialized to 'Default'
+[2025.08.23-03.23.35:453][  0]LogAudio: Display: Registering Engine Module Parameter Interfaces...
+[2025.08.23-03.23.35:759][  0]LogUdpMessaging: Display: Work queue size set to 1024.
+[2025.08.23-03.23.35:767][  0]LogUdpMessaging: Display: Unicast socket bound to '0.0.0.0:52592'.
+[2025.08.23-03.23.35:768][  0]LogUdpMessaging: Display: Added local interface '192.168.1.66' to multicast group '230.0.0.1:6666'
+[2025.08.23-03.23.35:768][  0]LogUdpMessaging: Display: Using asynchronous task graph for message deserialization.
+[2025.08.23-03.23.35:916][  0]LogAudioCaptureCore: Display: No Audio Capture implementations found. Audio input will be silent.
+[2025.08.23-03.23.35:917][  0]LogAudioCaptureCore: Display: No Audio Capture implementations found. Audio input will be silent.
+LogLiveCodingServer: Display: Registered process C:\Program Files\Epic Games\UE_5.6\Engine\Binaries\Win64\UnrealEditor-Cmd.exe (PID: 22768)
+[2025.08.23-03.23.35:961][  0]LogLiveCoding: Display: Successfully initialized, removing startup thread
+[2025.08.23-03.23.36:027][  0]LogStreaming: Warning: Failed to read file '../../../Engine/Content/Slate/Icons/doc_16x.png' error.
+[2025.08.23-03.23.36:029][  0]LogStreaming: Warning: Failed to read file '../../../Engine/Content/Slate/Common/ButtonHoverHint.png' error.
+[2025.08.23-03.23.36:240][  0]LogStreaming: Warning: Failed to read file '../../../Engine/Platforms/VisionOS/Content/Editor/Slate/Launcher/Platform_VisionOS_24x.png' error.
+[2025.08.23-03.23.36:242][  0]LogStreaming: Warning: Failed to read file '../../../Engine/Platforms/VisionOS/Content/Editor/Slate/Launcher/Platform_VisionOS_128x.png' error.
+[2025.08.23-03.23.36:252][  0]LogStreaming: Warning: Failed to read file '../../../Engine/Content/Slate/Icons/doc_16x.png' error.
+[2025.08.23-03.23.36:253][  0]LogStreaming: Warning: Failed to read file '../../../Engine/Content/Slate/Common/ButtonHoverHint.png' error.
+[2025.08.23-03.23.36:419][  0]LogClass: Error: StructProperty FHeightfieldModification::ModificationId is not initialized properly even though its struct probably has a custom default constructor. Module:Vibeheim File:WorldGen/Public/Data/WorldGenTypes.h
+[2025.08.23-03.23.36:420][  0]LogClass: Error: StructProperty FInstanceJournalEntry::InstanceId is not initialized properly even though its struct probably has a custom default constructor. Module:Vibeheim File:WorldGen/Public/Data/InstancePersistence.h
+[2025.08.23-03.23.36:421][  0]LogClass: Error: StructProperty FPOIData::POIId is not initialized properly even though its struct probably has a custom default constructor. Module:Vibeheim File:WorldGen/Public/Data/WorldGenTypes.h
+[2025.08.23-03.23.36:421][  0]LogClass: Error: StructProperty FPCGInstanceData::InstanceId is not initialized properly even though its struct probably has a custom default constructor. Module:Vibeheim File:WorldGen/Public/Data/WorldGenTypes.h
+[2025.08.23-03.23.36:421][  0]LogClass: Display: 4 Uninitialized script struct members found including 0 object properties
+[2025.08.23-03.23.36:428][  0]LogAutomationTest: Error: LogClass: StructProperty FHeightfieldModification::ModificationId is not initialized properly even though its struct probably has a custom default constructor. Module:Vibeheim File:WorldGen/Public/Data/WorldGenTypes.h
+[2025.08.23-03.23.36:428][  0]LogAutomationTest: Error: LogClass: StructProperty FInstanceJournalEntry::InstanceId is not initialized properly even though its struct probably has a custom default constructor. Module:Vibeheim File:WorldGen/Public/Data/InstancePersistence.h
+[2025.08.23-03.23.36:428][  0]LogAutomationTest: Error: LogClass: StructProperty FPOIData::POIId is not initialized properly even though its struct probably has a custom default constructor. Module:Vibeheim File:WorldGen/Public/Data/WorldGenTypes.h
+[2025.08.23-03.23.36:428][  0]LogAutomationTest: Error: LogClass: StructProperty FPCGInstanceData::InstanceId is not initialized properly even though its struct probably has a custom default constructor. Module:Vibeheim File:WorldGen/Public/Data/WorldGenTypes.h
+[2025.08.23-03.23.36:779][  0]LogTextureFormatOodle: Display: Oodle Texture loading DLL: oo2tex_win64_2.9.11.dll
+[2025.08.23-03.23.36:788][  0]LogTextureFormatOodle: Display: Oodle Texture loading DLL: oo2tex_win64_2.9.12.dll
+[2025.08.23-03.23.36:810][  0]LogAnalytics: Display: [UEEditor.Rocket.Release] AnalyticsET::StartSession ( APIServer = https://datarouter.ol.epicgames.com/datarouter/api/v1/public/data. AppVersion = 5.6.1-44394996+++UE5+Release-5.6 )
+[2025.08.23-03.23.36:814][  0]LogAudio: Display: Initializing Audio Device Manager...
+[2025.08.23-03.23.36:819][  0]LogAudio: Display: Loading Default Audio Settings Objects...
+[2025.08.23-03.23.36:820][  0]LogAudio: Display: No default SoundConcurrencyObject specified (or failed to load).
+[2025.08.23-03.23.36:820][  0]LogAudio: Display: Audio Device Manager Initialized
+[2025.08.23-03.23.36:820][  0]LogAudio: Display: Creating Audio Device:                 Id: 1, Scope: Shared, Realtime: True
+[2025.08.23-03.23.36:820][  0]LogAudioMixer: Display: Audio Mixer Platform Settings:
+[2025.08.23-03.23.36:821][  0]LogAudioMixer: Display: 	Sample Rate:						  48000
+[2025.08.23-03.23.36:821][  0]LogAudioMixer: Display: 	Callback Buffer Frame Size Requested: 1024
+[2025.08.23-03.23.36:821][  0]LogAudioMixer: Display: 	Callback Buffer Frame Size To Use:	  1024
+[2025.08.23-03.23.36:821][  0]LogAudioMixer: Display: 	Number of buffers to queue:			  1
+[2025.08.23-03.23.36:821][  0]LogAudioMixer: Display: 	Max Channels (voices):				  32
+[2025.08.23-03.23.36:821][  0]LogAudioMixer: Display: 	Number of Async Source Workers:		  4
+[2025.08.23-03.23.36:821][  0]LogAudio: Display: AudioDevice MaxSources: 32
+[2025.08.23-03.23.36:821][  0]LogAudio: Display: Audio Spatialization Plugin: None (built-in).
+[2025.08.23-03.23.36:821][  0]LogAudio: Display: Audio Reverb Plugin: None (built-in).
+[2025.08.23-03.23.36:821][  0]LogAudio: Display: Audio Occlusion Plugin: None (built-in).
+[2025.08.23-03.23.36:826][  0]LogAudioMixer: Display: Initializing audio mixer using platform API: 'XAudio2'
+[2025.08.23-03.23.36:855][  0]LogAudioMixer: Display: Using Audio Hardware Device Speakers (SteelSeries Arctis 1 Wireless)
+[2025.08.23-03.23.36:856][  0]LogAudioMixer: Display: Initializing Sound Submixes...
+[2025.08.23-03.23.36:857][  0]LogAudioMixer: Display: Creating Master Submix 'MasterSubmixDefault'
+[2025.08.23-03.23.36:857][  0]LogAudioMixer: Display: Creating Master Submix 'MasterReverbSubmixDefault'
+[2025.08.23-03.23.36:858][  0]LogAudioMixer: Display: Output buffers initialized: Frames=1024, Channels=2, Samples=2048, InstanceID=1
+[2025.08.23-03.23.36:859][  0]LogAudioMixer: Display: Starting AudioMixerPlatformInterface::RunInternal(), InstanceID=1
+[2025.08.23-03.23.36:860][  0]LogAudioMixer: Display: FMixerPlatformXAudio2::SubmitBuffer() called for the first time. InstanceID=1
+[2025.08.23-03.23.36:860][  0]LogAudio: Display: Audio Device (ID: 1) registered with world 'Untitled'.
+[2025.08.23-03.23.36:865][  0]LogCsvProfiler: Display: Metadata set : largeworldcoordinates="1"
+[2025.08.23-03.23.36:875][  0]LogSourceControl: Display: Uncontrolled Changelist persistency file loaded D:/UnrealProjects/Vibeheim/Saved/SourceControl/UncontrolledChangelists.json
+[2025.08.23-03.23.37:072][  0]LogPython: Display: No pip-enabled plugins with python dependencies found, skipping
+[2025.08.23-03.23.37:551][  0]LogCore: Display: GameplayInsights module auto-connecting to local trace server...
+[2025.08.23-03.23.37:627][  0]LogAssetRegistry: Display: Triggering cache save on discovery complete
+[2025.08.23-03.23.37:654][  0]LogInit: Display: Engine is initialized. Leaving FEngineLoop::Init()
+[2025.08.23-03.23.37:692][  0]LogAudio: Display: Audio Device unregistered from world 'None'.
+[2025.08.23-03.23.37:757][  0]LogAudio: Display: Audio Device (ID: 1) registered with world 'TestMap'.
+[2025.08.23-03.23.37:910][  0]LogPlacementMode: Display: The Asset Registry is not yet fully loaded so some placeable classes might be missing.
+[2025.08.23-03.23.38:227][  0]LogPakFile: Display: Mounted Pak file 'C:/Program Files/Epic Games/UE_5.6/FeaturePacks/StarterContent.upack', mount point: 'root:/'
+[2025.08.23-03.23.38:228][  0]LogPakFile: Display: Mounted Pak file 'C:/Program Files/Epic Games/UE_5.6/FeaturePacks/TP_FirstPerson.upack', mount point: 'root:/'
+[2025.08.23-03.23.38:228][  0]LogPakFile: Display: Mounted Pak file 'C:/Program Files/Epic Games/UE_5.6/FeaturePacks/TP_FirstPersonBP.upack', mount point: 'root:/'
+[2025.08.23-03.23.38:228][  0]LogPakFile: Display: Mounted Pak file 'C:/Program Files/Epic Games/UE_5.6/FeaturePacks/TP_HandheldARBP.upack', mount point: 'root:/'
+[2025.08.23-03.23.38:229][  0]LogPakFile: Display: Mounted Pak file 'C:/Program Files/Epic Games/UE_5.6/FeaturePacks/TP_ThirdPerson.upack', mount point: 'root:/'
+[2025.08.23-03.23.38:231][  0]LogPakFile: Display: Mounted Pak file 'C:/Program Files/Epic Games/UE_5.6/FeaturePacks/TP_ThirdPersonBP.upack', mount point: 'root:/'
+[2025.08.23-03.23.38:231][  0]LogPakFile: Display: Mounted Pak file 'C:/Program Files/Epic Games/UE_5.6/FeaturePacks/TP_TopDown.upack', mount point: 'root:/'
+[2025.08.23-03.23.38:232][  0]LogPakFile: Display: Mounted Pak file 'C:/Program Files/Epic Games/UE_5.6/FeaturePacks/TP_TopDownBP.upack', mount point: 'root:/'
+[2025.08.23-03.23.38:232][  0]LogPakFile: Display: Mounted Pak file 'C:/Program Files/Epic Games/UE_5.6/FeaturePacks/TP_VehicleAdvBP.upack', mount point: 'root:/'
+[2025.08.23-03.23.38:232][  0]LogPakFile: Display: Mounted Pak file 'C:/Program Files/Epic Games/UE_5.6/FeaturePacks/TP_VirtualRealityBP.upack', mount point: 'root:/'
+[2025.08.23-03.23.38:633][  0]LogAssetRegistry: Display: Asset registry cache written as 74.1 MiB to D:/UnrealProjects/Vibeheim/Intermediate/CachedAssetRegistry_*.bin
+[2025.08.23-03.23.38:883][  0]LogCsvProfiler: Display: Metadata set : streamingpoolsizemb="1000"
+[2025.08.23-03.23.38:939][  0]LogStreaming: Display: FlushAsyncLoading(330): 1 QueuedPackages, 0 AsyncPackages
+[2025.08.23-03.23.38:995][  0]LogPython: Display: Running start-up script C:/Program Files/Epic Games/UE_5.6/Engine/Plugins/Animation/ControlRig/Content/Python/init_unreal.py... started...
+[2025.08.23-03.23.39:032][  0]LogPython: Display: Running start-up script C:/Program Files/Epic Games/UE_5.6/Engine/Plugins/Animation/ControlRig/Content/Python/init_unreal.py... took 36.210 ms
+[2025.08.23-03.23.39:032][  0]LogLiveCoding: Display: LiveCodingConsole Arguments: VibeheimEditor Win64 Development
+LogLiveCodingServer: Display: Loading module D:\UnrealProjects\Vibeheim\Binaries\Win64\UnrealEditor-Vibeheim.dll (1.407 MB)
+LogLiveCodingServer: Display: Loaded 1 module(s), 834 lazy load module(s), and 402 reserved page ranges (0.000s, 7 translation units)
+LogLiveCodingServer: Display: Live coding ready - Save changes and press CTRL+ALT+F11 to re-compile code
+[2025.08.23-03.23.39:411][  1]LogPlacementMode: Display: The Asset Registry is done with its initial scan, the list of placeable classes has been updated.

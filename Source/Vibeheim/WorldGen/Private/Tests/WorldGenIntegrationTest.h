@@ -320,6 +320,10 @@ private:
 	bool bIsInitialized = false;
 	FString TempDirectoryPath;
 	
+	// Service initialization validation data
+	UPROPERTY()
+	FSystemValidationData ValidationData;
+	
 	// Helper methods for test data management
 	FString GetTempDataPath(const FString& SubDirectory = TEXT("")) const;
 	bool EnsureDirectoryExists(const FString& DirectoryPath) const;

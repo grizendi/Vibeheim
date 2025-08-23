@@ -30,8 +30,13 @@ bool UTileStreamingService::Initialize(const FWorldGenConfig& Settings,
 	BiomeService = InBiomeService;
 	PCGWorldService = InPCGWorldService;
 
+	// Enhanced defensive checks with detailed error messages
 	if (!HeightfieldService || !BiomeService || !PCGWorldService)
 	{
+		UE_LOG(LogTileStreaming, Error, TEXT("Failed to initialize TileStreamingService - missing required services: HeightfieldService=%s, BiomeService=%s, PCGWorldService=%s"),
+			HeightfieldService ? TEXT("OK") : TEXT("NULL"),
+			BiomeService ? TEXT("OK") : TEXT("NULL"),
+			PCGWorldService ? TEXT("OK") : TEXT("NULL"));
 		WORLDGEN_LOG_WITH_SEED(Error, WorldGenSettings.Seed, TEXT("Failed to initialize TileStreamingService: Missing required services"));
 		return false;
 	}
@@ -50,6 +55,21 @@ bool UTileStreamingService::Initialize(const FWorldGenConfig& Settings,
 
 void UTileStreamingService::UpdateStreaming(const FTileCoord& PlayerTileCoord)
 {
+	// Defensive programming guards - ensure services are initialized before streaming
+	ensureMsgf(HeightfieldService != nullptr, 
+		TEXT("UTileStreamingService: HeightfieldService is null. Call Initialize() before using UpdateStreaming()."));
+	ensureMsgf(BiomeService != nullptr, 
+		TEXT("UTileStreamingService: BiomeService is null. Call Initialize() before using UpdateStreaming()."));
+	ensureMsgf(PCGWorldService != nullptr, 
+		TEXT("UTileStreamingService: PCGWorldService is null. Call Initialize() before using UpdateStreaming()."));
+
+	// Early return if services are not properly initialized
+	if (!HeightfieldService || !BiomeService || !PCGWorldService)
+	{
+		UE_LOG(LogTileStreaming, Error, TEXT("UTileStreamingService::UpdateStreaming failed - missing required services. Skipping streaming update."));
+		return;
+	}
+
 	WORLDGEN_TIMER_WITH_CONTEXT("Streaming tick", WorldGenSettings.Seed, PlayerTileCoord);
 	
 	CurrentTime = FPlatformTime::Seconds();
@@ -262,6 +282,25 @@ void UTileStreamingService::EvictDistantTiles(const FTileCoord& PlayerTileCoord)
 
 bool UTileStreamingService::GenerateSingleTile(const FTileCoord& TileCoord, FTileStreamingData& OutTileData)
 {
+	// Defensive programming guards - check all required services are non-null
+	ensureMsgf(HeightfieldService != nullptr, 
+		TEXT("UTileStreamingService: HeightfieldService is null. Call Initialize() before using GenerateSingleTile()."));
+	ensureMsgf(BiomeService != nullptr, 
+		TEXT("UTileStreamingService: BiomeService is null. Call Initialize() before using GenerateSingleTile()."));
+	ensureMsgf(PCGWorldService != nullptr, 
+		TEXT("UTileStreamingService: PCGWorldService is null. Call Initialize() before using GenerateSingleTile()."));
+
+	// Early return with error logging if any required service is missing
+	if (!HeightfieldService || !BiomeService || !PCGWorldService)
+	{
+		UE_LOG(LogTileStreaming, Error, TEXT("UTileStreamingService::GenerateSingleTile failed for tile (%d, %d) - missing required services: HeightfieldService=%s, BiomeService=%s, PCGWorldService=%s"),
+			TileCoord.X, TileCoord.Y,
+			HeightfieldService ? TEXT("OK") : TEXT("NULL"),
+			BiomeService ? TEXT("OK") : TEXT("NULL"),
+			PCGWorldService ? TEXT("OK") : TEXT("NULL"));
+		return false;
+	}
+
 	double StartTime = FPlatformTime::Seconds();
 
 	try
@@ -302,6 +341,18 @@ bool UTileStreamingService::GenerateSingleTile(const FTileCoord& TileCoord, FTil
 
 bool UTileStreamingService::GetTileData(const FTileCoord& TileCoord, FTileStreamingData& OutTileData)
 {
+	// Defensive programming guard - verify WorldGenSettings are properly loaded
+	ensureMsgf(WorldGenSettings.Seed != 0 || WorldGenSettings.GenerateRadius > 0, 
+		TEXT("UTileStreamingService: WorldGenSettings appear to be uninitialized. Call Initialize() before using GetTileData()."));
+
+	// Early return with error logging if WorldGenSettings are invalid
+	if (WorldGenSettings.Seed == 0 && WorldGenSettings.GenerateRadius == 0)
+	{
+		UE_LOG(LogTileStreaming, Error, TEXT("UTileStreamingService::GetTileData failed for tile (%d, %d) - WorldGenSettings are not properly initialized (Seed=%d, GenerateRadius=%d)"),
+			TileCoord.X, TileCoord.Y, WorldGenSettings.Seed, WorldGenSettings.GenerateRadius);
+		return false;
+	}
+
 	FTileStreamingData* CachedTile = TileCache.Find(TileCoord);
 	if (CachedTile)
 	{
@@ -328,6 +379,18 @@ bool UTileStreamingService::GetTileData(const FTileCoord& TileCoord, FTileStream
 
 bool UTileStreamingService::GenerateTile(const FTileCoord& TileCoord)
 {
+	// Defensive programming guard - ensure services are initialized
+	ensureMsgf(HeightfieldService != nullptr && BiomeService != nullptr && PCGWorldService != nullptr, 
+		TEXT("UTileStreamingService: Required services are null. Call Initialize() before using GenerateTile()."));
+
+	// Early return if services are not properly initialized
+	if (!HeightfieldService || !BiomeService || !PCGWorldService)
+	{
+		UE_LOG(LogTileStreaming, Error, TEXT("UTileStreamingService::GenerateTile failed for tile (%d, %d) - services not initialized"),
+			TileCoord.X, TileCoord.Y);
+		return false;
+	}
+
 	FTileStreamingData TileData;
 	return GetTileData(TileCoord, TileData);
 }
