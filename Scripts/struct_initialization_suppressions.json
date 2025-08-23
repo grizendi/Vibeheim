@@ -1,0 +1,15 @@
+{
+  "suppressions": [
+    "# Suppression patterns for UPROPERTY FGuid validation",
+    "# Format options:",
+    "# - Full path: \"Source/Vibeheim/Module/File.h:StructName::PropertyName\"",
+    "# - Struct-specific: \"StructName::PropertyName\"", 
+    "# - Property-specific: \"*::PropertyName\"",
+    "# - File-specific: \"Source/Vibeheim/Module/File.h\"",
+    "#",
+    "# Example suppressions (remove # to activate):",
+    "# \"Source/Vibeheim/WorldGen/Public/Data/LegacyTypes.h:FLegacyStruct::LegacyId\"",
+    "# \"FTemporaryDebugStruct::DebugId\"",
+    "# \"*::TestId\""
+  ]
+}

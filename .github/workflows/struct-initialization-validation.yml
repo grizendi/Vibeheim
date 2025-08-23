@@ -1,0 +1,41 @@
+name: Struct Initialization Validation
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'Source/**/*.h'
+      - 'Scripts/validate_struct_initialization.py'
+      - 'Scripts/struct_initialization_suppressions.json'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'Source/**/*.h'
+      - 'Scripts/validate_struct_initialization.py'
+      - 'Scripts/struct_initialization_suppressions.json'
+
+jobs:
+  validate-struct-initialization:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Run struct initialization validation
+      shell: pwsh
+      run: |
+        Scripts/run_struct_validation.ps1 -FailOnInvalid -OutputFile validation_report.txt
+          
+    - name: Upload validation report
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: struct-initialization-validation-report
+        path: validation_report.txt
+        
+    - name: Display validation results
+      if: always()
+      run: |
+        echo "=== Struct Initialization Validation Results ==="
+        cat validation_report.txt
