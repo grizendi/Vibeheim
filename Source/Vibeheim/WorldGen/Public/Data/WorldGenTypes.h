@@ -352,13 +352,24 @@ struct VIBEHEIM_API FHeightfieldModification
 	FTileCoord AffectedTile;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Modification")
-	FGuid ModificationId = FGuid();
+	FGuid ModificationId;
 
 	FHeightfieldModification()
+		: ModificationId(FGuid::NewGuid())
 	{
-		ModificationId = FGuid::NewGuid();
 		Timestamp = FDateTime::Now();
 	}
+};
+
+// TStructOpsTypeTraits for FHeightfieldModification
+// WithZeroConstructor = false: Uses FGuid::NewGuid() in constructor, not zero-constructible
+template<>
+struct TStructOpsTypeTraits<FHeightfieldModification> : public TStructOpsTypeTraitsBase2<FHeightfieldModification>
+{
+	enum
+	{
+		WithZeroConstructor = false,
+	};
 };
 
 /**
@@ -370,7 +381,7 @@ struct VIBEHEIM_API FPOIData
 	GENERATED_BODY()
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "POI")
-	FGuid POIId = FGuid();
+	FGuid POIId;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "POI")
 	FString POIName;
@@ -394,8 +405,10 @@ struct VIBEHEIM_API FPOIData
 	bool bIsSpawned = false;
 
 	FPOIData()
+		: POIId(FGuid::NewGuid())
 	{
-		POIId = FGuid::NewGuid();
+		// Validate POI ID is properly initialized
+		ensureMsgf(POIId.IsValid(), TEXT("FPOIData: POIId must be valid after construction"));
 	}
 
 	// Custom serialization for archive compatibility
@@ -437,6 +450,17 @@ struct VIBEHEIM_API FPOIData
 		POIData.Serialize(Ar);
 		return Ar;
 	}
+};
+
+// TStructOpsTypeTraits for FPOIData - Persistent ID pattern uses NewGuid() in constructor
+template<>
+struct TStructOpsTypeTraits<FPOIData> : public TStructOpsTypeTraitsBase2<FPOIData>
+{
+	enum
+	{
+		WithZeroConstructor = false,  // Uses NewGuid() for unique IDs, not zero-initialized
+		WithSerializer = true         // Has custom Serialize() method
+	};
 };
 
 /**

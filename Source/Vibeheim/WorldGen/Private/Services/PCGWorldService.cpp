@@ -296,6 +296,9 @@ TArray<FPOIData> UPCGWorldService::GeneratePOIInstances(FTileCoord TileCoord, co
 
 bool UPCGWorldService::SpawnPOI(FVector Location, const FPOIData& POIData)
 {
+	// Validate POI ID is properly initialized
+	ensureMsgf(POIData.POIId.IsValid(), TEXT("SpawnPOI: POIData must have a valid POIId"));
+	
 	if (!GetWorld())
 	{
 		UE_LOG(LogPCGWorldService, Error, TEXT("Cannot spawn POI - no valid world"));
@@ -669,6 +672,9 @@ bool UPCGWorldService::RemovePOI(FGuid POIId)
 
 bool UPCGWorldService::AddPOI(const FPOIData& POIData)
 {
+	// Validate POI ID is properly initialized
+	ensureMsgf(POIData.POIId.IsValid(), TEXT("AddPOI: POIData must have a valid POIId"));
+	
 	// Get the tile coordinate for persistence logging
 	FTileCoord TileCoord = FTileCoord::FromWorldPosition(POIData.Location, 64.0f);
 

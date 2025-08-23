@@ -443,6 +443,10 @@ bool UHeightfieldService::ExportHeightfieldPNG(const FHeightfieldData& Heightfie
 bool UHeightfieldService::ModifyHeightfield(FVector Location, float Radius, float Strength, EHeightfieldOperation Operation)
 {
 	FHeightfieldModification Modification;
+	
+	// Validate that ModificationId was properly initialized (Persistent ID pattern)
+	ensureMsgf(Modification.ModificationId.IsValid(), TEXT("FHeightfieldModification::ModificationId must be valid after construction"));
+	
 	Modification.Center = FVector2D(Location.X, Location.Y);
 	Modification.Radius = Radius;
 	Modification.Strength = Strength;
@@ -1027,6 +1031,9 @@ bool UHeightfieldService::DeserializeTerrainDeltas(const TArray<uint8>& InData, 
 		int64 UnixTimestamp = 0;
 		MemoryReader << UnixTimestamp;
 		Delta.Timestamp = FDateTime::FromUnixTimestamp(UnixTimestamp);
+
+		// Validate that deserialized ModificationId is valid (should never be zero after proper serialization)
+		ensureMsgf(Delta.ModificationId.IsValid(), TEXT("Deserialized FHeightfieldModification::ModificationId should be valid"));
 
 		OutDeltas.Add(Delta);
 	}

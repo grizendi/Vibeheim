@@ -30,7 +30,7 @@ struct VIBEHEIM_API FInstanceJournalEntry
 
 	// Unique instance identifier
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Journal")
-	FGuid InstanceId = FGuid();
+	FGuid InstanceId;
 
 	// Operation performed on this instance
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Journal")
@@ -57,26 +57,40 @@ struct VIBEHEIM_API FInstanceJournalEntry
 	int32 Version = 1;
 
 	FInstanceJournalEntry()
+		: InstanceId(FGuid::NewGuid())
 	{
-		InstanceId = FGuid::NewGuid();
 		Timestamp = FDateTime::Now().ToUnixTimestamp();
+		ensureMsgf(InstanceId.IsValid(), TEXT("FInstanceJournalEntry: InstanceId must be valid after construction"));
 	}
 
 	FInstanceJournalEntry(const FPCGInstanceData& InInstanceData, EInstanceOperation InOperation)
-		: Operation(InOperation), bIsPOI(false)
+		: InstanceId(InInstanceData.InstanceId), Operation(InOperation), bIsPOI(false)
 	{
-		InstanceId = InInstanceData.InstanceId;
 		InstanceData = InInstanceData;
 		Timestamp = FDateTime::Now().ToUnixTimestamp();
+		ensureMsgf(InstanceId.IsValid(), TEXT("FInstanceJournalEntry: InstanceId must be valid after construction from PCGInstanceData"));
 	}
 
 	FInstanceJournalEntry(const FPOIData& InPOIData, EInstanceOperation InOperation)
-		: Operation(InOperation), bIsPOI(true)
+		: InstanceId(InPOIData.POIId), Operation(InOperation), bIsPOI(true)
 	{
-		InstanceId = InPOIData.POIId;
 		POIData = InPOIData;
 		Timestamp = FDateTime::Now().ToUnixTimestamp();
+		ensureMsgf(InstanceId.IsValid(), TEXT("FInstanceJournalEntry: InstanceId must be valid after construction from POIData"));
 	}
+};
+
+// TStructOpsTypeTraits for FInstanceJournalEntry
+// WithZeroConstructor = false because we use NewGuid() for unique IDs in default constructor
+template<>
+struct TStructOpsTypeTraits<FInstanceJournalEntry> : public TStructOpsTypeTraitsBase2<FInstanceJournalEntry>
+{
+	enum
+	{
+		WithZeroConstructor = false,  // We use NewGuid() for unique IDs
+		WithNoInitConstructor = false,  // We properly initialize all members
+		WithSerializer = false  // No custom serialization
+	};
 };
 
 /**
