@@ -1,3 +1,5 @@
+#if WITH_AUTOMATION_TESTS
+
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
 #include "Data/WorldGenTypes.h"
@@ -11,33 +13,15 @@
  * Test serialization compatibility and behavior changes for struct initialization fixes
  * Validates that save/load cycles maintain data integrity and GUID stability
  */
-class FSerializationCompatibilityTest : public FAutomationTestBase
+class FSerializationCompatibilityBase : public FAutomationTestBase
 {
 public:
-    FSerializationCompatibilityTest(const FString& InName, const bool bInComplexTask)
-        : FAutomationTestBase(InName, bInComplexTask)
+    FSerializationCompatibilityBase(const FString& InName, bool bInComplex)
+        : FAutomationTestBase(InName, bInComplex)
     {
-    }
-
-    virtual uint32 GetTestFlags() const override
-    {
-        return EAutomationTestFlags::ApplicationContextMask | EAutomationTestFlags::ProductFilter;
-    }
-
-    virtual bool SuppressLogWarnings() override
-    {
-        return true;
-    }
-
-    virtual FString GetBeautifiedTestName() const override
-    {
-        return "Vibeheim.WorldGen.SerializationCompatibility";
     }
 
 protected:
-    virtual bool RunTest(const FString& Parameters) override;
-
-private:
     void TestHeightfieldModificationSerialization();
     void TestInstanceJournalEntrySerialization();
     void TestPOIDataSerialization();
@@ -47,37 +31,25 @@ private:
     void TestBinaryVsCustomSerialization();
 };
 
-IMPLEMENT_CUSTOM_SIMPLE_AUTOMATION_TEST(FSerializationCompatibilityTest, FSerializationCompatibilityTest, 
-    "Vibeheim.WorldGen.SerializationCompatibility", 
-    EAutomationTestFlags::ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+IMPLEMENT_CUSTOM_SIMPLE_AUTOMATION_TEST(
+    FSerializationCompatibilityTest,
+    FSerializationCompatibilityBase,
+    "Vibeheim.WorldGen.SerializationCompatibility",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
 
-bool FSerializationCompatibilityTest::RunTest(const FString& Parameters)
+bool FSerializationCompatibilityTest::RunTest(const FString& /*Parameters*/)
 {
-    // Test 1: FHeightfieldModification serialization
     TestHeightfieldModificationSerialization();
-    
-    // Test 2: FInstanceJournalEntry serialization
     TestInstanceJournalEntrySerialization();
-    
-    // Test 3: FPOIData serialization
     TestPOIDataSerialization();
-    
-    // Test 4: FPCGInstanceData serialization
     TestPCGInstanceDataSerialization();
-    
-    // Test 5: TMap/TSet lookup stability after save/load
     TestContainerLookupStability();
-    
-    // Test 6: GetTypeHash consistency
     TestGetTypeHashConsistency();
-    
-    // Test 7: Binary vs custom serialization
     TestBinaryVsCustomSerialization();
-    
     return true;
 }
 
-void FSerializationCompatibilityTest::TestHeightfieldModificationSerialization()
+void FSerializationCompatibilityBase::TestHeightfieldModificationSerialization()
 {
     // Create original struct with current initialization pattern
     FHeightfieldModification Original;
@@ -92,15 +64,15 @@ void FSerializationCompatibilityTest::TestHeightfieldModificationSerialization()
     FGuid OriginalGuid = Original.ModificationId;
     TestTrue("Original ModificationId should be valid", OriginalGuid.IsValid());
     
-    // Serialize to memory
+    // Serialize to memory using reflection
     TArray<uint8> SerializedData;
     FMemoryWriter Writer(SerializedData);
-    Writer << Original;
+    FHeightfieldModification::StaticStruct()->SerializeItem(Writer, &Original, nullptr);
     
-    // Deserialize from memory
+    // Deserialize from memory using reflection
     FHeightfieldModification Deserialized;
     FMemoryReader Reader(SerializedData);
-    Reader << Deserialized;
+    FHeightfieldModification::StaticStruct()->SerializeItem(Reader, &Deserialized, nullptr);
     
     // Validate data integrity
     TestEqual("Center should match", Deserialized.Center, Original.Center);
@@ -113,7 +85,7 @@ void FSerializationCompatibilityTest::TestHeightfieldModificationSerialization()
     UE_LOG(LogTemp, Log, TEXT("FHeightfieldModification serialization test passed"));
 }
 
-void FSerializationCompatibilityTest::TestInstanceJournalEntrySerialization()
+void FSerializationCompatibilityBase::TestInstanceJournalEntrySerialization()
 {
     // Create original struct
     FInstanceJournalEntry Original;
@@ -126,15 +98,15 @@ void FSerializationCompatibilityTest::TestInstanceJournalEntrySerialization()
     FGuid OriginalGuid = Original.InstanceId;
     TestTrue("Original InstanceId should be valid", OriginalGuid.IsValid());
     
-    // Serialize to memory
+    // Serialize to memory using reflection
     TArray<uint8> SerializedData;
     FMemoryWriter Writer(SerializedData);
-    Writer << Original;
+    FInstanceJournalEntry::StaticStruct()->SerializeItem(Writer, &Original, nullptr);
     
-    // Deserialize from memory
+    // Deserialize from memory using reflection
     FInstanceJournalEntry Deserialized;
     FMemoryReader Reader(SerializedData);
-    Reader << Deserialized;
+    FInstanceJournalEntry::StaticStruct()->SerializeItem(Reader, &Deserialized, nullptr);
     
     // Validate data integrity
     TestEqual("Operation should match", Deserialized.Operation, Original.Operation);
@@ -146,7 +118,7 @@ void FSerializationCompatibilityTest::TestInstanceJournalEntrySerialization()
     UE_LOG(LogTemp, Log, TEXT("FInstanceJournalEntry serialization test passed"));
 }
 
-void FSerializationCompatibilityTest::TestPOIDataSerialization()
+void FSerializationCompatibilityBase::TestPOIDataSerialization()
 {
     // Create original struct
     FPOIData Original;
@@ -183,7 +155,7 @@ void FSerializationCompatibilityTest::TestPOIDataSerialization()
     UE_LOG(LogTemp, Log, TEXT("FPOIData serialization test passed"));
 }
 
-void FSerializationCompatibilityTest::TestPCGInstanceDataSerialization()
+void FSerializationCompatibilityBase::TestPCGInstanceDataSerialization()
 {
     // Create original struct
     FPCGInstanceData Original;
@@ -216,8 +188,9 @@ void FSerializationCompatibilityTest::TestPCGInstanceDataSerialization()
     TestEqual("InstanceId should be preserved", Deserialized.InstanceId, OriginalGuid);
     
     UE_LOG(LogTemp, Log, TEXT("FPCGInstanceData serialization test passed"));
-}v
-oid FSerializationCompatibilityTest::TestContainerLookupStability()
+}
+
+void FSerializationCompatibilityBase::TestContainerLookupStability()
 {
     // Test TMap lookup stability with FPOIData
     TMap<FGuid, FPOIData> POIMap;
@@ -273,7 +246,7 @@ oid FSerializationCompatibilityTest::TestContainerLookupStability()
     UE_LOG(LogTemp, Log, TEXT("Container lookup stability test passed"));
 }
 
-void FSerializationCompatibilityTest::TestGetTypeHashConsistency()
+void FSerializationCompatibilityBase::TestGetTypeHashConsistency()
 {
     // Test GetTypeHash consistency for structs with GUID members
     
@@ -293,11 +266,11 @@ void FSerializationCompatibilityTest::TestGetTypeHashConsistency()
     // Test after serialization round-trip
     TArray<uint8> SerializedData;
     FMemoryWriter Writer(SerializedData);
-    Writer << Mod1;
+    FHeightfieldModification::StaticStruct()->SerializeItem(Writer, &Mod1, nullptr);
     
     FHeightfieldModification Mod3;
     FMemoryReader Reader(SerializedData);
-    Reader << Mod3;
+    FHeightfieldModification::StaticStruct()->SerializeItem(Reader, &Mod3, nullptr);
     
     uint32 Hash3 = GetTypeHash(Mod3);
     TestEqual("Hash should be identical after serialization round-trip", Hash1, Hash3);
@@ -318,7 +291,7 @@ void FSerializationCompatibilityTest::TestGetTypeHashConsistency()
     UE_LOG(LogTemp, Log, TEXT("GetTypeHash consistency test passed"));
 }
 
-void FSerializationCompatibilityTest::TestBinaryVsCustomSerialization()
+void FSerializationCompatibilityBase::TestBinaryVsCustomSerialization()
 {
     // Test FPOIData which has custom serialization
     FPOIData OriginalPOI;
@@ -335,14 +308,14 @@ void FSerializationCompatibilityTest::TestBinaryVsCustomSerialization()
     FMemoryReader CustomReader(CustomSerializedData);
     CustomDeserialized.Serialize(CustomReader);
     
-    // Test binary serialization (using << operator)
+    // Test binary serialization (using reflection)
     TArray<uint8> BinarySerializedData;
     FMemoryWriter BinaryWriter(BinarySerializedData);
-    BinaryWriter << OriginalPOI;
+    FPOIData::StaticStruct()->SerializeItem(BinaryWriter, &OriginalPOI, nullptr);
     
     FPOIData BinaryDeserialized;
     FMemoryReader BinaryReader(BinarySerializedData);
-    BinaryReader << BinaryDeserialized;
+    FPOIData::StaticStruct()->SerializeItem(BinaryReader, &BinaryDeserialized, nullptr);
     
     // Both methods should preserve the GUID
     TestEqual("Custom serialization should preserve POIId", 
@@ -377,3 +350,5 @@ void FSerializationCompatibilityTest::TestBinaryVsCustomSerialization()
     
     UE_LOG(LogTemp, Log, TEXT("Binary vs custom serialization test passed"));
 }
+
+#endif // WITH_AUTOMATION_TESTS

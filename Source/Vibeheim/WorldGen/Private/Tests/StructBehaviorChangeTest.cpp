@@ -1,67 +1,51 @@
+#if WITH_AUTOMATION_TESTS
+
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
 #include "Data/WorldGenTypes.h"
 #include "Data/InstancePersistence.h"
+#include "Serialization/MemoryWriter.h"
+#include "Serialization/MemoryReader.h"
 
 /**
  * Test to document and validate behavior changes from struct initialization fixes
  * This test documents the new behavior: all structs now use NewGuid() for immediate unique identification
  */
-class FStructBehaviorChangeTest : public FAutomationTestBase
+class FStructBehaviorChangeTestBase : public FAutomationTestBase
 {
 public:
-    FStructBehaviorChangeTest(const FString& InName, const bool bInComplexTask)
-        : FAutomationTestBase(InName, bInComplexTask)
+    FStructBehaviorChangeTestBase(const FString& InName, bool bInComplex)
+        : FAutomationTestBase(InName, bInComplex)
     {
-    }
-
-    virtual uint32 GetTestFlags() const override
-    {
-        return EAutomationTestFlags::ApplicationContextMask | EAutomationTestFlags::ProductFilter;
-    }
-
-    virtual bool SuppressLogWarnings() override
-    {
-        return true;
-    }
-
-    virtual FString GetBeautifiedTestName() const override
-    {
-        return "Vibeheim.WorldGen.StructBehaviorChange";
     }
 
 protected:
-    virtual bool RunTest(const FString& Parameters) override;
-
-private:
+    void DocumentBehaviorChanges();
     void TestNewGuidBehavior();
     void TestContainerKeyStability();
     void TestBlueprintBehaviorChange();
     void TestConstructorValidation();
     void TestSerializationBehavior();
-    void DocumentBehaviorChanges();
 };
 
-IMPLEMENT_CUSTOM_SIMPLE_AUTOMATION_TEST(FStructBehaviorChangeTest, FStructBehaviorChangeTest, 
-    "Vibeheim.WorldGen.StructBehaviorChange", 
-    EAutomationTestFlags::ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+IMPLEMENT_CUSTOM_SIMPLE_AUTOMATION_TEST(
+    FStructBehaviorChangeTest,
+    FStructBehaviorChangeTestBase,
+    "Vibeheim.WorldGen.StructBehaviorChange",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
 
-bool FStructBehaviorChangeTest::RunTest(const FString& Parameters)
+bool FStructBehaviorChangeTest::RunTest(const FString& /*Parameters*/)
 {
-    // Document the behavior changes
     DocumentBehaviorChanges();
-    
-    // Test the new behavior
     TestNewGuidBehavior();
     TestContainerKeyStability();
     TestBlueprintBehaviorChange();
     TestConstructorValidation();
     TestSerializationBehavior();
-    
     return true;
 }
 
-void FStructBehaviorChangeTest::DocumentBehaviorChanges()
+void FStructBehaviorChangeTestBase::DocumentBehaviorChanges()
 {
     UE_LOG(LogTemp, Warning, TEXT("=== STRUCT INITIALIZATION BEHAVIOR CHANGES ==="));
     UE_LOG(LogTemp, Warning, TEXT(""));
@@ -84,7 +68,7 @@ void FStructBehaviorChangeTest::DocumentBehaviorChanges()
     UE_LOG(LogTemp, Warning, TEXT(""));
 }
 
-void FStructBehaviorChangeTest::TestNewGuidBehavior()
+void FStructBehaviorChangeTestBase::TestNewGuidBehavior()
 {
     // Test that all structs now generate unique GUIDs immediately
     
@@ -123,7 +107,7 @@ void FStructBehaviorChangeTest::TestNewGuidBehavior()
     UE_LOG(LogTemp, Log, TEXT("NewGuid behavior test passed - all structs generate unique GUIDs"));
 }
 
-void FStructBehaviorChangeTest::TestContainerKeyStability()
+void FStructBehaviorChangeTestBase::TestContainerKeyStability()
 {
     // Test that GUIDs remain stable for container lookups after save/load cycles
     
@@ -165,7 +149,7 @@ void FStructBehaviorChangeTest::TestContainerKeyStability()
     UE_LOG(LogTemp, Log, TEXT("Container key stability test passed"));
 }
 
-void FStructBehaviorChangeTest::TestBlueprintBehaviorChange()
+void FStructBehaviorChangeTestBase::TestBlueprintBehaviorChange()
 {
     // Document Blueprint behavior change: structs now create valid IDs automatically
     
@@ -193,7 +177,7 @@ void FStructBehaviorChangeTest::TestBlueprintBehaviorChange()
     UE_LOG(LogTemp, Log, TEXT("Blueprint behavior change test passed"));
 }
 
-void FStructBehaviorChangeTest::TestConstructorValidation()
+void FStructBehaviorChangeTestBase::TestConstructorValidation()
 {
     // Test that constructor validation works correctly
     
@@ -218,7 +202,7 @@ void FStructBehaviorChangeTest::TestConstructorValidation()
     UE_LOG(LogTemp, Log, TEXT("Constructor validation test passed"));
 }
 
-void FStructBehaviorChangeTest::TestSerializationBehavior()
+void FStructBehaviorChangeTestBase::TestSerializationBehavior()
 {
     // Test that serialization behavior is unchanged (GUIDs are preserved)
     
@@ -227,15 +211,15 @@ void FStructBehaviorChangeTest::TestSerializationBehavior()
     Original.Radius = 78.9f;
     FGuid OriginalGuid = Original.ModificationId;
     
-    // Serialize
+    // Serialize using reflection-based serialization
     TArray<uint8> SerializedData;
     FMemoryWriter Writer(SerializedData);
-    Writer << Original;
+    FHeightfieldModification::StaticStruct()->SerializeItem(Writer, &Original, nullptr);
     
-    // Deserialize
+    // Deserialize using reflection-based serialization
     FHeightfieldModification Deserialized;
     FMemoryReader Reader(SerializedData);
-    Reader << Deserialized;
+    FHeightfieldModification::StaticStruct()->SerializeItem(Reader, &Deserialized, nullptr);
     
     // Verify GUID is preserved (no change in serialization behavior)
     TestEqual("Serialization should preserve GUID", Deserialized.ModificationId, OriginalGuid);
@@ -259,3 +243,5 @@ void FStructBehaviorChangeTest::TestSerializationBehavior()
     
     UE_LOG(LogTemp, Log, TEXT("Serialization behavior test passed - no changes to save file format"));
 }
+
+#endif // WITH_AUTOMATION_TESTS

@@ -19,9 +19,9 @@ public:
     {
     }
 
-    virtual uint32 GetTestFlags() const override
+    virtual EAutomationTestFlags GetTestFlags() const override
     {
-        return EAutomationTestFlags::ApplicationContextMask | EAutomationTestFlags::ProductFilter;
+        return EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter;
     }
 
     virtual bool SuppressLogWarnings() override
@@ -51,7 +51,7 @@ private:
 
 IMPLEMENT_CUSTOM_SIMPLE_AUTOMATION_TEST(FFilePersistenceTest, FFilePersistenceTest, 
     "Vibeheim.WorldGen.FilePersistence", 
-    EAutomationTestFlags::ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
 
 bool FFilePersistenceTest::RunTest(const FString& Parameters)
 {
