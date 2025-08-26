@@ -14,14 +14,33 @@
 #if WITH_AUTOMATION_TESTS
 #include "Misc/AutomationTest.h"
 
+class FStructInitializationIntegrationTestBase : public FAutomationTestBase
+{
+public:
+	FStructInitializationIntegrationTestBase(const FString & InName, bool bInComplex)
+		: FAutomationTestBase(InName, bInComplex) {
+}
+
+protected:
+	bool TestHeightfieldModificationIntegration();
+	bool TestPOISystemIntegration();
+	bool TestPCGInstanceSystemIntegration();
+	bool TestInstancePersistenceIntegration();
+	bool TestCrossSystemWorkflowIntegration();
+	bool TestSerializationPersistenceIntegration();
+};
+
 /**
  * Comprehensive integration test for struct initialization fixes
  * Tests all fixed structs (FHeightfieldModification, FInstanceJournalEntry, FPOIData, FPCGInstanceData)
  * in realistic WorldGen system usage scenarios
  */
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStructInitializationIntegrationTest, 
-	"Vibeheim.WorldGen.StructInitialization.IntegrationTest", 
-	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+IMPLEMENT_CUSTOM_SIMPLE_AUTOMATION_TEST(
+	FStructInitializationIntegrationTest,
+	FStructInitializationIntegrationTestBase,
+	"Vibeheim.WorldGen.StructInitialization.IntegrationTest",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter
+)
 
 bool FStructInitializationIntegrationTest::RunTest(const FString& Parameters)
 {
@@ -133,7 +152,7 @@ bool FStructInitializationIntegrationTest::RunTest(const FString& Parameters)
 	return bAllTestsPassed;
 }
 
-bool FStructInitializationIntegrationTest::TestHeightfieldModificationIntegration()
+bool FStructInitializationIntegrationTestBase::TestHeightfieldModificationIntegration()
 {
 	UE_LOG(LogTemp, Log, TEXT("Testing heightfield modification system with FHeightfieldModification..."));
 	
@@ -232,7 +251,7 @@ bool FStructInitializationIntegrationTest::TestHeightfieldModificationIntegratio
 	}
 }
 
-bool FStructInitializationIntegrationTest::TestPOISystemIntegration()
+bool FStructInitializationIntegrationTestBase::TestPOISystemIntegration()
 {
 	UE_LOG(LogTemp, Log, TEXT("Testing POI system with FPOIData..."));
 	
@@ -354,7 +373,7 @@ bool FStructInitializationIntegrationTest::TestPOISystemIntegration()
 	}
 }
 
-bool FStructInitializationIntegrationTest::TestPCGInstanceSystemIntegration()
+bool FStructInitializationIntegrationTestBase::TestPCGInstanceSystemIntegration()
 {
 	UE_LOG(LogTemp, Log, TEXT("Testing PCG instance system with FPCGInstanceData..."));
 	
@@ -493,7 +512,7 @@ bool FStructInitializationIntegrationTest::TestPCGInstanceSystemIntegration()
 		return false;
 	}
 }bool 
-FStructInitializationIntegrationTest::TestInstancePersistenceIntegration()
+FStructInitializationIntegrationTestBase::TestInstancePersistenceIntegration()
 {
 	UE_LOG(LogTemp, Log, TEXT("Testing instance persistence system with FInstanceJournalEntry..."));
 	
@@ -660,7 +679,7 @@ FStructInitializationIntegrationTest::TestInstancePersistenceIntegration()
 	}
 }
 
-bool FStructInitializationIntegrationTest::TestCrossSystemWorkflowIntegration()
+bool FStructInitializationIntegrationTestBase::TestCrossSystemWorkflowIntegration()
 {
 	UE_LOG(LogTemp, Log, TEXT("Testing cross-system workflow integration..."));
 	
@@ -855,7 +874,7 @@ bool FStructInitializationIntegrationTest::TestCrossSystemWorkflowIntegration()
 	}
 }
 
-bool FStructInitializationIntegrationTest::TestSerializationPersistenceIntegration()
+bool FStructInitializationIntegrationTestBase::TestSerializationPersistenceIntegration()
 {
 	UE_LOG(LogTemp, Log, TEXT("Testing serialization and persistence integration..."));
 	
@@ -1029,15 +1048,18 @@ bool FStructInitializationIntegrationTest::TestSerializationPersistenceIntegrati
 		}
 		
 		// Test 5: Test file-based persistence (temporary file)
-		FString TempFilePath = FPaths::ProjectTempDir() / TEXT("StructIntegrationTest.dat");
-		
+		FString TempDir = FPaths::ProjectSavedDir() / TEXT("Tests");   // e.g. <Project>/Saved/Tests
+		IFileManager::Get().MakeDirectory(*TempDir, /*Tree*/true);
+
+		const FString TempFilePath = TempDir / TEXT("StructIntegrationTest.dat");
+
 		// Save to file
 		if (!FFileHelper::SaveArrayToFile(SerializedData, *TempFilePath))
 		{
 			UE_LOG(LogTemp, Error, TEXT("Failed to save serialized data to file"));
 			return false;
 		}
-		
+
 		// Load from file
 		TArray<uint8> LoadedData;
 		if (!FFileHelper::LoadFileToArray(LoadedData, *TempFilePath))
@@ -1045,7 +1067,7 @@ bool FStructInitializationIntegrationTest::TestSerializationPersistenceIntegrati
 			UE_LOG(LogTemp, Error, TEXT("Failed to load serialized data from file"));
 			return false;
 		}
-		
+
 		// Verify file data matches memory data
 		if (LoadedData.Num() != SerializedData.Num())
 		{

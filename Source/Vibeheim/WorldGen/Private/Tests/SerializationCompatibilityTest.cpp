@@ -8,6 +8,7 @@
 #include "Serialization/MemoryReader.h"
 #include "HAL/FileManager.h"
 #include "Misc/Paths.h"
+#include "Data/SerializationShims.h"
 
 /**
  * Test serialization compatibility and behavior changes for struct initialization fixes

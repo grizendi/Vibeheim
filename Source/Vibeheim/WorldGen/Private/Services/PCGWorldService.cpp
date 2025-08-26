@@ -9,6 +9,7 @@
 #include "GameFramework/Actor.h"
 #include "UObject/ConstructorHelpers.h"
 #include "Data/InstancePersistence.h"
+#include "Data/SerializationShims.h"
 
 // PCG includes (conditional)
 #if WITH_PCG

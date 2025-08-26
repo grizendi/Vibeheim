@@ -1,9 +1,14 @@
+#if WITH_AUTOMATION_TESTS
+
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
 #include "Data/WorldGenTypes.h"
 #include "Data/InstancePersistence.h"
+#include "Data/SerializationShims.h"
 #include "HAL/FileManager.h"
 #include "Misc/Paths.h"
+#include "Serialization/MemoryWriter.h"
+#include "Serialization/MemoryReader.h"
 #include "Serialization/ArchiveLoadCompressedProxy.h"
 #include "Serialization/ArchiveSaveCompressedProxy.h"
 
@@ -11,53 +16,37 @@
  * Test file-based persistence for struct serialization compatibility
  * Validates that structs can be saved to and loaded from disk correctly
  */
-class FFilePersistenceTest : public FAutomationTestBase
+
+class FFilePersistenceTestBase : public FAutomationTestBase
 {
 public:
-    FFilePersistenceTest(const FString& InName, const bool bInComplexTask)
-        : FAutomationTestBase(InName, bInComplexTask)
-    {
-    }
-
-    virtual EAutomationTestFlags GetTestFlags() const override
-    {
-        return EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter;
-    }
-
-    virtual bool SuppressLogWarnings() override
-    {
-        return true;
-    }
-
-    virtual FString GetBeautifiedTestName() const override
-    {
-        return "Vibeheim.WorldGen.FilePersistence";
+    FFilePersistenceTestBase(const FString& InName, bool bInComplex)
+        : FAutomationTestBase(InName, bInComplex) {
     }
 
 protected:
-    virtual bool RunTest(const FString& Parameters) override;
-
-private:
     void TestHeightfieldModificationFilePersistence();
     void TestInstanceJournalFilePersistence();
     void TestPOIDataFilePersistence();
     void TestPCGInstanceDataFilePersistence();
     void TestCompressedSerialization();
     void TestBackwardCompatibility();
-    
+
     FString GetTestDataDirectory() const;
     void CleanupTestFiles();
 };
 
-IMPLEMENT_CUSTOM_SIMPLE_AUTOMATION_TEST(FFilePersistenceTest, FFilePersistenceTest, 
+
+IMPLEMENT_CUSTOM_SIMPLE_AUTOMATION_TEST(
+    FFilePersistenceTest, 
+    FFilePersistenceTestBase,
     "Vibeheim.WorldGen.FilePersistence", 
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
 
 bool FFilePersistenceTest::RunTest(const FString& Parameters)
 {
     // Ensure test directory exists
-    FString TestDir = GetTestDataDirectory();
-    IFileManager::Get().MakeDirectory(*TestDir, true);
+    const FString TestDir = GetTestDataDirectory(); // now inherited
     
     // Run all file persistence tests
     TestHeightfieldModificationFilePersistence();
@@ -66,14 +55,12 @@ bool FFilePersistenceTest::RunTest(const FString& Parameters)
     TestPCGInstanceDataFilePersistence();
     TestCompressedSerialization();
     TestBackwardCompatibility();
-    
-    // Cleanup test files
     CleanupTestFiles();
     
     return true;
 }
 
-void FFilePersistenceTest::TestHeightfieldModificationFilePersistence()
+void FFilePersistenceTestBase::TestHeightfieldModificationFilePersistence()
 {
     // Create test data
     TArray<FHeightfieldModification> OriginalModifications;
@@ -132,7 +119,7 @@ void FFilePersistenceTest::TestHeightfieldModificationFilePersistence()
     UE_LOG(LogTemp, Log, TEXT("FHeightfieldModification file persistence test passed"));
 }
 
-void FFilePersistenceTest::TestInstanceJournalFilePersistence()
+void FFilePersistenceTestBase::TestInstanceJournalFilePersistence()
 {
     // Create test journal
     FTileInstanceJournal OriginalJournal(FTileCoord(5, 10));
@@ -151,24 +138,22 @@ void FFilePersistenceTest::TestInstanceJournalFilePersistence()
     
     // Save to file
     FString FilePath = GetTestDataDirectory() / TEXT("InstanceJournal.dat");
-    TUniquePtr<FArchive> FileWriter(IFileManager::Get().CreateFileWriter(*FilePath));
-    TestTrue("File writer should be created", FileWriter.IsValid());
-    
-    if (FileWriter.IsValid())
+    TUniquePtr<FArchive> Writer(IFileManager::Get().CreateFileWriter(*FilePath));
+    TestTrue("File writer should be created", Writer.IsValid());
+    if (Writer)
     {
-        *FileWriter << OriginalJournal;
-        FileWriter->Close();
+        FTileInstanceJournal::StaticStruct()->SerializeItem(*Writer, &OriginalJournal, nullptr);
+        Writer->Close();
     }
     
     // Load from file
     FTileInstanceJournal LoadedJournal;
-    TUniquePtr<FArchive> FileReader(IFileManager::Get().CreateFileReader(*FilePath));
-    TestTrue("File reader should be created", FileReader.IsValid());
-    
-    if (FileReader.IsValid())
+    TUniquePtr<FArchive> Reader(IFileManager::Get().CreateFileReader(*FilePath));
+    TestTrue("File reader should be created", Reader.IsValid());
+    if (Reader)
     {
-        *FileReader << LoadedJournal;
-        FileReader->Close();
+        FTileInstanceJournal::StaticStruct()->SerializeItem(*Reader, &LoadedJournal, nullptr);
+        Reader->Close();
     }
     
     // Validate data integrity
@@ -189,8 +174,7 @@ void FFilePersistenceTest::TestInstanceJournalFilePersistence()
     }
     
     UE_LOG(LogTemp, Log, TEXT("FInstanceJournalEntry file persistence test passed"));
-}void FF
-ilePersistenceTest::TestPOIDataFilePersistence()
+}void FFilePersistenceTestBase::TestPOIDataFilePersistence()
 {
     // Create test POI data
     TArray<FPOIData> OriginalPOIs;
@@ -265,7 +249,7 @@ ilePersistenceTest::TestPOIDataFilePersistence()
     UE_LOG(LogTemp, Log, TEXT("FPOIData file persistence test passed"));
 }
 
-void FFilePersistenceTest::TestPCGInstanceDataFilePersistence()
+void FFilePersistenceTestBase::TestPCGInstanceDataFilePersistence()
 {
     // Create test instance data
     TArray<FPCGInstanceData> OriginalInstances;
@@ -339,12 +323,11 @@ void FFilePersistenceTest::TestPCGInstanceDataFilePersistence()
     UE_LOG(LogTemp, Log, TEXT("FPCGInstanceData file persistence test passed"));
 }
 
-void FFilePersistenceTest::TestCompressedSerialization()
+void FFilePersistenceTestBase::TestCompressedSerialization()
 {
     // Create large dataset for compression testing
     TArray<FHeightfieldModification> LargeDataset;
     LargeDataset.Reserve(100);
-    
     for (int32 i = 0; i < 100; ++i)
     {
         FHeightfieldModification Mod;
@@ -355,48 +338,60 @@ void FFilePersistenceTest::TestCompressedSerialization()
         Mod.AffectedTile = FTileCoord(i / 10, i % 10);
         LargeDataset.Add(Mod);
     }
-    
-    // Save with compression
-    FString CompressedFilePath = GetTestDataDirectory() / TEXT("CompressedMods.dat");
-    TUniquePtr<FArchive> CompressedWriter(IFileManager::Get().CreateFileWriter(*CompressedFilePath));
-    TestTrue("Compressed file writer should be created", CompressedWriter.IsValid());
-    
-    if (CompressedWriter.IsValid())
+
+    const FString CompressedFilePath = GetTestDataDirectory() / TEXT("CompressedMods.dat");
+
+    // --- Save with compression: compress to memory, then dump bytes to disk
+    TArray<uint8> CompressedBytes;
     {
-        FArchiveSaveCompressedProxy CompressedArchive(*CompressedWriter, NAME_Zlib);
-        CompressedArchive << LargeDataset;
-        CompressedArchive.Close();
-        CompressedWriter->Close();
+        FArchiveSaveCompressedProxy Compressor(CompressedBytes, NAME_Zlib);
+        Compressor << LargeDataset;      // requires your operator<< shim for FHeightfieldModification
+        Compressor.Flush();              // finalize compressed stream
     }
-    
-    // Load with decompression
-    TArray<FHeightfieldModification> DecompressedDataset;
-    TUniquePtr<FArchive> CompressedReader(IFileManager::Get().CreateFileReader(*CompressedFilePath));
-    TestTrue("Compressed file reader should be created", CompressedReader.IsValid());
-    
-    if (CompressedReader.IsValid())
     {
-        FArchiveLoadCompressedProxy DecompressedArchive(*CompressedReader, NAME_Zlib);
-        DecompressedArchive << DecompressedDataset;
-        DecompressedArchive.Close();
-        CompressedReader->Close();
+        TUniquePtr<FArchive> Writer(IFileManager::Get().CreateFileWriter(*CompressedFilePath));
+        TestTrue(TEXT("Compressed file writer should be created"), Writer.IsValid());
+        if (Writer)
+        {
+            Writer->Serialize(CompressedBytes.GetData(), CompressedBytes.Num());
+            Writer->Close();
+        }
     }
-    
+
+    // --- Load with decompression: read bytes from disk, then inflate to array
+    TArray<uint8> LoadedCompressedBytes;
+    {
+        TUniquePtr<FArchive> Reader(IFileManager::Get().CreateFileReader(*CompressedFilePath));
+        TestTrue(TEXT("Compressed file reader should be created"), Reader.IsValid());
+        if (Reader)
+        {
+            const int64 Size = Reader->TotalSize();
+            LoadedCompressedBytes.SetNumUninitialized(Size);
+            Reader->Serialize(LoadedCompressedBytes.GetData(), Size);
+            Reader->Close();
+        }
+    }
+
+    TArray<FHeightfieldModification> DecompressedDataset;   // <-- declare ONCE here
+    {
+        FArchiveLoadCompressedProxy Decompressor(LoadedCompressedBytes, NAME_Zlib);
+        Decompressor << DecompressedDataset;                // uses the same shim
+    }
+
     // Validate compressed data integrity
-    TestEqual("Compressed dataset size should match", DecompressedDataset.Num(), LargeDataset.Num());
-    
+    TestEqual(TEXT("Compressed dataset size should match"), DecompressedDataset.Num(), LargeDataset.Num());
     for (int32 i = 0; i < LargeDataset.Num(); ++i)
     {
-        TestEqual(FString::Printf(TEXT("Compressed ModificationId[%d] should be preserved"), i), 
+        TestEqual(FString::Printf(TEXT("Compressed ModificationId[%d] should be preserved"), i),
             DecompressedDataset[i].ModificationId, LargeDataset[i].ModificationId);
-        TestEqual(FString::Printf(TEXT("Compressed Center[%d] should match"), i), 
+        TestEqual(FString::Printf(TEXT("Compressed Center[%d] should match"), i),
             DecompressedDataset[i].Center, LargeDataset[i].Center);
     }
-    
+
     UE_LOG(LogTemp, Log, TEXT("Compressed serialization test passed"));
 }
 
-void FFilePersistenceTest::TestBackwardCompatibility()
+void FFilePersistenceTestBase::TestBackwardCompatibility()
 {
     // This test simulates loading data that was saved before the struct initialization fixes
     // In practice, this would involve creating test data files with the old format
@@ -420,7 +415,7 @@ void FFilePersistenceTest::TestBackwardCompatibility()
     
     if (BackwardWriter.IsValid())
     {
-        *BackwardWriter << OldFormatMod;
+        FHeightfieldModification::StaticStruct()->SerializeItem(*BackwardWriter, &OldFormatMod, nullptr);
         BackwardWriter->Close();
     }
     
@@ -431,7 +426,7 @@ void FFilePersistenceTest::TestBackwardCompatibility()
     
     if (BackwardReader.IsValid())
     {
-        *BackwardReader << LoadedOldFormatMod;
+        FHeightfieldModification::StaticStruct()->SerializeItem(*BackwardReader, &LoadedOldFormatMod, nullptr);
         BackwardReader->Close();
     }
     
@@ -443,13 +438,15 @@ void FFilePersistenceTest::TestBackwardCompatibility()
     UE_LOG(LogTemp, Log, TEXT("Backward compatibility test passed"));
 }
 
-FString FFilePersistenceTest::GetTestDataDirectory() const
+FString FFilePersistenceTestBase::GetTestDataDirectory() const
 {
     return FPaths::ProjectSavedDir() / TEXT("Tests") / TEXT("SerializationCompatibility");
 }
 
-void FFilePersistenceTest::CleanupTestFiles()
+void FFilePersistenceTestBase::CleanupTestFiles()
 {
     FString TestDir = GetTestDataDirectory();
     IFileManager::Get().DeleteDirectory(*TestDir, false, true);
 }
+
+#endif

@@ -5,6 +5,7 @@
 #include "HAL/PlatformFilemanager.h"
 #include "Misc/FileHelper.h"
 #include "Misc/DateTime.h"
+#include "Data/SerializationShims.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogPOIService, Log, All);
 

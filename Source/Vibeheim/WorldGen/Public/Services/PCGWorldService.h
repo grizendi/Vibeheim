@@ -6,6 +6,7 @@
 #include "Data/WorldGenTypes.h"
 #include "Engine/StaticMesh.h"
 #include "Components/HierarchicalInstancedStaticMeshComponent.h"
+#include "Data/SerializationShims.h"
 #include "PCGWorldService.generated.h"
 
 // Forward declarations
@@ -33,10 +34,7 @@ struct FHISMComponentArray
 		return Components == Other.Components;
 	}
 	
-	friend uint32 GetTypeHash(const FHISMComponentArray& Array)
-	{
-		return GetTypeHash(Array.Components.Num());
-	}
+	friend uint32 GetTypeHash(const FHISMComponentArray& Array);
 };
 
 

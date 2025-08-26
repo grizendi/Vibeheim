@@ -11,6 +11,8 @@
 #include "UObject/UnrealType.h"
 #include "Services/PCGWorldService.h"
 #include "Utils/HashUtils.h"
+#include "Data/SerializationShims.h"
+
 
 namespace InstancePersist
 {

@@ -56,10 +56,7 @@ struct VIBEHEIM_API FTileCoord
 	}
 
 	// Hash function for use in TMap
-	friend uint32 GetTypeHash(const FTileCoord& Coord)
-	{
-		return HashCombine(GetTypeHash(Coord.X), GetTypeHash(Coord.Y));
-	}
+	friend uint32 GetTypeHash(const FTileCoord& Coord);
 
 	bool operator==(const FTileCoord& Other) const
 	{
