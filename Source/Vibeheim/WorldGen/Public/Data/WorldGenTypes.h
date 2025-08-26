@@ -80,12 +80,6 @@ struct VIBEHEIM_API FTileCoord
 		Ar << Y;
 		return true;
 	}
-
-	friend FArchive& operator<<(FArchive& Ar, FTileCoord& TileCoord)
-	{
-		TileCoord.Serialize(Ar);
-		return Ar;
-	}
 };
 
 /**
@@ -528,16 +522,11 @@ struct VIBEHEIM_API FPCGInstanceData
 		}
 		
 		Ar << bIsActive;
-		Ar << OwningTile;
+		OwningTile.Serialize(Ar);
 		
 		return true;
 	}
 
-	friend FArchive& operator<<(FArchive& Ar, FPCGInstanceData& InstanceData)
-	{
-		InstanceData.Serialize(Ar);
-		return Ar;
-	}
 };
 
 // TStructOpsTypeTraits for FPCGInstanceData

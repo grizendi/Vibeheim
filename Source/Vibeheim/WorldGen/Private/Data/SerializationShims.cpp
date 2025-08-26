@@ -1,6 +1,7 @@
 #include "Data/SerializationShims.h"
 #include "Data/WorldGenTypes.h"          // FTileCoord, FHeightfieldModification, FPOIData, FPCGInstanceData
 #include "Data/InstancePersistence.h"    // FInstanceJournalEntry
+#include "Services/PCGWorldService.h"    // FHISMComponentArray
 #include "Misc/Guid.h"
 #include "UObject/Class.h"
 
@@ -44,17 +45,33 @@ uint32 GetTypeHash(const FPOIData& P) { return VH_HashGuid(P.POIId); }
 uint32 GetTypeHash(const FPCGInstanceData& I) { return VH_HashGuid(I.InstanceId); }
 uint32 GetTypeHash(const FInstanceJournalEntry& E) { return VH_HashGuid(E.InstanceId); }
 
+uint32 GetTypeHash(const FHISMComponentArray& A)
+{
+    uint32 Hash = 0;
+    for (const TObjectPtr<UHierarchicalInstancedStaticMeshComponent>& Component : A.Components)
+    {
+        Hash = HashCombine(Hash, GetTypeHash(Component.Get()));
+    }
+    return Hash;
+}
+
 // ---- serializers ----
 // NOTE: Keep only one definition of each operator<< in the whole project.
+
 FArchive& operator<<(FArchive& Ar, FTileCoord& C)
 {
-    Ar << C.X;
-    Ar << C.Y;
+    C.Serialize(Ar);
+    return Ar;
+}
+
+FArchive& operator<<(FArchive& Ar, FPCGInstanceData& I)
+{
+    I.Serialize(Ar);
     return Ar;
 }
 
 // HeightfieldModification serializer already exists elsewhere in your project,
-// so do NOT define it here again (or you’ll get duplicate-definition/link errors).
+// so do NOT define it here again (or youï¿½ll get duplicate-definition/link errors).
 
 FArchive& operator<<(FArchive& Ar, FInstanceJournalEntry& E)
 {

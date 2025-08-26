@@ -2,6 +2,7 @@
 #include "Services/ClimateSystem.h"
 #include "Services/NoiseSystem.h"
 #include "Utils/WorldGenLogging.h"
+#include "Data/SerializationShims.h"
 #include "Engine/Engine.h"
 #include "HAL/FileManager.h"
 #include "Misc/FileHelper.h"

@@ -33,8 +33,6 @@ struct FHISMComponentArray
 	{
 		return Components == Other.Components;
 	}
-	
-	friend uint32 GetTypeHash(const FHISMComponentArray& Array);
 };
 
 
