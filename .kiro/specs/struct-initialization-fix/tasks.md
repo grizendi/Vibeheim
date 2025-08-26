@@ -7,27 +7,36 @@
   - ⚠️ **ROOT CAUSE**: In-class initializers with `FGuid::NewGuid()` don't satisfy UE5.6's deterministic initialization requirements
   - _Requirements: 4.6_
 
-- [ ] 2. Fix FHeightfieldModification struct initialization
+- [x] 2. Fix FHeightfieldModification struct initialization
+
+
   - ❌ **CURRENT STATE**: Uses problematic `FGuid ModificationId = FGuid::NewGuid()` in-class initializer
   - ❌ **REFLECTION ERROR**: "StructProperty FHeightfieldModification::ModificationId is not initialized properly"
   - **REQUIRED FIX**: Change to constructor member initializer list: `FHeightfieldModification() : ModificationId(FGuid::NewGuid()) {}`
   - Remove in-class initializer and use explicit constructor initialization
   - _Requirements: 2.1, 3.2_
 
-- [ ] 3. Fix FInstanceJournalEntry struct initialization
+- [x] 3. Fix FInstanceJournalEntry struct initialization
+
+
   - ❌ **CURRENT STATE**: Uses problematic `FGuid InstanceId = FGuid::NewGuid()` in-class initializer
   - ❌ **REFLECTION ERROR**: "StructProperty FInstanceJournalEntry::InstanceId is not initialized properly"
   - **REQUIRED FIX**: Change to constructor member initializer list in all constructors
   - Update all three constructors to use member initializer lists
   - _Requirements: 2.2, 3.2_
 
-- [ ] 4. Fix FPOIData struct initialization
+- [x] 4. Fix FPOIData struct initialization
+
+
   - ❌ **CURRENT STATE**: Uses problematic `FGuid POIId = FGuid::NewGuid()` in-class initializer
   - ❌ **REFLECTION ERROR**: "StructProperty FPOIData::POIId is not initialized properly"
   - **REQUIRED FIX**: Change to constructor member initializer list: `FPOIData() : POIId(FGuid::NewGuid()) {}`
   - _Requirements: 2.3, 3.2_
 
-- [ ] 5. Fix FPCGInstanceData struct initialization
+- [x] 5. Fix FPCGInstanceData struct initialization
+
+
+
   - ❌ **CURRENT STATE**: Uses problematic `FGuid InstanceId = FGuid::NewGuid()` in-class initializer
   - ❌ **REFLECTION ERROR**: "StructProperty FPCGInstanceData::InstanceId is not initialized properly"
   - **REQUIRED FIX**: Change to constructor member initializer list: `FPCGInstanceData() : InstanceId(FGuid::NewGuid()) {}`

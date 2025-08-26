@@ -343,16 +343,13 @@ struct VIBEHEIM_API FHeightfieldModification
 	FTileCoord AffectedTile;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Modification")
-	FGuid ModificationId = FGuid::NewGuid();
+	FGuid ModificationId;
 
-	FHeightfieldModification()
+	FHeightfieldModification() : ModificationId(FGuid::NewGuid())
 	{
 		Timestamp = FDateTime::Now();
-		// Ensure we have a valid GUID (in-class initializer should handle this)
-		if (!ModificationId.IsValid())
-		{
-			ModificationId = FGuid::NewGuid();
-		}
+		// ModificationId is now properly initialized via constructor member initializer list
+		ensureMsgf(ModificationId.IsValid(), TEXT("FHeightfieldModification: ModificationId must be valid after construction"));
 	}
 };
 
@@ -376,7 +373,7 @@ struct VIBEHEIM_API FPOIData
 	GENERATED_BODY()
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "POI")
-	FGuid POIId = FGuid::NewGuid();
+	FGuid POIId;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "POI")
 	FString POIName;
@@ -399,13 +396,9 @@ struct VIBEHEIM_API FPOIData
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "POI")
 	bool bIsSpawned = false;
 
-	FPOIData()
+	FPOIData() : POIId(FGuid::NewGuid())
 	{
-		// Validate POI ID is properly initialized (in-class initializer should handle this)
-		if (!POIId.IsValid())
-		{
-			POIId = FGuid::NewGuid();
-		}
+		// POIId is now properly initialized via constructor member initializer list
 		ensureMsgf(POIId.IsValid(), TEXT("FPOIData: POIId must be valid after construction"));
 	}
 
@@ -470,7 +463,7 @@ struct VIBEHEIM_API FPCGInstanceData
 	GENERATED_BODY()
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Instance")
-	FGuid InstanceId = FGuid::NewGuid();
+	FGuid InstanceId;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Instance")
 	FVector Location = FVector::ZeroVector;
@@ -490,13 +483,9 @@ struct VIBEHEIM_API FPCGInstanceData
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Instance")
 	FTileCoord OwningTile;
 
-	FPCGInstanceData()
+	FPCGInstanceData() : InstanceId(FGuid::NewGuid())
 	{
-		// Validate Instance ID is properly initialized (in-class initializer should handle this)
-		if (!InstanceId.IsValid())
-		{
-			InstanceId = FGuid::NewGuid();
-		}
+		// InstanceId is now properly initialized via constructor member initializer list
 		ensureMsgf(InstanceId.IsValid(), TEXT("FPCGInstanceData: InstanceId must be valid after construction"));
 	}
 

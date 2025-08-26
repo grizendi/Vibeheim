@@ -30,7 +30,7 @@ struct VIBEHEIM_API FInstanceJournalEntry
 
 	// Unique instance identifier
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Journal")
-	FGuid InstanceId = FGuid::NewGuid();
+	FGuid InstanceId;
 
 	// Operation performed on this instance
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Journal")
@@ -56,14 +56,10 @@ struct VIBEHEIM_API FInstanceJournalEntry
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Journal")
 	int32 Version = 1;
 
-	FInstanceJournalEntry()
+	FInstanceJournalEntry() : InstanceId(FGuid::NewGuid())
 	{
 		Timestamp = FDateTime::Now().ToUnixTimestamp();
-		// Validate Instance ID is properly initialized (in-class initializer should handle this)
-		if (!InstanceId.IsValid())
-		{
-			InstanceId = FGuid::NewGuid();
-		}
+		// InstanceId is now properly initialized via constructor member initializer list
 		ensureMsgf(InstanceId.IsValid(), TEXT("FInstanceJournalEntry: InstanceId must be valid after construction"));
 	}
 
