@@ -345,10 +345,10 @@ struct VIBEHEIM_API FHeightfieldModification
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Modification")
 	FGuid ModificationId;
 
-	FHeightfieldModification() : ModificationId(FGuid::NewGuid())
+	FHeightfieldModification() 
+		: ModificationId(FGuid::NewGuid())
 	{
 		Timestamp = FDateTime::Now();
-		// ModificationId is now properly initialized via constructor member initializer list
 		ensureMsgf(ModificationId.IsValid(), TEXT("FHeightfieldModification: ModificationId must be valid after construction"));
 	}
 };
