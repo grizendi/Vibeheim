@@ -100,23 +100,24 @@ FHeightfieldData UHeightfieldService::GenerateHeightfield(int32 Seed, FTileCoord
 		ApplyThermalSmoothing(HeightfieldData, GenerationSettings.ThermalSmoothingIterations);
 	}
 
-	// Apply loaded terrain deltas for this tile
+	// === Apply loaded terrain deltas for this tile ===
 	if (const FHeightfieldModificationList* Mods = TileModifications.Find(TileCoord))
 	{
+		// Apply edits into the height array
 		ApplyModificationsToTile(TileCoord, HeightfieldData.HeightData);
-		
-		// Recalculate min/max heights after applying modifications
+
+		// Recompute min/max after edits
 		float NewMinHeight = FLT_MAX;
 		float NewMaxHeight = -FLT_MAX;
-		for (float Height : HeightfieldData.HeightData)
+		for (float H : HeightfieldData.HeightData)
 		{
-			NewMinHeight = FMath::Min(NewMinHeight, Height);
-			NewMaxHeight = FMath::Max(NewMaxHeight, Height);
+			NewMinHeight = FMath::Min(NewMinHeight, H);
+			NewMaxHeight = FMath::Max(NewMaxHeight, H);
 		}
 		HeightfieldData.MinHeight = NewMinHeight;
 		HeightfieldData.MaxHeight = NewMaxHeight;
-		
-		// Recalculate normals and slopes after modifications
+
+		// Rebuild derived data (normals/slopes) after edits
 		CalculateNormalsAndSlopes(HeightfieldData);
 	}
 
@@ -131,7 +132,9 @@ FHeightfieldData UHeightfieldService::GenerateHeightfield(int32 Seed, FTileCoord
 	WORLDGEN_LOG_WITH_SEED_TILE(Log, Seed, TileCoord, TEXT("Height build completed in %.2fms"), GenerationTimeMs);
 
 	return HeightfieldData;
-}float UHeightfieldService::GenerateBaseHeight(FVector2D WorldPosition, int32 Seed) const
+}
+
+float UHeightfieldService::GenerateBaseHeight(FVector2D WorldPosition, int32 Seed) const
 {
 	float Height = GenerationSettings.BaseHeight;
 

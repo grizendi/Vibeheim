@@ -2898,7 +2898,8 @@ FIntegrationTestResult UWorldGenIntegrationTest::RunPOIIntegrationTest()
 			}
 		}
 		
-		FVector InvalidLocation(TestTile.ToWorldPosition().X - 16.0f, TestTile.ToWorldPosition().Y - 16.0f, 50.0f);
+		FVector InvalidLocation = TestTile.ToWorldPosition();
+		InvalidLocation.Z = 50.0f;
 		bool bInvalidPlacement = POIService->ValidatePOIPlacement(InvalidLocation, TestRule, SteepHeightData, TestTile);
 		
 		if (bInvalidPlacement)

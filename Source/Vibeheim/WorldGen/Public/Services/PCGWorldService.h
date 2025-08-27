@@ -106,6 +106,9 @@ public:
 
 private:
 	UPROPERTY()
+	bool bHeadless = false;
+
+	UPROPERTY()
 	FWorldGenConfig WorldGenSettings;
 
 	UPROPERTY()
