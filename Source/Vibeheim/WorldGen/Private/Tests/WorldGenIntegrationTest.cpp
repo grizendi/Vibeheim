@@ -815,7 +815,8 @@ bool UWorldGenIntegrationTest::InitializeServices()
 		else
 		{
 			// Initialize NoiseSystem with WorldGenSettings
-			bool bNoiseInitialized = true; // Assume success for now - would call NoiseSystem->Initialize(WorldGenSettings) in real implementation
+			NoiseSystem->Initialize(WorldGenSettings->Settings.Seed);
+			bool bNoiseInitialized = true; // NoiseSystem::Initialize returns void, assume success
 			
 			if (bNoiseInitialized)
 			{
@@ -849,8 +850,10 @@ bool UWorldGenIntegrationTest::InitializeServices()
 		}
 		else
 		{
-			// Initialize ClimateSystem with WorldGenSettings
-			bool bClimateInitialized = true; // Assume success for now - would call ClimateSystem->Initialize(WorldGenSettings) in real implementation
+			// Initialize ClimateSystem with default climate settings and seed
+			FClimateSettings ClimateSettings; // Use default climate settings
+			ClimateSystem->Initialize(ClimateSettings, WorldGenSettings->Settings.Seed);
+			bool bClimateInitialized = true; // ClimateSystem::Initialize returns void, assume success
 			
 			if (bClimateInitialized)
 			{
@@ -892,7 +895,12 @@ bool UWorldGenIntegrationTest::InitializeServices()
 		else
 		{
 			// Initialize HeightfieldService with dependencies
-			bool bHeightfieldInitialized = true; // Assume success for now - would call HeightfieldService->Initialize(WorldGenSettings, NoiseSystem, ClimateSystem) in real implementation
+			bool bHeightfieldInitialized = HeightfieldService->Initialize(WorldGenSettings->Settings);
+			if (bHeightfieldInitialized)
+			{
+				HeightfieldService->SetNoiseSystem(NoiseSystem);
+				HeightfieldService->SetClimateSystem(ClimateSystem);
+			}
 			
 			if (bHeightfieldInitialized)
 			{
@@ -934,7 +942,8 @@ bool UWorldGenIntegrationTest::InitializeServices()
 		else
 		{
 			// Initialize BiomeService with dependencies
-			bool bBiomeInitialized = true; // Assume success for now - would call BiomeService->Initialize(WorldGenSettings, HeightfieldService, ClimateSystem) in real implementation
+			BiomeService->Initialize(ClimateSystem, WorldGenSettings->Settings);
+			bool bBiomeInitialized = BiomeService->LoadBiomesFromJSON(TEXT("Config/BiomeDefinitions.json"));
 			
 			if (bBiomeInitialized)
 			{
@@ -976,7 +985,11 @@ bool UWorldGenIntegrationTest::InitializeServices()
 		else
 		{
 			// Initialize PCGWorldService with dependencies
-			bool bPCGInitialized = true; // Assume success for now - would call PCGService->Initialize(WorldGenSettings, BiomeService) in real implementation
+			bool bPCGInitialized = PCGService->Initialize(WorldGenSettings->Settings);
+			if (bPCGInitialized)
+			{
+				PCGService->SetBiomeDefinitions(BiomeService->GetBiomeDefinitions());
+			}
 			
 			if (bPCGInitialized)
 			{
@@ -1018,7 +1031,12 @@ bool UWorldGenIntegrationTest::InitializeServices()
 		else
 		{
 			// Initialize POIService with dependencies
-			bool bPOIInitialized = true; // Assume success for now - would call POIService->Initialize(WorldGenSettings, BiomeService, HeightfieldService) in real implementation
+			bool bPOIInitialized = POIService->Initialize(WorldGenSettings->Settings);
+			if (bPOIInitialized)
+			{
+				POIService->SetBiomeService(BiomeService);
+				POIService->SetHeightfieldService(HeightfieldService);
+			}
 			
 			if (bPOIInitialized)
 			{
@@ -1066,7 +1084,7 @@ bool UWorldGenIntegrationTest::InitializeServices()
 			WORLDGEN_LOG(Log, TEXT("  Configuring TileStreamingService dependencies..."));
 			
 			// Initialize TileStreamingService with all required dependencies
-			bool bTileStreamingInitialized = true; // Assume success for now - would call TileStreamingService->Initialize(WorldGenSettings, HeightfieldService, BiomeService, PCGService) in real implementation
+			bool bTileStreamingInitialized = TileStreamingService->Initialize(WorldGenSettings->Settings, HeightfieldService, BiomeService, PCGService);
 			
 			if (bTileStreamingInitialized)
 			{

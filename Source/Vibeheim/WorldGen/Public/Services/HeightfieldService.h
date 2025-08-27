@@ -268,7 +268,7 @@ private:
 	void ApplyModificationToHeightfield(FHeightfieldData& HeightfieldData, const FHeightfieldModification& Modification);
 
 	/**
-	 * Apply all modifications to a tile's heightfield data
+	 * Apply all modifications to a tile's height data array
 	 */
-	void ApplyModificationsToTile(FTileCoord TileCoord, FHeightfieldData& HeightfieldData);
+	void ApplyModificationsToTile(FTileCoord TileCoord, TArray<float>& HeightData);
 };

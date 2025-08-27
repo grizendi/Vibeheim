@@ -100,6 +100,26 @@ FHeightfieldData UHeightfieldService::GenerateHeightfield(int32 Seed, FTileCoord
 		ApplyThermalSmoothing(HeightfieldData, GenerationSettings.ThermalSmoothingIterations);
 	}
 
+	// Apply loaded terrain deltas for this tile
+	if (const FHeightfieldModificationList* Mods = TileModifications.Find(TileCoord))
+	{
+		ApplyModificationsToTile(TileCoord, HeightfieldData.HeightData);
+		
+		// Recalculate min/max heights after applying modifications
+		float NewMinHeight = FLT_MAX;
+		float NewMaxHeight = -FLT_MAX;
+		for (float Height : HeightfieldData.HeightData)
+		{
+			NewMinHeight = FMath::Min(NewMinHeight, Height);
+			NewMaxHeight = FMath::Max(NewMaxHeight, Height);
+		}
+		HeightfieldData.MinHeight = NewMinHeight;
+		HeightfieldData.MaxHeight = NewMaxHeight;
+		
+		// Recalculate normals and slopes after modifications
+		CalculateNormalsAndSlopes(HeightfieldData);
+	}
+
 	// Cache the generated data
 	CacheHeightfield(HeightfieldData);
 
@@ -931,7 +951,21 @@ bool UHeightfieldService::LoadTileTerrainDeltas(FTileCoord TileCoord)
 	FHeightfieldData* CachedData = HeightfieldCache.Find(TileCoord);
 	if (CachedData)
 	{
-		ApplyModificationsToTile(TileCoord, *CachedData);
+		ApplyModificationsToTile(TileCoord, CachedData->HeightData);
+		
+		// Recalculate min/max heights after applying modifications
+		float NewMinHeight = FLT_MAX;
+		float NewMaxHeight = -FLT_MAX;
+		for (float Height : CachedData->HeightData)
+		{
+			NewMinHeight = FMath::Min(NewMinHeight, Height);
+			NewMaxHeight = FMath::Max(NewMaxHeight, Height);
+		}
+		CachedData->MinHeight = NewMinHeight;
+		CachedData->MaxHeight = NewMaxHeight;
+		
+		// Recalculate normals and slopes after modifications
+		CalculateNormalsAndSlopes(*CachedData);
 	}
 
 	double EndTime = FPlatformTime::Seconds();
@@ -1042,42 +1076,7 @@ bool UHeightfieldService::DeserializeTerrainDeltas(const TArray<uint8>& InData, 
 	return !MemoryReader.IsError();
 }
 
-void UHeightfieldService::ApplyModificationsToTile(FTileCoord TileCoord, FHeightfieldData& HeightfieldData)
-{
-	FHeightfieldModificationList* List = TileModifications.Find(TileCoord);
-	TArray<FHeightfieldModification>* TileDeltas = List ? &List->Modifications : nullptr;
 
-	if (!TileDeltas || TileDeltas->Num() == 0)
-	{
-		return; // No modifications to apply
-	}
-
-	// Sort modifications by timestamp to apply them in chronological order
-	TileDeltas->Sort([](const FHeightfieldModification& A, const FHeightfieldModification& B)
-		{
-			return A.Timestamp < B.Timestamp;
-		});
-
-	int32 AppliedCount = 0;
-	for (const FHeightfieldModification& Modification : *TileDeltas)
-	{
-		// Create a temporary modification to apply to the cache
-		FHeightfieldModification TempMod = Modification;
-
-		// Apply the modification directly to the heightfield data
-		ApplyModificationToHeightfield(HeightfieldData, TempMod);
-		AppliedCount++;
-	}
-
-	if (AppliedCount > 0)
-	{
-		// Recalculate normals and slopes after applying all modifications
-		CalculateNormalsAndSlopes(HeightfieldData);
-
-		UE_LOG(LogHeightfieldService, Log, TEXT("Applied %d terrain modifications to tile (%d, %d)"),
-			AppliedCount, TileCoord.X, TileCoord.Y);
-	}
-}
 
 TArray<FHeightfieldModification> UHeightfieldService::GetTileModifications(FTileCoord TileCoord) const
 {
@@ -1086,6 +1085,101 @@ TArray<FHeightfieldModification> UHeightfieldService::GetTileModifications(FTile
 		return List->Modifications;
 	}
 	return {};
+}
+
+void UHeightfieldService::ApplyModificationsToTile(FTileCoord TileCoord, TArray<float>& HeightData)
+{
+	const FHeightfieldModificationList* ModList = TileModifications.Find(TileCoord);
+	if (!ModList || ModList->Modifications.Num() == 0)
+	{
+		return;
+	}
+
+	// Calculate tile world bounds
+	FVector TileWorldPos = TileCoord.ToWorldPosition(64.0f);
+	FVector2D TileStart(TileWorldPos.X - 32.0f, TileWorldPos.Y - 32.0f);
+
+	const int32 Resolution = 64; // Locked per coordinate system
+	const float SampleSpacing = 1.0f; // 1m per sample
+
+	// Apply each modification in chronological order
+	for (const FHeightfieldModification& Modification : ModList->Modifications)
+	{
+		// Apply modification to affected samples
+		for (int32 Y = 0; Y < Resolution; Y++)
+		{
+			for (int32 X = 0; X < Resolution; X++)
+			{
+				// Calculate world position of this sample
+				FVector2D SampleWorldPos = TileStart + FVector2D(X * SampleSpacing, Y * SampleSpacing);
+
+				// Calculate distance from modification center
+				float Distance = FVector2D::Distance(SampleWorldPos, Modification.Center);
+				if (Distance > Modification.Radius)
+				{
+					continue; // Outside modification radius
+				}
+
+				// Calculate falloff (1.0 at center, 0.0 at radius edge)
+				float Falloff = FMath::Clamp(1.0f - (Distance / Modification.Radius), 0.0f, 1.0f);
+				Falloff = FMath::SmoothStep(0.0f, 1.0f, Falloff); // Smooth falloff curve
+
+				int32 SampleIndex = Y * Resolution + X;
+				float& CurrentHeight = HeightData[SampleIndex];
+
+				// Apply operation
+				switch (Modification.Operation)
+				{
+				case EHeightfieldOperation::Add:
+					CurrentHeight += Modification.Strength * Falloff;
+					break;
+				case EHeightfieldOperation::Subtract:
+					CurrentHeight -= Modification.Strength * Falloff;
+					break;
+				case EHeightfieldOperation::Flatten:
+					{
+						float TargetHeight = 0.0f; // Sea level
+						CurrentHeight = FMath::Lerp(CurrentHeight, TargetHeight, Modification.Strength * Falloff);
+					}
+					break;
+				case EHeightfieldOperation::Smooth:
+					{
+						// Smooth by averaging with neighbors
+						float AverageHeight = 0.0f;
+						int32 NeighborCount = 0;
+
+						// Sample 3x3 neighborhood
+						for (int32 DY = -1; DY <= 1; DY++)
+						{
+							for (int32 DX = -1; DX <= 1; DX++)
+							{
+								int32 NeighborX = X + DX;
+								int32 NeighborY = Y + DY;
+
+								if (NeighborX >= 0 && NeighborX < Resolution &&
+									NeighborY >= 0 && NeighborY < Resolution)
+								{
+									int32 NeighborIndex = NeighborY * Resolution + NeighborX;
+									AverageHeight += HeightData[NeighborIndex];
+									NeighborCount++;
+								}
+							}
+						}
+
+						if (NeighborCount > 0)
+						{
+							AverageHeight /= NeighborCount;
+							CurrentHeight = FMath::Lerp(CurrentHeight, AverageHeight, Modification.Strength * Falloff);
+						}
+					}
+					break;
+				}
+
+				// Clamp to max terrain height
+				CurrentHeight = FMath::Clamp(CurrentHeight, -WorldGenSettings.MaxTerrainHeight, WorldGenSettings.MaxTerrainHeight);
+			}
+		}
+	}
 }
 
 void UHeightfieldService::ApplyModificationToHeightfield(FHeightfieldData& HeightfieldData, const FHeightfieldModification& Modification)

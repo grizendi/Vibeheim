@@ -256,10 +256,14 @@ float UBiomeService::CalculateBiomeSuitability(EBiomeType BiomeType, const FClim
 	// Ring bias influence
 	float RingInfluence = 1.0f + (ClimateData.RingBias * 0.5f);
 	
-	// Combine all factors
-	float TotalSuitability = TempSuitability * MoistureSuitability * AltitudeSuitability * RingInfluence * BiomeDef->BiomeWeight;
+	// Keep ring influence in [0,1] range then apply weight, finally clamp
+	float ClampedRingInfluence = FMath::Clamp(RingInfluence, 0.0f, 1.0f);
 	
-	return FMath::Max(0.0f, TotalSuitability);
+	// Combine all factors
+	float TotalSuitability = TempSuitability * MoistureSuitability * AltitudeSuitability * ClampedRingInfluence;
+	TotalSuitability *= FMath::Max(0.0f, BiomeDef->BiomeWeight); // Allow >1 weight but clamp final result
+	
+	return FMath::Clamp(TotalSuitability, 0.0f, 1.0f);
 }FBiomeResult UBiomeService::ApplyBiomeBlending(const TMap<EBiomeType, float>& BiomeWeights, FVector2D WorldPosition) const
 {
 	FBiomeResult Result;

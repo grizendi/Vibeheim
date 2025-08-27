@@ -120,6 +120,11 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Biome")
 	float CalculateBiomeSuitability(EBiomeType BiomeType, const FClimateData& ClimateData, float Altitude) const;
 
+	/**
+	 * Get all biome definitions (for PCG integration)
+	 */
+	const TMap<EBiomeType, FBiomeDefinition>& GetBiomeDefinitions() const { return BiomeDefinitions; }
+
 private:
 	UPROPERTY()
 	UClimateSystem* ClimateSystem;

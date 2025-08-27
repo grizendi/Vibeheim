@@ -341,6 +341,13 @@ bool UPCGWorldService::SpawnPOI(FVector Location, const FPOIData& POIData)
 
 bool UPCGWorldService::UpdateHISMInstances(FTileCoord TileCoord)
 {
+	// Check if we have a valid world context for HISM operations
+	if (!GetWorld())
+	{
+		UE_LOG(LogPCGWorldService, Error, TEXT("Cannot create HISM components - no valid world"));
+		return false;
+	}
+
 	// Get or create HISM components for this tile
 	FHISMComponentArray* TileComponents = HISMComponents.Find(TileCoord);
 	if (!TileComponents)
