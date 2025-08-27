@@ -343,24 +343,24 @@ struct VIBEHEIM_API FHeightfieldModification
 	FTileCoord AffectedTile;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Modification")
-	FGuid ModificationId;
+	FGuid ModificationId = FGuid();
 
 	FHeightfieldModification() 
-		: ModificationId(FGuid::NewGuid())
 	{
+		ModificationId = FGuid::NewGuid();
 		Timestamp = FDateTime::Now();
 		ensureMsgf(ModificationId.IsValid(), TEXT("FHeightfieldModification: ModificationId must be valid after construction"));
 	}
 };
 
 // TStructOpsTypeTraits for FHeightfieldModification
-// WithZeroConstructor = false: Uses FGuid::NewGuid() in member initializer, not zero-constructible
+// WithZeroConstructor = true: Uses in-class FGuid() initializer for UE5.6 reflection compatibility
 template<>
 struct TStructOpsTypeTraits<FHeightfieldModification> : public TStructOpsTypeTraitsBase2<FHeightfieldModification>
 {
 	enum
 	{
-		WithZeroConstructor = false,      // Uses NewGuid() for unique IDs, not zero-initialized
+		WithZeroConstructor = true,      // Uses in-class FGuid() initializer for reflection compatibility
 	};
 };
 
@@ -373,7 +373,7 @@ struct VIBEHEIM_API FPOIData
 	GENERATED_BODY()
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "POI")
-	FGuid POIId;
+	FGuid POIId = FGuid();
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "POI")
 	FString POIName;
@@ -396,9 +396,9 @@ struct VIBEHEIM_API FPOIData
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "POI")
 	bool bIsSpawned = false;
 
-	FPOIData() : POIId(FGuid::NewGuid())
+	FPOIData()
 	{
-		// POIId is now properly initialized via constructor member initializer list
+		POIId = FGuid::NewGuid();
 		ensureMsgf(POIId.IsValid(), TEXT("FPOIData: POIId must be valid after construction"));
 	}
 
@@ -443,13 +443,13 @@ struct VIBEHEIM_API FPOIData
 	}
 };
 
-// TStructOpsTypeTraits for FPOIData - Persistent ID pattern uses NewGuid() in member initializer
+// TStructOpsTypeTraits for FPOIData - Uses in-class FGuid() initializer for UE5.6 reflection compatibility
 template<>
 struct TStructOpsTypeTraits<FPOIData> : public TStructOpsTypeTraitsBase2<FPOIData>
 {
 	enum
 	{
-		WithZeroConstructor = false,      // Uses NewGuid() for unique IDs, not zero-initialized
+		WithZeroConstructor = true,      // Uses in-class FGuid() initializer for reflection compatibility
 		WithSerializer = true             // Has custom Serialize() method
 	};
 };
@@ -463,7 +463,7 @@ struct VIBEHEIM_API FPCGInstanceData
 	GENERATED_BODY()
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Instance")
-	FGuid InstanceId;
+	FGuid InstanceId = FGuid();
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Instance")
 	FVector Location = FVector::ZeroVector;
@@ -483,9 +483,9 @@ struct VIBEHEIM_API FPCGInstanceData
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Instance")
 	FTileCoord OwningTile;
 
-	FPCGInstanceData() : InstanceId(FGuid::NewGuid())
+	FPCGInstanceData()
 	{
-		// InstanceId is now properly initialized via constructor member initializer list
+		InstanceId = FGuid::NewGuid();
 		ensureMsgf(InstanceId.IsValid(), TEXT("FPCGInstanceData: InstanceId must be valid after construction"));
 	}
 
@@ -519,13 +519,13 @@ struct VIBEHEIM_API FPCGInstanceData
 };
 
 // TStructOpsTypeTraits for FPCGInstanceData
-// WithZeroConstructor = false: Uses FGuid::NewGuid() in member initializer, not zero-constructible
+// WithZeroConstructor = true: Uses in-class FGuid() initializer for UE5.6 reflection compatibility
 template<>
 struct TStructOpsTypeTraits<FPCGInstanceData> : public TStructOpsTypeTraitsBase2<FPCGInstanceData>
 {
 	enum
 	{
-		WithZeroConstructor = false,      // Uses NewGuid() for unique IDs, not zero-initialized
+		WithZeroConstructor = true,      // Uses in-class FGuid() initializer for reflection compatibility
 		WithSerializer = true             // Has custom Serialize() method
 	};
 };

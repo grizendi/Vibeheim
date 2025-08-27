@@ -6,7 +6,7 @@
 
 ## Required Patterns
 
-### Pattern 1: Constructor Member Initializer List (for ID-type structs)
+### Pattern 1: In-Class Zero Initialization + Constructor Assignment (for ID-type structs)
 
 ```cpp
 USTRUCT(BlueprintType)
@@ -15,11 +15,11 @@ struct VIBEHEIM_API FMyIdStruct
     GENERATED_BODY()
 
     UPROPERTY()
-    FGuid MyId;  // No in-class initializer
+    FGuid MyId = FGuid();  // Zero-init for UE5.6 reflection compatibility
 
     FMyIdStruct() 
-        : MyId(FGuid::NewGuid())  // Initialize in member initializer list
     {
+        MyId = FGuid::NewGuid();  // Assign unique value in constructor body
         ensureMsgf(MyId.IsValid(), TEXT("MyId must be valid"));
     }
 };
@@ -27,11 +27,11 @@ struct VIBEHEIM_API FMyIdStruct
 template<>
 struct TStructOpsTypeTraits<FMyIdStruct> : public TStructOpsTypeTraitsBase2<FMyIdStruct>
 {
-    enum { WithZeroConstructor = false };  // Uses NewGuid(), not zero-init
+    enum { WithZeroConstructor = true };  // Uses in-class FGuid() initializer
 };
 ```
 
-### Pattern 2: In-Class Zero Initialization (for config/template structs)
+### Pattern 2: In-Class Zero Initialization Only (for config/template structs)
 
 ```cpp
 USTRUCT(BlueprintType)
@@ -50,8 +50,8 @@ struct VIBEHEIM_API FMyConfigStruct
 
 ```
 Does struct contain FGuid members that need unique values immediately?
-├─ YES → Use Pattern 1 (Constructor Member Initializer List)
-└─ NO → Use Pattern 2 (In-Class Zero Initialization)
+├─ YES → Use Pattern 1 (In-Class Zero Init + Constructor Assignment)
+└─ NO → Use Pattern 2 (In-Class Zero Initialization Only)
 
 Is this struct used for runtime entities that need immediate IDs?
 ├─ YES → Pattern 1
@@ -60,10 +60,10 @@ Is this struct used for runtime entities that need immediate IDs?
 
 ## Vibeheim Examples
 
-- `FHeightfieldModification::ModificationId` → Pattern 1
-- `FInstanceJournalEntry::InstanceId` → Pattern 1  
-- `FPOIData::POIId` → Pattern 1
-- `FPCGInstanceData::InstanceId` → Pattern 1
+- `FHeightfieldModification::ModificationId` → Pattern 1 (FGuid() + NewGuid() in constructor)
+- `FInstanceJournalEntry::InstanceId` → Pattern 1 (FGuid() + NewGuid() in constructor)
+- `FPOIData::POIId` → Pattern 1 (FGuid() + NewGuid() in constructor)
+- `FPCGInstanceData::InstanceId` → Pattern 1 (FGuid() + NewGuid() in constructor)
 
 ## Forbidden Patterns
 
@@ -71,11 +71,11 @@ Is this struct used for runtime entities that need immediate IDs?
 // ❌ NEVER - Causes UE5.6 reflection errors
 FGuid MyId = FGuid::NewGuid();
 
-// ❌ NEVER - Late initialization
-FMyStruct() { MyId = FGuid::NewGuid(); }
+// ❌ NEVER - Member initializer list (causes reflection errors)
+FMyStruct() : MyId(FGuid::NewGuid()) {}
 
-// ❌ NEVER - Uninitialized
-FGuid MyId;  // without constructor
+// ❌ NEVER - Uninitialized (no in-class initializer)
+FGuid MyId;  // without in-class initializer
 ```
 
 ## Required Validation
