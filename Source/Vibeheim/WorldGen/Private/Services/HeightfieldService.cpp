@@ -919,15 +919,29 @@ bool UHeightfieldService::SaveTileTerrainDeltas(FTileCoord TileCoord)
 		return true; // No deltas to save
 	}
 
-	UE_LOG(LogHeightfieldService, Log, TEXT("SaveTileTerrainDeltas: Found %d deltas to save for tile (%d, %d)"), 
-		TileDeltas->Num(), TileCoord.X, TileCoord.Y);
+	// Deduplicate modifications by ModificationId to prevent cross-tile duplicates
+	TMap<FGuid, FHeightfieldModification> UniqueModifications;
+	for (const FHeightfieldModification& Modification : *TileDeltas)
+	{
+		UniqueModifications.Add(Modification.ModificationId, Modification);
+	}
+	
+	// Convert back to array for serialization
+	TArray<FHeightfieldModification> DeduplicatedDeltas;
+	for (const auto& Pair : UniqueModifications)
+	{
+		DeduplicatedDeltas.Add(Pair.Value);
+	}
+
+	UE_LOG(LogHeightfieldService, Log, TEXT("SaveTileTerrainDeltas: Found %d deltas to save for tile (%d, %d) (deduplicated from %d)"), 
+		DeduplicatedDeltas.Num(), TileCoord.X, TileCoord.Y, TileDeltas->Num());
 
 	double StartTime = FPlatformTime::Seconds();
 
 	FString FilePath = GetTerraDeltaPath(TileCoord);
 	TArray<uint8> SerializedData;
 
-	if (!SerializeTerrainDeltas(*TileDeltas, SerializedData))
+	if (!SerializeTerrainDeltas(DeduplicatedDeltas, SerializedData))
 	{
 		UE_LOG(LogHeightfieldService, Error, TEXT("Failed to serialize terrain deltas for tile (%d, %d)"), TileCoord.X, TileCoord.Y);
 		return false;
@@ -943,7 +957,7 @@ bool UHeightfieldService::SaveTileTerrainDeltas(FTileCoord TileCoord)
 	float SaveTimeMs = static_cast<float>((EndTime - StartTime) * 1000.0);
 
 	UE_LOG(LogHeightfieldService, Log, TEXT("Saved %d terrain deltas for tile (%d, %d) to %s (%.2fms)"),
-		TileDeltas->Num(), TileCoord.X, TileCoord.Y, *FilePath, SaveTimeMs);
+		DeduplicatedDeltas.Num(), TileCoord.X, TileCoord.Y, *FilePath, SaveTimeMs);
 
 	return true;
 }
@@ -985,7 +999,7 @@ bool UHeightfieldService::LoadTileTerrainDeltas(FTileCoord TileCoord)
 	UE_LOG(LogHeightfieldService, Log, TEXT("LoadTileTerrainDeltas: Successfully deserialized %d deltas from file"), 
 		LoadedDeltas.Num());
 
-	// Store loaded modifications
+	// Store loaded modifications (replace any existing ones for this tile)
 	FHeightfieldModificationList List;
 	List.Modifications = MoveTemp(LoadedDeltas);
 	TileModifications.Add(TileCoord, MoveTemp(List));
@@ -1014,8 +1028,12 @@ bool UHeightfieldService::LoadTileTerrainDeltas(FTileCoord TileCoord)
 	double EndTime = FPlatformTime::Seconds();
 	float LoadTimeMs = static_cast<float>((EndTime - StartTime) * 1000.0);
 
+	// Get the actual count from the stored list
+	const FHeightfieldModificationList* StoredList = TileModifications.Find(TileCoord);
+	int32 StoredCount = StoredList ? StoredList->Modifications.Num() : 0;
+	
 	UE_LOG(LogHeightfieldService, Log, TEXT("Loaded %d terrain deltas for tile (%d, %d) from %s (%.2fms)"),
-		LoadedDeltas.Num(), TileCoord.X, TileCoord.Y, *FilePath, LoadTimeMs);
+		StoredCount, TileCoord.X, TileCoord.Y, *FilePath, LoadTimeMs);
 
 	return true;
 }
