@@ -1948,8 +1948,21 @@ FIntegrationTestResult UWorldGenIntegrationTest::RunPersistenceTest()
 	
 	try
 	{
-		// Step 1: Generate initial test tile
+		// Step 1: Clear any existing terrain modifications for clean test
 		FTileCoord TestTile = TestConfig.TestTileCoord;
+		
+		// Clear existing terrain deltas file to ensure clean test
+		FString ExistingDeltaFile = HeightfieldService->GetTerraDeltaPath(TestTile);
+		if (IFileManager::Get().FileExists(*ExistingDeltaFile))
+		{
+			IFileManager::Get().Delete(*ExistingDeltaFile);
+			WORLDGEN_LOG(Log, TEXT("✓ Cleared existing terrain deltas for clean test"));
+		}
+		
+		// Clear in-memory modifications for this tile
+		HeightfieldService->ClearTileModifications(TestTile);
+		
+		// Generate initial test tile to establish baseline
 		FHeightfieldData InitialHeightfield = HeightfieldService->GenerateHeightfield(TestConfig.TestSeed, TestTile);
 		
 		if (InitialHeightfield.HeightData.Num() == 0)

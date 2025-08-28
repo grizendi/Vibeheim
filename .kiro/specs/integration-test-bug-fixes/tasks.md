@@ -39,6 +39,9 @@
 
 
 
+
+
+
   - Run terrain persistence integration test to verify checksums now match
   - Ensure both "Modified Checksum" and "Reloaded Checksum" are identical
   - Validate that terrain modifications persist correctly across save/load cycles

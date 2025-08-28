@@ -1148,6 +1148,20 @@ TArray<FHeightfieldModification> UHeightfieldService::GetTileModifications(FTile
 	return {};
 }
 
+void UHeightfieldService::ClearTileModifications(FTileCoord TileCoord)
+{
+	// Remove from tile modifications map
+	TileModifications.Remove(TileCoord);
+	
+	// Remove from dirty tiles set
+	DirtyTiles.Remove(TileCoord);
+	
+	// Remove from heightfield cache to force regeneration
+	HeightfieldCache.Remove(TileCoord);
+	
+	UE_LOG(LogHeightfieldService, Log, TEXT("Cleared all modifications for tile (%d, %d)"), TileCoord.X, TileCoord.Y);
+}
+
 void UHeightfieldService::ApplyModificationsToTile(FTileCoord TileCoord, TArray<float>& HeightData)
 {
 	const FHeightfieldModificationList* ModList = TileModifications.Find(TileCoord);

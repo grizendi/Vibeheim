@@ -153,6 +153,18 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Persistence")
 	TArray<FHeightfieldModification> GetTileModifications(FTileCoord TileCoord) const;
 
+	/**
+	 * Clear all modifications for a specific tile (for testing)
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Persistence")
+	void ClearTileModifications(FTileCoord TileCoord);
+
+	/**
+	 * Get file path for .terra file
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Persistence")
+	FString GetTerraDeltaPath(FTileCoord TileCoord) const;
+
 private:
 	UPROPERTY()
 	FWorldGenConfig WorldGenSettings;
@@ -247,10 +259,7 @@ private:
 	 */
 	void ClearVegetationInArea(FVector2D Center, float Radius);
 
-	/**
-	 * Get file path for .terra file
-	 */
-	FString GetTerraDeltaPath(FTileCoord TileCoord) const;
+
 
 	/**
 	 * Serialize terrain delta data to binary format
