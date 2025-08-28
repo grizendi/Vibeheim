@@ -101,8 +101,19 @@ FHeightfieldData UHeightfieldService::GenerateHeightfield(int32 Seed, FTileCoord
 	}
 
 	// === Apply loaded terrain deltas for this tile ===
-	if (const FHeightfieldModificationList* Mods = TileModifications.Find(TileCoord))
+	// Ensure modifications are loaded for this tile if they exist on disk
+	if (!TileModifications.Contains(TileCoord))
 	{
+		LoadTileTerrainDeltas(TileCoord);
+	}
+
+	// Check if we have modifications for this tile
+	const FHeightfieldModificationList* Mods = TileModifications.Find(TileCoord);
+	if (Mods && Mods->Modifications.Num() > 0)
+	{
+		UE_LOG(LogHeightfieldService, Log, TEXT("Applying %d terrain modifications to tile (%d, %d) during generation"), 
+			Mods->Modifications.Num(), TileCoord.X, TileCoord.Y);
+
 		// Apply edits into the height array
 		ApplyModificationsToTile(TileCoord, HeightfieldData.HeightData);
 
@@ -119,6 +130,14 @@ FHeightfieldData UHeightfieldService::GenerateHeightfield(int32 Seed, FTileCoord
 
 		// Rebuild derived data (normals/slopes) after edits
 		CalculateNormalsAndSlopes(HeightfieldData);
+
+		UE_LOG(LogHeightfieldService, Log, TEXT("Successfully applied terrain modifications to tile (%d, %d), height range: [%.2f, %.2f]"), 
+			TileCoord.X, TileCoord.Y, NewMinHeight, NewMaxHeight);
+	}
+	else
+	{
+		UE_LOG(LogHeightfieldService, VeryVerbose, TEXT("No terrain modifications found for tile (%d, %d)"), 
+			TileCoord.X, TileCoord.Y);
 	}
 
 	// Cache the generated data
@@ -889,10 +908,19 @@ bool UHeightfieldService::SaveTileTerrainDeltas(FTileCoord TileCoord)
 {
 	FHeightfieldModificationList* List = TileModifications.Find(TileCoord);
 	TArray<FHeightfieldModification>* TileDeltas = List ? &List->Modifications : nullptr;
+	
+	UE_LOG(LogHeightfieldService, Log, TEXT("SaveTileTerrainDeltas: Attempting to save deltas for tile (%d, %d)"), 
+		TileCoord.X, TileCoord.Y);
+	
 	if (!TileDeltas || TileDeltas->Num() == 0)
 	{
+		UE_LOG(LogHeightfieldService, VeryVerbose, TEXT("SaveTileTerrainDeltas: No deltas to save for tile (%d, %d)"), 
+			TileCoord.X, TileCoord.Y);
 		return true; // No deltas to save
 	}
+
+	UE_LOG(LogHeightfieldService, Log, TEXT("SaveTileTerrainDeltas: Found %d deltas to save for tile (%d, %d)"), 
+		TileDeltas->Num(), TileCoord.X, TileCoord.Y);
 
 	double StartTime = FPlatformTime::Seconds();
 
@@ -924,10 +952,19 @@ bool UHeightfieldService::LoadTileTerrainDeltas(FTileCoord TileCoord)
 {
 	FString FilePath = GetTerraDeltaPath(TileCoord);
 
+	UE_LOG(LogHeightfieldService, Log, TEXT("LoadTileTerrainDeltas: Attempting to load deltas for tile (%d, %d) from: %s"), 
+		TileCoord.X, TileCoord.Y, *FilePath);
+
 	if (!IFileManager::Get().FileExists(*FilePath))
 	{
+		UE_LOG(LogHeightfieldService, VeryVerbose, TEXT("LoadTileTerrainDeltas: No delta file exists for tile (%d, %d)"), 
+			TileCoord.X, TileCoord.Y);
 		return true; // No file to load, which is fine
 	}
+
+	int64 FileSize = IFileManager::Get().FileSize(*FilePath);
+	UE_LOG(LogHeightfieldService, Log, TEXT("LoadTileTerrainDeltas: Found delta file for tile (%d, %d), size: %lld bytes"), 
+		TileCoord.X, TileCoord.Y, FileSize);
 
 	double StartTime = FPlatformTime::Seconds();
 
@@ -944,6 +981,9 @@ bool UHeightfieldService::LoadTileTerrainDeltas(FTileCoord TileCoord)
 		UE_LOG(LogHeightfieldService, Error, TEXT("Failed to deserialize terrain deltas from file: %s"), *FilePath);
 		return false;
 	}
+
+	UE_LOG(LogHeightfieldService, Log, TEXT("LoadTileTerrainDeltas: Successfully deserialized %d deltas from file"), 
+		LoadedDeltas.Num());
 
 	// Store loaded modifications
 	FHeightfieldModificationList List;
@@ -1095,8 +1135,13 @@ void UHeightfieldService::ApplyModificationsToTile(FTileCoord TileCoord, TArray<
 	const FHeightfieldModificationList* ModList = TileModifications.Find(TileCoord);
 	if (!ModList || ModList->Modifications.Num() == 0)
 	{
+		UE_LOG(LogHeightfieldService, VeryVerbose, TEXT("ApplyModificationsToTile: No modifications found for tile (%d, %d)"), 
+			TileCoord.X, TileCoord.Y);
 		return;
 	}
+
+	UE_LOG(LogHeightfieldService, Log, TEXT("ApplyModificationsToTile: Applying %d modifications to tile (%d, %d)"), 
+		ModList->Modifications.Num(), TileCoord.X, TileCoord.Y);
 
 	// Calculate tile world bounds
 	FVector TileWorldPos = TileCoord.ToWorldPosition(64.0f);
@@ -1183,6 +1228,9 @@ void UHeightfieldService::ApplyModificationsToTile(FTileCoord TileCoord, TArray<
 			}
 		}
 	}
+
+	UE_LOG(LogHeightfieldService, Log, TEXT("ApplyModificationsToTile: Completed applying %d modifications to tile (%d, %d)"), 
+		ModList->Modifications.Num(), TileCoord.X, TileCoord.Y);
 }
 
 void UHeightfieldService::ApplyModificationToHeightfield(FHeightfieldData& HeightfieldData, const FHeightfieldModification& Modification)

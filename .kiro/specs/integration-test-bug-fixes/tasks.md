@@ -1,13 +1,18 @@
 # Implementation Plan
 
-- [ ] 1. Fix terrain persistence - diagnose file loading issue
-  - Add detailed diagnostic logging to `LoadTileTerrainDeltas()` method in HeightfieldService.cpp
-  - Log file path, existence check, file size, and parsing results
-  - Run integration test to capture diagnostic information about why 0 deltas are loaded when 4 were saved
-  - Identify if the issue is file format, parsing logic, or file I/O
+- [x] 1. Implement missing terrain persistence methods
+  - Implement `SaveTileTerrainDeltas()` method in HeightfieldService.cpp to serialize modifications to .terra files
+  - Implement `LoadTileTerrainDeltas()` method in HeightfieldService.cpp to deserialize modifications from .terra files
+  - Implement `ApplyModificationsToTile()` method to apply loaded modifications to heightfield data
+  - Add detailed diagnostic logging to track file I/O operations and modification counts
   - _Requirements: 1.2, 1.6_
 
-- [ ] 2. Fix terrain persistence - add missing ApplyModifications call
+- [x] 2. Fix terrain persistence - add missing ApplyModifications call
+
+
+
+
+
   - Modify `GenerateHeightfield()` method in HeightfieldService.cpp to call `ApplyModificationsToTile()` after base generation
   - Add call to `CalculateNormalsAndSlopes()` after applying modifications
   - Ensure modifications are applied for both cached and fresh generation
@@ -42,11 +47,11 @@
   - Confirm fix maintains existing editor PCG functionality
   - _Requirements: 2.4_
 
-- [ ] 7. Fix POI placement validation - debug constraint validation logic
-  - Add detailed diagnostic logging to POI constraint validation in POIService
-  - Log slope calculations, altitude checks, and constraint threshold comparisons
-  - Identify why valid placement locations are being incorrectly rejected
-  - Verify slope calculation and threshold comparison logic is working correctly
+- [ ] 7. Implement missing POI placement validation methods
+  - Implement `ValidatePlacementConstraints()` method in POIService.cpp to check slope and altitude constraints
+  - Add detailed diagnostic logging to POI constraint validation
+  - Implement slope calculation and threshold comparison logic
+  - Add coordinate validation to ensure test locations match terrain modifications
   - _Requirements: 3.2, 3.4, 3.5_
 
 - [ ] 8. Fix POI placement validation - align test coordinates if needed
