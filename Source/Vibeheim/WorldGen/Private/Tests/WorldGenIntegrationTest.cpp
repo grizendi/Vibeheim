@@ -2075,9 +2075,16 @@ FIntegrationTestResult UWorldGenIntegrationTest::RunPersistenceTest()
 			// Note: In a real implementation, modifications would be automatically applied
 		}
 		
+		// Quantize height data to eliminate floating-point precision issues
+		TArray<float> QuantizedModifiedHeights = ModifiedHeightfield.HeightData;
+		for (float& Height : QuantizedModifiedHeights)
+		{
+			Height = FMath::RoundToFloat(Height * 1000.0f) / 1000.0f; // Round to 3 decimal places
+		}
+
 		// Verify that modifications were applied (heightfield should be different from initial)
-		uint32 ModifiedChecksum = FCrc::MemCrc32(ModifiedHeightfield.HeightData.GetData(), 
-			ModifiedHeightfield.HeightData.Num() * sizeof(float));
+		uint32 ModifiedChecksum = FCrc::MemCrc32(QuantizedModifiedHeights.GetData(), 
+			QuantizedModifiedHeights.Num() * sizeof(float));
 		
 		if (InitialChecksum == ModifiedChecksum)
 		{

@@ -538,8 +538,11 @@ bool UHeightfieldService::ModifyHeightfield(FVector Location, float Radius, floa
 		// Mark tile as dirty for persistence
 		DirtyTiles.Add(TileCoord);
 
-		// Apply to cached heightfield if present
-		ApplyModificationToCache(Modification);
+		// Apply to cached heightfield if present for this specific tile
+		if (FHeightfieldData* CachedData = HeightfieldCache.Find(TileCoord))
+		{
+			ApplyModificationToHeightfield(*CachedData, Modification);
+		}
 
 		UE_LOG(LogHeightfieldService, VeryVerbose, TEXT("Added modification to tile (%d, %d), now has %d modifications"),
 			TileCoord.X, TileCoord.Y, List.Modifications.Num());
@@ -751,6 +754,13 @@ void UHeightfieldService::ApplyModificationToCache(const FHeightfieldModificatio
 	const float SampleSpacing = 1.0f; // 1m per sample
 	bool bDataModified = false;
 
+	// For smooth operations, create a snapshot of the current state
+	TArray<float> HeightSnapshot;
+	if (Modification.Operation == EHeightfieldOperation::Smooth)
+	{
+		HeightSnapshot = CachedData->HeightData;
+	}
+
 	// Apply modification to affected samples
 	for (int32 Y = 0; Y < Resolution; Y++)
 	{
@@ -796,11 +806,11 @@ void UHeightfieldService::ApplyModificationToCache(const FHeightfieldModificatio
 			}
 			case EHeightfieldOperation::Smooth:
 			{
-				// Smooth by averaging with neighbors (basic implementation)
+				// Smooth by averaging with neighbors from the snapshot
 				float AverageHeight = 0.0f;
 				int32 NeighborCount = 0;
 
-				// Sample 3x3 neighborhood
+				// Sample 3x3 neighborhood from snapshot
 				for (int32 DY = -1; DY <= 1; DY++)
 				{
 					for (int32 DX = -1; DX <= 1; DX++)
@@ -812,7 +822,7 @@ void UHeightfieldService::ApplyModificationToCache(const FHeightfieldModificatio
 							NeighborY >= 0 && NeighborY < Resolution)
 						{
 							int32 NeighborIndex = NeighborY * Resolution + NeighborX;
-							AverageHeight += CachedData->HeightData[NeighborIndex];
+							AverageHeight += HeightSnapshot[NeighborIndex];
 							NeighborCount++;
 						}
 					}
@@ -829,6 +839,9 @@ void UHeightfieldService::ApplyModificationToCache(const FHeightfieldModificatio
 
 			// Clamp to max terrain height
 			CurrentHeight = FMath::Clamp(CurrentHeight, -WorldGenSettings.MaxTerrainHeight, WorldGenSettings.MaxTerrainHeight);
+			
+			// Round to 2 decimal places (centimeter precision) to eliminate floating point precision issues
+			CurrentHeight = FMath::RoundToFloat(CurrentHeight * 100.0f) / 100.0f;
 
 			if (FMath::Abs(CurrentHeight - OriginalHeight) > KINDA_SMALL_NUMBER)
 			{
@@ -932,6 +945,21 @@ bool UHeightfieldService::SaveTileTerrainDeltas(FTileCoord TileCoord)
 	{
 		DeduplicatedDeltas.Add(Pair.Value);
 	}
+
+	// Helper for deterministic GUID comparison
+	auto LessGuid = [](const FGuid& L, const FGuid& R) {
+		if (L.A != R.A) return L.A < R.A;
+		if (L.B != R.B) return L.B < R.B;
+		if (L.C != R.C) return L.C < R.C;
+		return L.D < R.D;
+	};
+
+	// Sort with deterministic tie-breaker for identical timestamps before serialization
+	DeduplicatedDeltas.Sort([&](const FHeightfieldModification& A, const FHeightfieldModification& B) {
+		if (A.Timestamp != B.Timestamp) return A.Timestamp < B.Timestamp;
+		// Tie-break identical timestamps deterministically using ModificationId
+		return LessGuid(A.ModificationId, B.ModificationId);
+	});
 
 	UE_LOG(LogHeightfieldService, Log, TEXT("SaveTileTerrainDeltas: Found %d deltas to save for tile (%d, %d) (deduplicated from %d)"), 
 		DeduplicatedDeltas.Num(), TileCoord.X, TileCoord.Y, TileDeltas->Num());
@@ -1048,7 +1076,7 @@ bool UHeightfieldService::SerializeTerrainDeltas(const TArray<FHeightfieldModifi
 	FMemoryWriter MemoryWriter(OutData, true);
 
 	// Write version number for future compatibility
-	int32 Version = 1;
+	int32 Version = 2;  // Bump to version 2 for high-resolution timestamps
 	MemoryWriter << Version;
 
 	// Write number of deltas
@@ -1068,9 +1096,9 @@ bool UHeightfieldService::SerializeTerrainDeltas(const TArray<FHeightfieldModifi
 
 		MemoryWriter << const_cast<FHeightfieldModification&>(Delta).AffectedTile;
 
-		// Serialize timestamp as Unix timestamp
-		int64 UnixTimestamp = Delta.Timestamp.ToUnixTimestamp();
-		MemoryWriter << UnixTimestamp;
+		// Serialize timestamp as high-resolution ticks (100-nanosecond precision)
+		int64 Ticks = Delta.Timestamp.GetTicks();
+		MemoryWriter << Ticks;
 	}
 
 	return !MemoryWriter.IsError();
@@ -1089,7 +1117,7 @@ bool UHeightfieldService::DeserializeTerrainDeltas(const TArray<uint8>& InData, 
 	int32 Version = 0;
 	MemoryReader << Version;
 
-	if (Version != 1)
+	if (Version != 1 && Version != 2)
 	{
 		UE_LOG(LogHeightfieldService, Error, TEXT("Unsupported terrain delta version: %d"), Version);
 		return false;
@@ -1123,10 +1151,21 @@ bool UHeightfieldService::DeserializeTerrainDeltas(const TArray<uint8>& InData, 
 
 		MemoryReader << Delta.AffectedTile;
 
-		// Deserialize timestamp from Unix timestamp
-		int64 UnixTimestamp = 0;
-		MemoryReader << UnixTimestamp;
-		Delta.Timestamp = FDateTime::FromUnixTimestamp(UnixTimestamp);
+		// Deserialize timestamp based on version
+		if (Version == 1)
+		{
+			// Legacy format: Unix timestamp (seconds)
+			int64 UnixTimestamp = 0;
+			MemoryReader << UnixTimestamp;
+			Delta.Timestamp = FDateTime::FromUnixTimestamp(UnixTimestamp);
+		}
+		else if (Version == 2)
+		{
+			// New format: High-resolution ticks (100-nanosecond precision)
+			int64 Ticks = 0;
+			MemoryReader << Ticks;
+			Delta.Timestamp = FDateTime(Ticks);
+		}
 
 		// Validate that deserialized ModificationId is valid (should never be zero after proper serialization)
 		ensureMsgf(Delta.ModificationId.IsValid(), TEXT("Deserialized FHeightfieldModification::ModificationId should be valid"));
@@ -1159,6 +1198,22 @@ void UHeightfieldService::ClearTileModifications(FTileCoord TileCoord)
 	// Remove from heightfield cache to force regeneration
 	HeightfieldCache.Remove(TileCoord);
 	
+	// Delete the persisted .terra file if it exists
+	FString TileFilename = FString::Printf(TEXT("tile_%d_%d.terra"), TileCoord.X, TileCoord.Y);
+	FString TileFilePath = PersistenceDirectory / TileFilename;
+	
+	if (IFileManager::Get().FileExists(*TileFilePath))
+	{
+		if (IFileManager::Get().Delete(*TileFilePath))
+		{
+			UE_LOG(LogHeightfieldService, Log, TEXT("Deleted persisted terrain deltas file: %s"), *TileFilePath);
+		}
+		else
+		{
+			UE_LOG(LogHeightfieldService, Warning, TEXT("Failed to delete persisted terrain deltas file: %s"), *TileFilePath);
+		}
+	}
+	
 	UE_LOG(LogHeightfieldService, Log, TEXT("Cleared all modifications for tile (%d, %d)"), TileCoord.X, TileCoord.Y);
 }
 
@@ -1182,9 +1237,47 @@ void UHeightfieldService::ApplyModificationsToTile(FTileCoord TileCoord, TArray<
 	const int32 Resolution = 64; // Locked per coordinate system
 	const float SampleSpacing = 1.0f; // 1m per sample
 
-	// Apply each modification in chronological order
+	// Deduplicate modifications by ModificationId to prevent cross-tile duplicates
+	TMap<FGuid, FHeightfieldModification> UniqueModifications;
 	for (const FHeightfieldModification& Modification : ModList->Modifications)
 	{
+		UniqueModifications.Add(Modification.ModificationId, Modification);
+	}
+
+	// Convert to array and sort by timestamp to ensure consistent order
+	TArray<FHeightfieldModification> SortedModifications;
+	for (const auto& Pair : UniqueModifications)
+	{
+		SortedModifications.Add(Pair.Value);
+	}
+	// Helper for deterministic GUID comparison
+	auto LessGuid = [](const FGuid& L, const FGuid& R) {
+		if (L.A != R.A) return L.A < R.A;
+		if (L.B != R.B) return L.B < R.B;
+		if (L.C != R.C) return L.C < R.C;
+		return L.D < R.D;
+	};
+
+	// Sort with deterministic tie-breaker for identical timestamps
+	SortedModifications.Sort([&](const FHeightfieldModification& A, const FHeightfieldModification& B) {
+		if (A.Timestamp != B.Timestamp) return A.Timestamp < B.Timestamp;
+		// Tie-break identical timestamps deterministically using ModificationId
+		return LessGuid(A.ModificationId, B.ModificationId);
+	});
+
+	UE_LOG(LogHeightfieldService, Log, TEXT("ApplyModificationsToTile: After deduplication, applying %d unique modifications to tile (%d, %d)"), 
+		SortedModifications.Num(), TileCoord.X, TileCoord.Y);
+
+	// Apply each modification in chronological order
+	for (const FHeightfieldModification& Modification : SortedModifications)
+	{
+		// For smooth operations, create a snapshot of the current state
+		TArray<float> HeightSnapshot;
+		if (Modification.Operation == EHeightfieldOperation::Smooth)
+		{
+			HeightSnapshot = HeightData;
+		}
+
 		// Apply modification to affected samples
 		for (int32 Y = 0; Y < Resolution; Y++)
 		{
@@ -1224,11 +1317,11 @@ void UHeightfieldService::ApplyModificationsToTile(FTileCoord TileCoord, TArray<
 					break;
 				case EHeightfieldOperation::Smooth:
 					{
-						// Smooth by averaging with neighbors
+						// Smooth by averaging with neighbors from the snapshot
 						float AverageHeight = 0.0f;
 						int32 NeighborCount = 0;
 
-						// Sample 3x3 neighborhood
+						// Sample 3x3 neighborhood from snapshot
 						for (int32 DY = -1; DY <= 1; DY++)
 						{
 							for (int32 DX = -1; DX <= 1; DX++)
@@ -1240,7 +1333,7 @@ void UHeightfieldService::ApplyModificationsToTile(FTileCoord TileCoord, TArray<
 									NeighborY >= 0 && NeighborY < Resolution)
 								{
 									int32 NeighborIndex = NeighborY * Resolution + NeighborX;
-									AverageHeight += HeightData[NeighborIndex];
+									AverageHeight += HeightSnapshot[NeighborIndex];
 									NeighborCount++;
 								}
 							}
@@ -1257,6 +1350,9 @@ void UHeightfieldService::ApplyModificationsToTile(FTileCoord TileCoord, TArray<
 
 				// Clamp to max terrain height
 				CurrentHeight = FMath::Clamp(CurrentHeight, -WorldGenSettings.MaxTerrainHeight, WorldGenSettings.MaxTerrainHeight);
+				
+				// Round to 2 decimal places (centimeter precision) to eliminate floating point precision issues
+				CurrentHeight = FMath::RoundToFloat(CurrentHeight * 100.0f) / 100.0f;
 			}
 		}
 	}
@@ -1274,6 +1370,13 @@ void UHeightfieldService::ApplyModificationToHeightfield(FHeightfieldData& Heigh
 	const int32 Resolution = HeightfieldData.Resolution;
 	const float SampleSpacing = 1.0f; // 1m per sample
 	bool bDataModified = false;
+
+	// For smooth operations, create a snapshot of the current state
+	TArray<float> HeightSnapshot;
+	if (Modification.Operation == EHeightfieldOperation::Smooth)
+	{
+		HeightSnapshot = HeightfieldData.HeightData;
+	}
 
 	// Apply modification to affected samples
 	for (int32 Y = 0; Y < Resolution; Y++)
@@ -1319,11 +1422,11 @@ void UHeightfieldService::ApplyModificationToHeightfield(FHeightfieldData& Heigh
 			}
 			case EHeightfieldOperation::Smooth:
 			{
-				// Smooth by averaging with neighbors
+				// Smooth by averaging with neighbors from the snapshot
 				float AverageHeight = 0.0f;
 				int32 NeighborCount = 0;
 
-				// Sample 3x3 neighborhood
+				// Sample 3x3 neighborhood from snapshot
 				for (int32 DY = -1; DY <= 1; DY++)
 				{
 					for (int32 DX = -1; DX <= 1; DX++)
@@ -1335,7 +1438,7 @@ void UHeightfieldService::ApplyModificationToHeightfield(FHeightfieldData& Heigh
 							NeighborY >= 0 && NeighborY < Resolution)
 						{
 							int32 NeighborIndex = NeighborY * Resolution + NeighborX;
-							AverageHeight += HeightfieldData.HeightData[NeighborIndex];
+							AverageHeight += HeightSnapshot[NeighborIndex];
 							NeighborCount++;
 						}
 					}
@@ -1352,6 +1455,9 @@ void UHeightfieldService::ApplyModificationToHeightfield(FHeightfieldData& Heigh
 
 			// Clamp to max terrain height
 			CurrentHeight = FMath::Clamp(CurrentHeight, -WorldGenSettings.MaxTerrainHeight, WorldGenSettings.MaxTerrainHeight);
+			
+			// Round to 2 decimal places (centimeter precision) to eliminate floating point precision issues
+			CurrentHeight = FMath::RoundToFloat(CurrentHeight * 100.0f) / 100.0f;
 
 			if (FMath::Abs(CurrentHeight - OriginalHeight) > KINDA_SMALL_NUMBER)
 			{

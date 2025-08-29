@@ -33,10 +33,14 @@ graph TB
 
 ### Root Cause Analysis
 
-**Issue 1: Terrain Persistence**
-- **Symptom**: Saves 4 deltas, loads 0 deltas, checksum mismatch
-- **Root Cause**: File I/O issue in `LoadTileTerrainDeltas()` or missing `ApplyModificationsToTile()` call in `GenerateHeightfield()`
-- **Impact**: Player terrain edits don't persist across sessions
+**Issue 1: Terrain Persistence Checksum Determinism**
+- **Symptom**: Checksum mismatch between "Modified" and "Reloaded" heightfields even when data should be identical
+- **Root Cause**: Non-deterministic ordering due to timestamp ties and different processing pipelines
+  - Multiple modifications created with same Unix second timestamp (FDateTime::Now() granularity)
+  - UE's sort is not stable, causing arbitrary reorder on reload when timestamps are identical
+  - Two different pipelines: cached incremental updates vs regenerated from base + sorted modifications
+  - Non-deterministic TMap iteration order when serializing to disk
+- **Impact**: Integration tests fail with small but real differences (0.0001-0.15) due to operation order sensitivity
 
 **Issue 2: PCG Content Generation**
 - **Symptom**: 0 instances generated for all biomes in headless mode
@@ -50,33 +54,67 @@ graph TB
 
 ## Components and Interfaces
 
-### Fix 1: Terrain Persistence System
+### Fix 1: Terrain Persistence Checksum Determinism
 
 **Target Files:**
 - `Source/Vibeheim/WorldGen/Private/Services/HeightfieldService.cpp`
-- Specifically the `GenerateHeightfield()` and `LoadTileTerrainDeltas()` methods
+- `Source/Vibeheim/WorldGen/Private/Tests/UltimateTerrainPersistenceTest.cpp`
 
 **Implementation Strategy:**
+
+**A) Deterministic Ordering Everywhere**
 ```cpp
-// In UHeightfieldService::GenerateHeightfield()
-FHeightfieldData* UHeightfieldService::GenerateHeightfield(int32 Seed, FTileCoord TileCoord) {
-    // ... existing base generation code ...
-    
-    // ✨ NEW: Apply any persisted edits for this tile
-    ApplyModificationsToTile(TileCoord, HeightfieldData);
-    
-    // ✨ NEW: Edits changed the surface; refresh normals & slopes
-    CalculateNormalsAndSlopes(HeightfieldData);
-    
-    // ... existing caching/return code ...
+// Helper for deterministic GUID comparison
+auto LessGuid = [](const FGuid& L, const FGuid& R) {
+    if (L.A != R.A) return L.A < R.A;
+    if (L.B != R.B) return L.B < R.B;
+    if (L.C != R.C) return L.C < R.C;
+    return L.D < R.D;
+};
+
+// In UHeightfieldService::ApplyModificationsToTile - deterministic sort
+SortedModifications.Sort([&](const FHeightfieldModification& A, const FHeightfieldModification& B) {
+    if (A.Timestamp != B.Timestamp) return A.Timestamp < B.Timestamp;
+    // Tie-break identical timestamps deterministically
+    return LessGuid(A.ModificationId, B.ModificationId);
+});
+
+// In SaveTileTerrainDeltas - same deterministic sort before serialization
+DeduplicatedDeltas.Sort([&](const auto& A, const auto& B) {
+    if (A.Timestamp != B.Timestamp) return A.Timestamp < B.Timestamp;
+    return LessGuid(A.ModificationId, B.ModificationId);
+});
+```
+
+**B) High-Resolution Timestamps (Version Bump)**
+```cpp
+// SerializeTerrainDeltas - write version 2 with ticks
+int32 Version = 2;  // bump from 1
+MemoryWriter << Version;
+int64 Ticks = Delta.Timestamp.GetTicks(); // 100-ns ticks instead of seconds
+MemoryWriter << Ticks;
+
+// DeserializeTerrainDeltas - backward compatibility
+int32 Version = 0;
+MemoryReader << Version;
+if (Version == 1) {
+    int64 Unix = 0; 
+    MemoryReader << Unix;
+    Delta.Timestamp = FDateTime::FromUnixTimestamp(Unix); // legacy
+} else if (Version == 2) {
+    int64 Ticks = 0; 
+    MemoryReader << Ticks;
+    Delta.Timestamp = FDateTime(Ticks); // new format
 }
 ```
 
-**Diagnostic Approach:**
-1. Add detailed logging to `LoadTileTerrainDeltas()` to see why 0 deltas are loaded
-2. Verify file format and parsing logic
-3. Ensure `ApplyModificationsToTile()` is called during generation
-4. Validate that modifications are properly applied to the heightfield data
+**C) Consistent Test Pipeline**
+```cpp
+// In UltimateTerrainPersistenceTest.cpp - Step 3 uses same pipeline as Step 5
+// Replace cached data read with regeneration
+FHeightfieldData ModifiedHeightfield = HeightfieldService->GenerateHeightfield(TestSeed, TestTile);
+// This ensures both steps use identical GenerateHeightfield + ApplyModifications pipeline
+```
 
 ### Fix 2: PCG Content Generation System
 

@@ -16,7 +16,10 @@ The Integration Test Bug Fixes feature addresses three specific failures discove
 2. WHEN `LoadTileTerrainDeltas()` is called THEN the system SHALL properly read and parse the saved terrain delta files
 3. WHEN a tile is generated with existing modifications THEN the system SHALL call `ApplyModificationsToTile()` after base generation in `GenerateHeightfield()`
 4. WHEN modifications are applied to a heightfield THEN the system SHALL recalculate normals and slopes using `CalculateNormalsAndSlopes()`
-5. WHEN terrain is saved and reloaded THEN the system SHALL produce identical checksums for modified and reloaded heightfields
+5. WHEN terrain is saved and reloaded THEN the system SHALL produce identical checksums for modified and reloaded heightfields with deterministic ordering
+6. WHEN multiple modifications have identical timestamps THEN the system SHALL use ModificationId as a deterministic tie-breaker for consistent ordering
+7. WHEN terrain deltas are serialized to disk THEN the system SHALL use high-resolution timestamps (ticks) to minimize timestamp collisions
+8. WHEN terrain modifications are applied THEN the system SHALL use the same processing pipeline for both cached and regenerated heightfields
 6. IF the terrain delta file format or loading logic has issues THEN the system SHALL fix the file I/O to ensure proper persistence
 
 ### Requirement 2

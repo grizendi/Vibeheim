@@ -1,0 +1,132 @@
+#include "Services/HeightfieldService.h"
+#include "Data/WorldGenTypes.h"
+#include "Utils/WorldGenLogging.h"
+#include "Misc/CRC.h"
+#include "Engine/Engine.h"
+#include "HAL/IConsoleManager.h"
+
+// Test specifically for smooth operation consistency
+static FAutoConsoleCommand SmoothOperationTestCommand(
+    TEXT("wg.TestSmoothOperation"),
+    TEXT("Test smooth operation consistency between incremental and batch application"),
+    FConsoleCommandDelegate::CreateLambda([]()
+    {
+        UE_LOG(LogTemp, Warning, TEXT("=== Testing Smooth Operation Consistency ==="));
+        
+        // Create HeightfieldService
+        UHeightfieldService* HeightfieldService = NewObject<UHeightfieldService>();
+        
+        // Initialize with default config
+        FWorldGenConfig Config;
+        Config.MaxTerrainHeight = 1000.0f;
+        HeightfieldService->Initialize(Config);
+        
+        // Use a clean tile
+        FTileCoord TestTile(10, 10);
+        int32 TestSeed = 99999;
+        float EditRadius = 8.0f;
+        float EditStrength = 3.0f;
+        
+        UE_LOG(LogTemp, Warning, TEXT("Test parameters: Tile(%d,%d), Seed=%d, Radius=%.1f, Strength=%.1f"), 
+            TestTile.X, TestTile.Y, TestSeed, EditRadius, EditStrength);
+        
+        UE_LOG(LogTemp, Warning, TEXT("Step 1: Generate initial heightfield"));
+        
+        // Generate initial heightfield
+        FHeightfieldData InitialHeightfield = HeightfieldService->GenerateHeightfield(TestSeed, TestTile);
+        uint32 InitialChecksum = FCrc::MemCrc32(InitialHeightfield.HeightData.GetData(), 
+            InitialHeightfield.HeightData.Num() * sizeof(float));
+        
+        UE_LOG(LogTemp, Warning, TEXT("Initial heightfield checksum: 0x%08X"), InitialChecksum);
+        
+        UE_LOG(LogTemp, Warning, TEXT("Step 2: Apply modifications with smooth operation"));
+        
+        FVector TestLocation = TestTile.ToWorldPosition();
+        
+        // Apply Add operation first to create some variation
+        FVector AddLocation = TestLocation + FVector(5.0f, 5.0f, 0.0f);
+        HeightfieldService->ModifyHeightfield(AddLocation, EditRadius, EditStrength, EHeightfieldOperation::Add);
+        UE_LOG(LogTemp, Warning, TEXT("Applied Add operation"));
+        
+        // Apply Smooth operation
+        FVector SmoothLocation = TestLocation;
+        HeightfieldService->ModifyHeightfield(SmoothLocation, EditRadius, EditStrength, EHeightfieldOperation::Smooth);
+        UE_LOG(LogTemp, Warning, TEXT("Applied Smooth operation"));
+        
+        // Get modified heightfield
+        FHeightfieldData ModifiedHeightfield;
+        if (!HeightfieldService->GetCachedHeightfield(TestTile, ModifiedHeightfield))
+        {
+            UE_LOG(LogTemp, Error, TEXT("Failed to get cached heightfield after modifications"));
+            return;
+        }
+        
+        uint32 ModifiedChecksum = FCrc::MemCrc32(ModifiedHeightfield.HeightData.GetData(), 
+            ModifiedHeightfield.HeightData.Num() * sizeof(float));
+        
+        UE_LOG(LogTemp, Warning, TEXT("Modified heightfield checksum: 0x%08X"), ModifiedChecksum);
+        
+        UE_LOG(LogTemp, Warning, TEXT("Step 3: Save and reload"));
+        
+        // Save terrain deltas
+        HeightfieldService->SaveTileTerrainDeltas(TestTile);
+        
+        // Clear cache
+        HeightfieldService->ClearHeightfieldCache();
+        
+        // Load terrain deltas
+        HeightfieldService->LoadTileTerrainDeltas(TestTile);
+        
+        // Check loaded modifications
+        TArray<FHeightfieldModification> LoadedMods = HeightfieldService->GetTileModifications(TestTile);
+        UE_LOG(LogTemp, Warning, TEXT("Loaded modifications: %d"), LoadedMods.Num());
+        
+        UE_LOG(LogTemp, Warning, TEXT("Step 4: Regenerate and compare"));
+        
+        // Regenerate heightfield
+        FHeightfieldData ReloadedHeightfield = HeightfieldService->GenerateHeightfield(TestSeed, TestTile);
+        uint32 ReloadedChecksum = FCrc::MemCrc32(ReloadedHeightfield.HeightData.GetData(), 
+            ReloadedHeightfield.HeightData.Num() * sizeof(float));
+        
+        UE_LOG(LogTemp, Warning, TEXT("Reloaded heightfield checksum: 0x%08X"), ReloadedChecksum);
+        
+        UE_LOG(LogTemp, Warning, TEXT("Results:"));
+        UE_LOG(LogTemp, Warning, TEXT("  Initial:  0x%08X"), InitialChecksum);
+        UE_LOG(LogTemp, Warning, TEXT("  Modified: 0x%08X"), ModifiedChecksum);
+        UE_LOG(LogTemp, Warning, TEXT("  Reloaded: 0x%08X"), ReloadedChecksum);
+        
+        if (ModifiedChecksum == ReloadedChecksum)
+        {
+            UE_LOG(LogTemp, Warning, TEXT("✓ SUCCESS: Smooth operation consistency verified!"));
+        }
+        else
+        {
+            UE_LOG(LogTemp, Error, TEXT("✗ FAILURE: Smooth operation inconsistency detected."));
+            
+            // Analyze differences
+            int32 DifferenceCount = 0;
+            float MaxDifference = 0.0f;
+            
+            for (int32 i = 0; i < ModifiedHeightfield.HeightData.Num() && i < ReloadedHeightfield.HeightData.Num(); i++)
+            {
+                float Difference = FMath::Abs(ModifiedHeightfield.HeightData[i] - ReloadedHeightfield.HeightData[i]);
+                if (Difference > KINDA_SMALL_NUMBER)
+                {
+                    DifferenceCount++;
+                    MaxDifference = FMath::Max(MaxDifference, Difference);
+                    
+                    if (DifferenceCount <= 3)
+                    {
+                        UE_LOG(LogTemp, Warning, TEXT("Difference at %d: Modified=%.6f, Reloaded=%.6f, Diff=%.6f"), 
+                            i, ModifiedHeightfield.HeightData[i], ReloadedHeightfield.HeightData[i], Difference);
+                    }
+                }
+            }
+            
+            UE_LOG(LogTemp, Warning, TEXT("Total differences: %d, Max difference: %.6f"), 
+                DifferenceCount, MaxDifference);
+        }
+        
+        UE_LOG(LogTemp, Warning, TEXT("=== Smooth Operation Test Complete ==="));
+    })
+);
