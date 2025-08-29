@@ -89,6 +89,7 @@ public:
 	virtual bool SavePOIData() override;
 	virtual bool LoadPOIData() override;
 	virtual void GetPerformanceStats(float& OutAverageGenerationTimeMs, int32& OutTotalPOIs) override;
+	virtual bool ValidatePlacementConstraints(FVector Location, const TArray<float>& HeightData, FTileCoord TileCoord) override;
 
 	/**
 	 * Set biome service for accessing biome-specific POI rules

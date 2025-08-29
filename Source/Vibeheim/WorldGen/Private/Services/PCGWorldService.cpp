@@ -166,7 +166,15 @@ FPCGGenerationData UPCGWorldService::GenerateFallbackContent(FTileCoord TileCoor
 	}
 
 	// Generate vegetation instances with density management
-	TArray<FPCGInstanceData> VegetationInstances = GenerateVegetationInstances(TileCoord, *BiomeDef, HeightData);
+	// Use forced biome mode in headless mode for testing
+	FPCGSpawnParams SpawnParams;
+	if (bHeadless)
+	{
+		SpawnParams.bForceBiome = true;
+		SpawnParams.BiomeOverride = BiomeType;
+	}
+	
+	TArray<FPCGInstanceData> VegetationInstances = GenerateVegetationInstances(TileCoord, *BiomeDef, HeightData, SpawnParams);
 	GenerationData.GeneratedInstances.Append(VegetationInstances);
 
 	// Generate POI instances
@@ -196,43 +204,62 @@ FPCGGenerationData UPCGWorldService::GenerateFallbackContent(FTileCoord TileCoor
 
 TArray<FPCGInstanceData> UPCGWorldService::GenerateVegetationInstances(FTileCoord TileCoord, const FBiomeDefinition& BiomeDef, const TArray<float>& HeightData)
 {
+	// Call the overloaded version with default spawn parameters
+	FPCGSpawnParams DefaultSpawnParams;
+	return GenerateVegetationInstances(TileCoord, BiomeDef, HeightData, DefaultSpawnParams);
+}
+
+TArray<FPCGInstanceData> UPCGWorldService::GenerateVegetationInstances(FTileCoord TileCoord, const FBiomeDefinition& BiomeDef, const TArray<float>& HeightData, const FPCGSpawnParams& SpawnParams)
+{
 	TArray<FPCGInstanceData> Instances;
 
-	// Calculate tile world position
+	// Calculate tile world position and area
 	FVector TileWorldPos = TileCoord.ToWorldPosition(64.0f);
 	FVector2D TileStart(TileWorldPos.X - 32.0f, TileWorldPos.Y - 32.0f);
+	float TileAreaM2 = 64.0f * 64.0f; // 64m x 64m tile
 
 	// Initialize seeded random for consistent generation
 	FRandomStream RandomStream(GetTileRandomSeed(TileCoord));
 
+	// Get biome weight for spawn parameters
+	float BiomeWeight = GetBiomeWeightForSpawn(SpawnParams, BiomeDef.BiomeType);
+	
+	// Add logging to biome content test path
+	UE_LOG(LogPCGWorldService, Warning, TEXT("BiomeContentTest rules=%d area=%.1fm2 density=%.3f -> biomeWeight=%.3f"),
+		BiomeDef.VegetationRules.Num(), TileAreaM2, WorldGenSettings.VegetationDensity, BiomeWeight);
+
 	// Generate vegetation based on biome rules
-	UE_LOG(LogPCGWorldService, VeryVerbose, TEXT("Generating vegetation for biome with %d rules, headless=%s"), 
-		BiomeDef.VegetationRules.Num(), bHeadless ? TEXT("Yes") : TEXT("No"));
+	UE_LOG(LogPCGWorldService, VeryVerbose, TEXT("Generating vegetation for biome with %d rules, headless=%s, forceBiome=%s"), 
+		BiomeDef.VegetationRules.Num(), bHeadless ? TEXT("Yes") : TEXT("No"), SpawnParams.bForceBiome ? TEXT("Yes") : TEXT("No"));
+	
+	int32 TotalInstanceCount = 0;
 	
 	for (const FPCGVegetationRule& VegRule : BiomeDef.VegetationRules)
 	{
-		// Skip if no mesh is specified (except in headless mode where we still count instances)
+		// Remove mesh/world hard-gates in biome content test path (allow headless + null mesh)
 		UStaticMesh* Mesh = VegRule.VegetationMesh.IsNull() ? nullptr : VegRule.VegetationMesh.LoadSynchronous();
-		if (!Mesh && !bHeadless)
-		{
-			UE_LOG(LogPCGWorldService, VeryVerbose, TEXT("Skipping vegetation rule - no mesh and not headless mode"));
-			continue; // Skip only when we actually need a mesh for rendering
-		}
-
-		// Calculate number of instances based on density and biome settings
-		int32 BaseInstanceCount = FMath::RoundToInt(VegRule.Density * WorldGenSettings.VegetationDensity * 100.0f);
+		
+		// Centralize density calculation math to match streaming path exactly
+		float BaseDensity = VegRule.Density * WorldGenSettings.VegetationDensity * BiomeWeight;
+		int32 BaseInstanceCount = FMath::RoundToInt(BaseDensity * TileAreaM2 / 100.0f); // Normalize per 100m2
 		int32 MaxInstancesForThisRule = MaxInstancesPerTile / FMath::Max(1, BiomeDef.VegetationRules.Num());
 		int32 InstanceCount = FMath::Min(BaseInstanceCount, MaxInstancesForThisRule);
 		
-		// Headless density guard: ensure at least 1 instance in headless mode to prevent 0-instance failures
-		if (bHeadless)
+		// Add headless sanity guard: if (bHeadless && bForceBiome) Count = FMath::Max(Count, 1)
+		if (bHeadless && SpawnParams.bForceBiome)
 		{
 			InstanceCount = FMath::Max(InstanceCount, 1);
 		}
 		
+		// Add logging to biome content test path
+		UE_LOG(LogPCGWorldService, Warning, TEXT("BiomeContentTest rules=%d area=%.1fm2 density=%.3f -> count=%d"),
+			BiomeDef.VegetationRules.Num(), TileAreaM2, BaseDensity, InstanceCount);
+		
 		// Add diagnostic logging for PCG generation
-		UE_LOG(LogPCGWorldService, VeryVerbose, TEXT("Generating vegetation for rule '%s': BaseCount=%d, MaxPerRule=%d, FinalCount=%d, Headless=%s"),
-			*VegRule.VegetationMesh.GetAssetName(), BaseInstanceCount, MaxInstancesForThisRule, InstanceCount, bHeadless ? TEXT("Yes") : TEXT("No"));
+		UE_LOG(LogPCGWorldService, VeryVerbose, TEXT("Generating vegetation for rule '%s': BaseCount=%d, MaxPerRule=%d, FinalCount=%d, Headless=%s, ForceBiome=%s"),
+			VegRule.VegetationMesh.IsNull() ? TEXT("NULL_MESH") : *VegRule.VegetationMesh.GetAssetName(), 
+			BaseInstanceCount, MaxInstancesForThisRule, InstanceCount, 
+			bHeadless ? TEXT("Yes") : TEXT("No"), SpawnParams.bForceBiome ? TEXT("Yes") : TEXT("No"));
 
 		int32 ValidInstances = 0;
 		int32 HeightRejections = 0;
@@ -284,9 +311,15 @@ TArray<FPCGInstanceData> UPCGWorldService::GenerateVegetationInstances(FTileCoor
 			}
 		}
 		
+		TotalInstanceCount += ValidInstances;
+		
 		UE_LOG(LogPCGWorldService, VeryVerbose, TEXT("Vegetation rule results: Attempted=%d, Valid=%d, HeightRejects=%d, SlopeRejects=%d"),
 			InstanceCount, ValidInstances, HeightRejections, SlopeRejections);
 	}
+
+	// Final logging for biome content test path
+	UE_LOG(LogPCGWorldService, Warning, TEXT("BiomeContentTest final: rules=%d area=%.1fm2 density=%.3f -> count=%d"),
+		BiomeDef.VegetationRules.Num(), TileAreaM2, WorldGenSettings.VegetationDensity, TotalInstanceCount);
 
 	return Instances;
 }
@@ -595,6 +628,18 @@ bool UPCGWorldService::ValidatePCGGraph(const FString& GraphPath, TArray<FString
 #endif
 
 	return OutErrors.Num() == 0;
+}
+
+float UPCGWorldService::GetBiomeWeightForSpawn(const FPCGSpawnParams& SpawnParams, EBiomeType BiomeType) const
+{
+	if (SpawnParams.bForceBiome)
+	{
+		return 1.0f;
+	}
+	
+	// Normal biome weight calculation would go here
+	// For now, return 1.0f for all biomes when not forcing
+	return 1.0f;
 }
 
 void UPCGWorldService::SetBiomeDefinitions(const TMap<EBiomeType, FBiomeDefinition>& InBiomeDefinitions)

@@ -127,7 +127,12 @@
   - Add temporary logging to verify KernelRadius and FlattenTargetZ values are identical between creation and application
   - _Requirements: 1.5, 1.8_
 
-- [ ] 8.5 Fix PCG content generation - implement forced biome mode and remove path-specific gates
+- [x] 8.5 Fix PCG content generation - implement forced biome mode and remove path-specific gates
+
+
+
+
+
   - Add `BiomeOverride` (TOptional<EBiomeType>) and `bForceBiome` (bool) fields to `FPCGSpawnParams` struct
   - Implement `GetBiomeWeightForSpawn` function that returns 1.0f when `bForceBiome = true`
   - Remove mesh/world hard-gates in biome content test path (allow headless + null mesh)
@@ -136,7 +141,12 @@
   - Add logging to biome content test path: "BiomeContentTest rules=%d area=%.1fm2 density=%.3f -> count=%d"
   - _Requirements: 2.1, 2.2, 2.6_
 
-- [ ] 8.6 Fix POI placement validation - implement ValidatePlacementConstraints method
+- [x] 8.6 Fix POI placement validation - implement ValidatePlacementConstraints method
+
+
+
+
+
   - Implement `ValidatePlacementConstraints()` method in POIService.cpp to check slope and altitude constraints
   - Add detailed diagnostic logging to POI constraint validation
   - Implement slope calculation and threshold comparison logic
@@ -144,7 +154,10 @@
   - Ensure test coordinates match the steep terrain location created for testing
   - _Requirements: 3.1, 3.2, 3.4, 3.5_
 
-- [ ] 8.7 Complete integration test method implementations
+- [x] 8.7 Complete integration test method implementations
+
+
+
   - Implement `RunPersistenceTest()` method to test terrain editing and persistence
   - Implement `RunPCGIntegrationTest()` method to test PCG content generation in headless mode
   - Implement `RunPOIIntegrationTest()` method to test POI placement validation
@@ -152,6 +165,8 @@
   - _Requirements: 1.1, 1.5, 2.4, 3.1, 3.2_
 
 - [ ] 8.8 Run final integration test validation
+
+
   - Execute full `wg.IntegrationTest` command to verify all three bugs are resolved
   - Ensure all 7 integration tests now pass consistently
   - Validate that fixes maintain backward compatibility with existing functionality

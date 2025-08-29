@@ -676,3 +676,44 @@ float UPOIService::SampleHeightAt(FVector2D WorldXY, const TArray<float>& Height
 		return HeightData.IsValidIndex(Index) ? HeightData[Index] : 0.0f;
 	}
 }
+
+bool UPOIService::ValidatePlacementConstraints(FVector Location, const TArray<float>& HeightData, FTileCoord TileCoord)
+{
+	FVector2D LocationXY(Location.X, Location.Y);
+	
+	// Calculate slope at the location
+	FVector2D LocalPos = WorldToTileLocal(Location, TileCoord);
+	float Slope = CalculateSlopeAtLocation(LocalPos, HeightData, TileCoord);
+	
+	// Default constraints (can be made configurable later)
+	const float MaxAllowedSlope = 30.0f; // degrees
+	const float MinAltitude = -1000.0f; // cm
+	const float MaxAltitude = 10000.0f; // cm
+	
+	// Get terrain height at location
+	float TerrainHeight = SampleHeightAt(LocationXY, HeightData, TileCoord);
+	
+	// Validate slope constraint
+	bool bValidSlope = Slope <= MaxAllowedSlope;
+	
+	// Validate altitude constraint
+	bool bValidAltitude = (TerrainHeight >= MinAltitude) && (TerrainHeight <= MaxAltitude);
+	
+	// Validate flat ground constraint using updated validation logic
+	bool bValidFlatGround = ValidateFlatGround(Location, HeightData, TileCoord);
+	
+	// Add detailed diagnostic logging
+	UE_LOG(LogPOIService, Warning, TEXT("POI validation at (%.1f,%.1f,%.1f):"), 
+		Location.X, Location.Y, Location.Z);
+	UE_LOG(LogPOIService, Warning, TEXT("  Terrain Height: %.2f cm"), TerrainHeight);
+	UE_LOG(LogPOIService, Warning, TEXT("  Slope: %.2f° (max=%.2f°) -> %s"), 
+		Slope, MaxAllowedSlope, bValidSlope ? TEXT("PASS") : TEXT("FAIL"));
+	UE_LOG(LogPOIService, Warning, TEXT("  Altitude: %.2f cm (range=[%.1f,%.1f]) -> %s"),
+		TerrainHeight, MinAltitude, MaxAltitude, bValidAltitude ? TEXT("PASS") : TEXT("FAIL"));
+	UE_LOG(LogPOIService, Warning, TEXT("  Flat Ground: %s"), bValidFlatGround ? TEXT("PASS") : TEXT("FAIL"));
+	
+	bool bOverallValid = bValidSlope && bValidAltitude && bValidFlatGround;
+	UE_LOG(LogPOIService, Warning, TEXT("  Overall Result: %s"), bOverallValid ? TEXT("VALID") : TEXT("INVALID"));
+	
+	return bOverallValid;
+}

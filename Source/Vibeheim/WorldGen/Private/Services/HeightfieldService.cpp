@@ -1397,8 +1397,6 @@ void UHeightfieldService::ApplyModificationsToTile(FTileCoord TileCoord, TArray<
 				}
 
 				// Calculate falloff (1.0 at center, 0.0 at radius edge)
-				// Use persisted KernelRadius for consistent behavior
-				float EffectiveRadius = (Modification.KernelRadius > 0) ? Modification.KernelRadius : Modification.Radius;
 				float Falloff = FMath::Clamp(1.0f - (Distance / EffectiveRadius), 0.0f, 1.0f);
 				Falloff = FMath::SmoothStep(0.0f, 1.0f, Falloff); // Smooth falloff curve
 

@@ -63,6 +63,11 @@ public:
 	virtual bool ValidatePCGGraph(const FString& GraphPath, TArray<FString>& OutErrors) override;
 
 	/**
+	 * Get biome weight for spawn parameters (returns 1.0f when bForceBiome = true)
+	 */
+	float GetBiomeWeightForSpawn(const FPCGSpawnParams& SpawnParams, EBiomeType BiomeType) const;
+
+	/**
 	 * Set biome definitions for PCG generation
 	 */
 	UFUNCTION(BlueprintCallable, Category = "PCG")
@@ -177,6 +182,11 @@ private:
 	 * Generate vegetation instances for a tile
 	 */
 	TArray<FPCGInstanceData> GenerateVegetationInstances(FTileCoord TileCoord, const FBiomeDefinition& BiomeDef, const TArray<float>& HeightData);
+
+	/**
+	 * Generate vegetation instances for a tile with spawn parameters (forced biome mode support)
+	 */
+	TArray<FPCGInstanceData> GenerateVegetationInstances(FTileCoord TileCoord, const FBiomeDefinition& BiomeDef, const TArray<float>& HeightData, const FPCGSpawnParams& SpawnParams);
 
 	/**
 	 * Generate POI instances for a tile

@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "Engine/DataTable.h"
 #include "Materials/MaterialInterface.h"
+#include "Misc/Optional.h"
 // Include PCG headers if available
 #if WITH_PCG
 #include "PCGGraph.h"
@@ -226,6 +227,27 @@ struct VIBEHEIM_API FPCGVegetationRule
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Vegetation")
 	float MaxHeight = 1000.0f;
+};
+
+/**
+ * PCG spawn parameters for controlling biome content generation
+ */
+USTRUCT(BlueprintType)
+struct VIBEHEIM_API FPCGSpawnParams
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PCG")
+	TOptional<EBiomeType> BiomeOverride;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PCG")
+	bool bForceBiome = false;
+
+	FPCGSpawnParams()
+	{
+		BiomeOverride.Reset();
+		bForceBiome = false;
+	}
 };
 
 /**

@@ -64,4 +64,9 @@ public:
 	 * Get performance statistics for POI generation
 	 */
 	virtual void GetPerformanceStats(float& OutAverageGenerationTimeMs, int32& OutTotalPOIs) = 0;
+
+	/**
+	 * Validate placement constraints for POI location (slope and altitude)
+	 */
+	virtual bool ValidatePlacementConstraints(FVector Location, const TArray<float>& HeightData, FTileCoord TileCoord) = 0;
 };
