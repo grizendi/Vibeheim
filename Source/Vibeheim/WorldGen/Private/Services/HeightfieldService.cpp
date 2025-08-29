@@ -497,6 +497,38 @@ bool UHeightfieldService::ModifyHeightfield(FVector Location, float Radius, floa
 	Modification.AffectedTile = FTileCoord::FromWorldPosition(Location);
 	Modification.Timestamp = FDateTime::Now();
 
+	// Persist derived parameters for bit-for-bit determinism
+	Modification.KernelRadius = FMath::RoundToInt(Modification.Radius);
+	
+	// For flatten operations, capture the target height from current heightfield
+	if (Modification.Operation == EHeightfieldOperation::Flatten)
+	{
+		// Sample height at the center location from current heightfield
+		FTileCoord CenterTile = FTileCoord::FromWorldPosition(Location);
+		if (FHeightfieldData* CachedData = HeightfieldCache.Find(CenterTile))
+		{
+			Modification.FlattenTargetZ = SampleHeightAt(Modification.Center, CachedData->HeightData, CenterTile);
+			Modification.bFlattenUsesTarget = true;
+		}
+		else
+		{
+			// If no cached data, generate heightfield to sample from
+			FHeightfieldData TempHeightfield = GenerateHeightfield(0, CenterTile);
+			Modification.FlattenTargetZ = SampleHeightAt(Modification.Center, TempHeightfield.HeightData, CenterTile);
+			Modification.bFlattenUsesTarget = true;
+		}
+		
+		UE_LOG(LogHeightfieldService, Warning, TEXT("ModifyHeightfield: Flatten Op=%d KernelRadius=%d FlattenTargetZ=%.4f at (%.1f,%.1f)"),
+			(int32)Modification.Operation, Modification.KernelRadius, Modification.FlattenTargetZ, 
+			Modification.Center.X, Modification.Center.Y);
+	}
+	else
+	{
+		Modification.bFlattenUsesTarget = false;
+		UE_LOG(LogHeightfieldService, Warning, TEXT("ModifyHeightfield: Op=%d KernelRadius=%d at (%.1f,%.1f)"),
+			(int32)Modification.Operation, Modification.KernelRadius, Modification.Center.X, Modification.Center.Y);
+	}
+
 	// Calculate all affected tiles (modifications can span multiple tiles)
 	TSet<FTileCoord> AffectedTiles;
 	FTileCoord CenterTile = FTileCoord::FromWorldPosition(Location);
@@ -1083,7 +1115,7 @@ bool UHeightfieldService::SerializeTerrainDeltas(const TArray<FHeightfieldModifi
 	FMemoryWriter MemoryWriter(OutData, true);
 
 	// Write version number for future compatibility
-	int32 Version = 3;  // Bump to version 3 for Order field
+	int32 Version = 4;  // Bump to version 4 for derived parameters (KernelRadius, FlattenTargetZ, bFlattenUsesTarget)
 	MemoryWriter << Version;
 
 	// Write number of deltas
@@ -1107,6 +1139,11 @@ bool UHeightfieldService::SerializeTerrainDeltas(const TArray<FHeightfieldModifi
 		// Write Order field (new in version 3)
 		MemoryWriter << const_cast<FHeightfieldModification&>(Delta).Order;
 
+		// Write derived parameters (new in version 4)
+		MemoryWriter << const_cast<FHeightfieldModification&>(Delta).KernelRadius;
+		MemoryWriter << const_cast<FHeightfieldModification&>(Delta).FlattenTargetZ;
+		MemoryWriter << const_cast<FHeightfieldModification&>(Delta).bFlattenUsesTarget;
+
 		// Write remaining fields
 		MemoryWriter << const_cast<FHeightfieldModification&>(Delta).Center;
 		MemoryWriter << const_cast<FHeightfieldModification&>(Delta).Radius;
@@ -1129,7 +1166,7 @@ bool UHeightfieldService::DeserializeTerrainDeltas(const TArray<uint8>& InData, 
 	int32 Version = 0;
 	MemoryReader << Version;
 
-	if (Version < 1 || Version > 3)
+	if (Version < 1 || Version > 4)
 	{
 		UE_LOG(LogHeightfieldService, Error, TEXT("Unsupported terrain delta version: %d"), Version);
 		return false;
@@ -1152,9 +1189,9 @@ bool UHeightfieldService::DeserializeTerrainDeltas(const TArray<uint8>& InData, 
 	{
 		FHeightfieldModification Delta;
 
-		if (Version == 3)
+		if (Version >= 3)
 		{
-			// Version 3 format: Operation, AffectedTile, TimestampTicks, ModificationId, Order, Center, Radius, Strength
+			// Version 3+ format: Operation, AffectedTile, TimestampTicks, ModificationId, Order, [KernelRadius, FlattenTargetZ, bFlattenUsesTarget], Center, Radius, Strength
 			uint8 OperationType = 0;
 			MemoryReader << OperationType;
 			Delta.Operation = static_cast<EHeightfieldOperation>(OperationType);
@@ -1167,6 +1204,21 @@ bool UHeightfieldService::DeserializeTerrainDeltas(const TArray<uint8>& InData, 
 
 			MemoryReader << Delta.ModificationId;
 			MemoryReader << Delta.Order;
+
+			// Read derived parameters (version 4+)
+			if (Version >= 4)
+			{
+				MemoryReader << Delta.KernelRadius;
+				MemoryReader << Delta.FlattenTargetZ;
+				MemoryReader << Delta.bFlattenUsesTarget;
+			}
+			else
+			{
+				// For version 3, compute derived parameters from base values
+				Delta.KernelRadius = FMath::RoundToInt(Delta.Radius);
+				Delta.FlattenTargetZ = 0.0f; // Default to sea level
+				Delta.bFlattenUsesTarget = false;
+			}
 
 			MemoryReader << Delta.Center;
 			MemoryReader << Delta.Radius;
@@ -1204,6 +1256,11 @@ bool UHeightfieldService::DeserializeTerrainDeltas(const TArray<uint8>& InData, 
 
 			// For older versions, assign Order based on read index
 			Delta.Order = static_cast<uint32>(i);
+			
+			// Compute derived parameters for legacy versions
+			Delta.KernelRadius = FMath::RoundToInt(Delta.Radius);
+			Delta.FlattenTargetZ = 0.0f; // Default to sea level
+			Delta.bFlattenUsesTarget = false;
 		}
 
 		// Validate that deserialized ModificationId is valid (should never be zero after proper serialization)
@@ -1266,8 +1323,16 @@ void UHeightfieldService::ApplyModificationsToTile(FTileCoord TileCoord, TArray<
 		return;
 	}
 
-	UE_LOG(LogHeightfieldService, Log, TEXT("ApplyModificationsToTile: Applying %d modifications to tile (%d, %d)"), 
-		ModList->Modifications.Num(), TileCoord.X, TileCoord.Y);
+	// Calculate initial checksum for diagnostic purposes
+	uint32 InitialChecksum = 0;
+	for (int32 i = 0; i < HeightData.Num(); ++i)
+	{
+		uint32 FloatBits = *reinterpret_cast<const uint32*>(&HeightData[i]);
+		InitialChecksum = InitialChecksum * 31 + FloatBits;
+	}
+
+	UE_LOG(LogHeightfieldService, Log, TEXT("ApplyModificationsToTile: Applying %d modifications to tile (%d, %d), initial checksum: 0x%08X"), 
+		ModList->Modifications.Num(), TileCoord.X, TileCoord.Y, InitialChecksum);
 
 	// Calculate tile world bounds
 	FVector TileWorldPos = TileCoord.ToWorldPosition(64.0f);
@@ -1299,8 +1364,14 @@ void UHeightfieldService::ApplyModificationsToTile(FTileCoord TileCoord, TArray<
 		UniqueModifications.Num(), TileCoord.X, TileCoord.Y);
 
 	// Apply each modification in Order sequence
-	for (const FHeightfieldModification& Modification : UniqueModifications)
+	for (int32 ModIndex = 0; ModIndex < UniqueModifications.Num(); ++ModIndex)
 	{
+		const FHeightfieldModification& Modification = UniqueModifications[ModIndex];
+		
+		UE_LOG(LogHeightfieldService, Warning, TEXT("ApplyModificationsToTile: [%d/%d] Applying Op=%d Order=%u KR=%d FlattenZ=%.4f bUsesTarget=%s at (%.1f,%.1f)"), 
+			ModIndex + 1, UniqueModifications.Num(), (int32)Modification.Operation, Modification.Order,
+			Modification.KernelRadius, Modification.FlattenTargetZ, Modification.bFlattenUsesTarget ? TEXT("true") : TEXT("false"),
+			Modification.Center.X, Modification.Center.Y);
 		// For smooth operations, create a snapshot of the current state
 		TArray<float> HeightSnapshot;
 		if (Modification.Operation == EHeightfieldOperation::Smooth)
@@ -1318,13 +1389,17 @@ void UHeightfieldService::ApplyModificationsToTile(FTileCoord TileCoord, TArray<
 
 				// Calculate distance from modification center
 				float Distance = FVector2D::Distance(SampleWorldPos, Modification.Center);
-				if (Distance > Modification.Radius)
+				// Use persisted KernelRadius for consistent behavior
+				float EffectiveRadius = (Modification.KernelRadius > 0) ? Modification.KernelRadius : Modification.Radius;
+				if (Distance > EffectiveRadius)
 				{
 					continue; // Outside modification radius
 				}
 
 				// Calculate falloff (1.0 at center, 0.0 at radius edge)
-				float Falloff = FMath::Clamp(1.0f - (Distance / Modification.Radius), 0.0f, 1.0f);
+				// Use persisted KernelRadius for consistent behavior
+				float EffectiveRadius = (Modification.KernelRadius > 0) ? Modification.KernelRadius : Modification.Radius;
+				float Falloff = FMath::Clamp(1.0f - (Distance / EffectiveRadius), 0.0f, 1.0f);
 				Falloff = FMath::SmoothStep(0.0f, 1.0f, Falloff); // Smooth falloff curve
 
 				int32 SampleIndex = Y * Resolution + X;
@@ -1341,7 +1416,8 @@ void UHeightfieldService::ApplyModificationsToTile(FTileCoord TileCoord, TArray<
 					break;
 				case EHeightfieldOperation::Flatten:
 					{
-						float TargetHeight = 0.0f; // Sea level
+						// Use persisted FlattenTargetZ if available, otherwise fall back to sea level
+						float TargetHeight = (Modification.bFlattenUsesTarget) ? Modification.FlattenTargetZ : 0.0f;
 						CurrentHeight = FMath::Lerp(CurrentHeight, TargetHeight, Modification.Strength * Falloff);
 					}
 					break;
@@ -1387,8 +1463,16 @@ void UHeightfieldService::ApplyModificationsToTile(FTileCoord TileCoord, TArray<
 		}
 	}
 
-	UE_LOG(LogHeightfieldService, Log, TEXT("ApplyModificationsToTile: Completed applying %d modifications to tile (%d, %d)"), 
-		ModList->Modifications.Num(), TileCoord.X, TileCoord.Y);
+	// Calculate final checksum for diagnostic purposes
+	uint32 FinalChecksum = 0;
+	for (int32 i = 0; i < HeightData.Num(); ++i)
+	{
+		uint32 FloatBits = *reinterpret_cast<const uint32*>(&HeightData[i]);
+		FinalChecksum = FinalChecksum * 31 + FloatBits;
+	}
+
+	UE_LOG(LogHeightfieldService, Log, TEXT("ApplyModificationsToTile: Completed applying %d modifications to tile (%d, %d), final checksum: 0x%08X"), 
+		ModList->Modifications.Num(), TileCoord.X, TileCoord.Y, FinalChecksum);
 }
 
 void UHeightfieldService::ApplyModificationToHeightfield(FHeightfieldData& HeightfieldData, const FHeightfieldModification& Modification)
@@ -1418,13 +1502,16 @@ void UHeightfieldService::ApplyModificationToHeightfield(FHeightfieldData& Heigh
 
 			// Calculate distance from modification center
 			float Distance = FVector2D::Distance(SampleWorldPos, Modification.Center);
-			if (Distance > Modification.Radius)
+			// Use persisted KernelRadius for consistent behavior
+			float EffectiveRadius = (Modification.KernelRadius > 0) ? Modification.KernelRadius : Modification.Radius;
+			if (Distance > EffectiveRadius)
 			{
 				continue; // Outside modification radius
 			}
 
 			// Calculate falloff (1.0 at center, 0.0 at radius edge)
-			float Falloff = FMath::Clamp(1.0f - (Distance / Modification.Radius), 0.0f, 1.0f);
+			// Use persisted KernelRadius for consistent behavior
+			float Falloff = FMath::Clamp(1.0f - (Distance / EffectiveRadius), 0.0f, 1.0f);
 			Falloff = FMath::SmoothStep(0.0f, 1.0f, Falloff); // Smooth falloff curve
 
 			int32 SampleIndex = Y * Resolution + X;
@@ -1446,7 +1533,8 @@ void UHeightfieldService::ApplyModificationToHeightfield(FHeightfieldData& Heigh
 			}
 			case EHeightfieldOperation::Flatten:
 			{
-				float TargetHeight = 0.0f; // Sea level
+				// Use persisted FlattenTargetZ if available, otherwise fall back to sea level
+				float TargetHeight = (Modification.bFlattenUsesTarget) ? Modification.FlattenTargetZ : 0.0f;
 				CurrentHeight = FMath::Lerp(CurrentHeight, TargetHeight, Modification.Strength * Falloff);
 				break;
 			}
@@ -1508,5 +1596,51 @@ void UHeightfieldService::ApplyModificationToHeightfield(FHeightfieldData& Heigh
 		}
 		HeightfieldData.MinHeight = MinHeight;
 		HeightfieldData.MaxHeight = MaxHeight;
+	}
+}
+
+float UHeightfieldService::SampleHeightAt(FVector2D WorldXY, const TArray<float>& HeightData, FTileCoord TileCoord) const
+{
+	// Consistent coordinate conversion (cm → sample index)
+	const float SampleSpacing = 100.0f; // 1m per sample in cm
+	const float TileSize = 64.0f * 100.0f; // 64m tile size in cm
+	const int32 GridSize = 64; // Fixed resolution
+	
+	// Calculate tile origin in world coordinates (cm)
+	FVector TileWorldPos = TileCoord.ToWorldPosition(64.0f);
+	FVector2D TileOrigin(TileWorldPos.X * 100.0f - TileSize * 0.5f, TileWorldPos.Y * 100.0f - TileSize * 0.5f);
+	
+	// Convert world position to local tile coordinates
+	FVector2D LocalPos = (WorldXY * 100.0f - TileOrigin) / SampleSpacing;
+	
+	// Clamp to valid sample range
+	float Fx = FMath::Clamp(LocalPos.X, 0.0f, GridSize - 1.0f);
+	float Fy = FMath::Clamp(LocalPos.Y, 0.0f, GridSize - 1.0f);
+	
+	// Get integer indices
+	int32 Ix = FMath::FloorToInt(Fx);
+	int32 Iy = FMath::FloorToInt(Fy);
+	
+	// Bilinear interpolation for smoother sampling
+	if (Ix < GridSize - 1 && Iy < GridSize - 1)
+	{
+		float FracX = Fx - Ix;
+		float FracY = Fy - Iy;
+		
+		float H00 = HeightData[Iy * GridSize + Ix];
+		float H10 = HeightData[Iy * GridSize + (Ix + 1)];
+		float H01 = HeightData[(Iy + 1) * GridSize + Ix];
+		float H11 = HeightData[(Iy + 1) * GridSize + (Ix + 1)];
+		
+		float H0 = FMath::Lerp(H00, H10, FracX);
+		float H1 = FMath::Lerp(H01, H11, FracX);
+		
+		return FMath::Lerp(H0, H1, FracY);
+	}
+	else
+	{
+		// Edge case: use nearest neighbor
+		int32 Index = Iy * GridSize + Ix;
+		return HeightData.IsValidIndex(Index) ? HeightData[Index] : 0.0f;
 	}
 }

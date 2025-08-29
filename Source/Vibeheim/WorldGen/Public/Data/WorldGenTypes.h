@@ -348,6 +348,16 @@ struct VIBEHEIM_API FHeightfieldModification
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Modification")
 	int32 Order = 0;
 
+	// Derived parameters persisted for bit-for-bit determinism
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Modification")
+	int32 KernelRadius = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Modification")
+	float FlattenTargetZ = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Modification")
+	bool bFlattenUsesTarget = false;
+
 	FHeightfieldModification() 
 	{
 		ModificationId = FGuid::NewGuid();

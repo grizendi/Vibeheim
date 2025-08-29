@@ -165,6 +165,11 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Persistence")
 	FString GetTerraDeltaPath(FTileCoord TileCoord) const;
 
+	/**
+	 * Sample height at world coordinates with consistent coordinate conversion (cm → sample index)
+	 */
+	float SampleHeightAt(FVector2D WorldXY, const TArray<float>& HeightData, FTileCoord TileCoord) const;
+
 private:
 	UPROPERTY()
 	FWorldGenConfig WorldGenSettings;
