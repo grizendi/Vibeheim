@@ -497,9 +497,6 @@ bool UHeightfieldService::ModifyHeightfield(FVector Location, float Radius, floa
 	Modification.AffectedTile = FTileCoord::FromWorldPosition(Location);
 	Modification.Timestamp = FDateTime::Now();
 
-	// Add to pending modifications
-	PendingModifications.Add(Modification);
-
 	// Calculate all affected tiles (modifications can span multiple tiles)
 	TSet<FTileCoord> AffectedTiles;
 	FTileCoord CenterTile = FTileCoord::FromWorldPosition(Location);
@@ -528,12 +525,20 @@ bool UHeightfieldService::ModifyHeightfield(FVector Location, float Radius, floa
 		}
 	}
 
-	// Store modification for each affected tile and mark as dirty
+	// Assign Order values for each affected tile and store modification
 	for (const FTileCoord& TileCoord : AffectedTiles)
 	{
+		// Get or create next order index for this tile
+		uint32& NextOrder = NextOrderIndexPerTile.FindOrAdd(TileCoord);
+		
+		// Create a copy of the modification with the correct Order for this tile
+		FHeightfieldModification TileModification = Modification;
+		TileModification.Order = NextOrder++;
+		TileModification.AffectedTile = TileCoord;
+
 		// Add modification to tile's modification list
 		FHeightfieldModificationList& List = TileModifications.FindOrAdd(TileCoord);
-		List.Modifications.Add(Modification);
+		List.Modifications.Add(TileModification);
 
 		// Mark tile as dirty for persistence
 		DirtyTiles.Add(TileCoord);
@@ -541,12 +546,15 @@ bool UHeightfieldService::ModifyHeightfield(FVector Location, float Radius, floa
 		// Apply to cached heightfield if present for this specific tile
 		if (FHeightfieldData* CachedData = HeightfieldCache.Find(TileCoord))
 		{
-			ApplyModificationToHeightfield(*CachedData, Modification);
+			ApplyModificationToHeightfield(*CachedData, TileModification);
 		}
 
-		UE_LOG(LogHeightfieldService, VeryVerbose, TEXT("Added modification to tile (%d, %d), now has %d modifications"),
-			TileCoord.X, TileCoord.Y, List.Modifications.Num());
+		UE_LOG(LogHeightfieldService, VeryVerbose, TEXT("Added modification to tile (%d, %d) with Order %u, now has %d modifications"),
+			TileCoord.X, TileCoord.Y, TileModification.Order, List.Modifications.Num());
 	}
+
+	// Add to pending modifications (use the original modification without tile-specific Order)
+	PendingModifications.Add(Modification);
 
 	UE_LOG(LogHeightfieldService, Log, TEXT("Applied %s modification at (%.1f, %.1f) with radius %.1f affecting %d tiles"),
 		*UEnum::GetValueAsString(Operation), Location.X, Location.Y, Radius, AffectedTiles.Num());
@@ -932,33 +940,23 @@ bool UHeightfieldService::SaveTileTerrainDeltas(FTileCoord TileCoord)
 		return true; // No deltas to save
 	}
 
-	// Deduplicate modifications by ModificationId to prevent cross-tile duplicates
-	TMap<FGuid, FHeightfieldModification> UniqueModifications;
+	// Stable deduplication using TArray + TSet (preserves first-seen order)
+	TArray<FHeightfieldModification> DeduplicatedDeltas;
+	DeduplicatedDeltas.Reserve(TileDeltas->Num());
+	TSet<FGuid> SeenModifications;
+	
 	for (const FHeightfieldModification& Modification : *TileDeltas)
 	{
-		UniqueModifications.Add(Modification.ModificationId, Modification);
-	}
-	
-	// Convert back to array for serialization
-	TArray<FHeightfieldModification> DeduplicatedDeltas;
-	for (const auto& Pair : UniqueModifications)
-	{
-		DeduplicatedDeltas.Add(Pair.Value);
+		if (!SeenModifications.Contains(Modification.ModificationId))
+		{
+			SeenModifications.Add(Modification.ModificationId);
+			DeduplicatedDeltas.Add(Modification);
+		}
 	}
 
-	// Helper for deterministic GUID comparison
-	auto LessGuid = [](const FGuid& L, const FGuid& R) {
-		if (L.A != R.A) return L.A < R.A;
-		if (L.B != R.B) return L.B < R.B;
-		if (L.C != R.C) return L.C < R.C;
-		return L.D < R.D;
-	};
-
-	// Sort with deterministic tie-breaker for identical timestamps before serialization
-	DeduplicatedDeltas.Sort([&](const FHeightfieldModification& A, const FHeightfieldModification& B) {
-		if (A.Timestamp != B.Timestamp) return A.Timestamp < B.Timestamp;
-		// Tie-break identical timestamps deterministically using ModificationId
-		return LessGuid(A.ModificationId, B.ModificationId);
+	// Sort by Order field for deterministic serialization
+	Algo::Sort(DeduplicatedDeltas, [](const FHeightfieldModification& A, const FHeightfieldModification& B) {
+		return A.Order < B.Order;
 	});
 
 	UE_LOG(LogHeightfieldService, Log, TEXT("SaveTileTerrainDeltas: Found %d deltas to save for tile (%d, %d) (deduplicated from %d)"), 
@@ -1027,6 +1025,15 @@ bool UHeightfieldService::LoadTileTerrainDeltas(FTileCoord TileCoord)
 	UE_LOG(LogHeightfieldService, Log, TEXT("LoadTileTerrainDeltas: Successfully deserialized %d deltas from file"), 
 		LoadedDeltas.Num());
 
+	// Add instrumentation logging to verify loaded sequence matches creation order
+	for (int32 i = 0; i < LoadedDeltas.Num(); ++i)
+	{
+		const FHeightfieldModification& Mod = LoadedDeltas[i];
+		UE_LOG(LogHeightfieldService, Warning, TEXT("Loaded[%d]: Op=%d Order=%u Guid=%s Ticks=%lld"),
+			i, (int32)Mod.Operation, Mod.Order,
+			*Mod.ModificationId.ToString(), Mod.Timestamp.GetTicks());
+	}
+
 	// Store loaded modifications (replace any existing ones for this tile)
 	FHeightfieldModificationList List;
 	List.Modifications = MoveTemp(LoadedDeltas);
@@ -1076,7 +1083,7 @@ bool UHeightfieldService::SerializeTerrainDeltas(const TArray<FHeightfieldModifi
 	FMemoryWriter MemoryWriter(OutData, true);
 
 	// Write version number for future compatibility
-	int32 Version = 2;  // Bump to version 2 for high-resolution timestamps
+	int32 Version = 3;  // Bump to version 3 for Order field
 	MemoryWriter << Version;
 
 	// Write number of deltas
@@ -1086,11 +1093,6 @@ bool UHeightfieldService::SerializeTerrainDeltas(const TArray<FHeightfieldModifi
 	// Write each delta
 	for (const FHeightfieldModification& Delta : Deltas)
 	{
-		MemoryWriter << const_cast<FHeightfieldModification&>(Delta).ModificationId;
-		MemoryWriter << const_cast<FHeightfieldModification&>(Delta).Center;
-		MemoryWriter << const_cast<FHeightfieldModification&>(Delta).Radius;
-		MemoryWriter << const_cast<FHeightfieldModification&>(Delta).Strength;
-
 		uint8 OperationType = static_cast<uint8>(Delta.Operation);
 		MemoryWriter << OperationType;
 
@@ -1099,6 +1101,16 @@ bool UHeightfieldService::SerializeTerrainDeltas(const TArray<FHeightfieldModifi
 		// Serialize timestamp as high-resolution ticks (100-nanosecond precision)
 		int64 Ticks = Delta.Timestamp.GetTicks();
 		MemoryWriter << Ticks;
+
+		MemoryWriter << const_cast<FHeightfieldModification&>(Delta).ModificationId;
+
+		// Write Order field (new in version 3)
+		MemoryWriter << const_cast<FHeightfieldModification&>(Delta).Order;
+
+		// Write remaining fields
+		MemoryWriter << const_cast<FHeightfieldModification&>(Delta).Center;
+		MemoryWriter << const_cast<FHeightfieldModification&>(Delta).Radius;
+		MemoryWriter << const_cast<FHeightfieldModification&>(Delta).Strength;
 	}
 
 	return !MemoryWriter.IsError();
@@ -1117,7 +1129,7 @@ bool UHeightfieldService::DeserializeTerrainDeltas(const TArray<uint8>& InData, 
 	int32 Version = 0;
 	MemoryReader << Version;
 
-	if (Version != 1 && Version != 2)
+	if (Version < 1 || Version > 3)
 	{
 		UE_LOG(LogHeightfieldService, Error, TEXT("Unsupported terrain delta version: %d"), Version);
 		return false;
@@ -1140,31 +1152,58 @@ bool UHeightfieldService::DeserializeTerrainDeltas(const TArray<uint8>& InData, 
 	{
 		FHeightfieldModification Delta;
 
-		MemoryReader << Delta.ModificationId;
-		MemoryReader << Delta.Center;
-		MemoryReader << Delta.Radius;
-		MemoryReader << Delta.Strength;
-
-		uint8 OperationType = 0;
-		MemoryReader << OperationType;
-		Delta.Operation = static_cast<EHeightfieldOperation>(OperationType);
-
-		MemoryReader << Delta.AffectedTile;
-
-		// Deserialize timestamp based on version
-		if (Version == 1)
+		if (Version == 3)
 		{
-			// Legacy format: Unix timestamp (seconds)
-			int64 UnixTimestamp = 0;
-			MemoryReader << UnixTimestamp;
-			Delta.Timestamp = FDateTime::FromUnixTimestamp(UnixTimestamp);
-		}
-		else if (Version == 2)
-		{
-			// New format: High-resolution ticks (100-nanosecond precision)
+			// Version 3 format: Operation, AffectedTile, TimestampTicks, ModificationId, Order, Center, Radius, Strength
+			uint8 OperationType = 0;
+			MemoryReader << OperationType;
+			Delta.Operation = static_cast<EHeightfieldOperation>(OperationType);
+
+			MemoryReader << Delta.AffectedTile;
+
 			int64 Ticks = 0;
 			MemoryReader << Ticks;
 			Delta.Timestamp = FDateTime(Ticks);
+
+			MemoryReader << Delta.ModificationId;
+			MemoryReader << Delta.Order;
+
+			MemoryReader << Delta.Center;
+			MemoryReader << Delta.Radius;
+			MemoryReader << Delta.Strength;
+		}
+		else
+		{
+			// Legacy formats (versions 1 and 2)
+			MemoryReader << Delta.ModificationId;
+			MemoryReader << Delta.Center;
+			MemoryReader << Delta.Radius;
+			MemoryReader << Delta.Strength;
+
+			uint8 OperationType = 0;
+			MemoryReader << OperationType;
+			Delta.Operation = static_cast<EHeightfieldOperation>(OperationType);
+
+			MemoryReader << Delta.AffectedTile;
+
+			// Deserialize timestamp based on version
+			if (Version == 1)
+			{
+				// Legacy format: Unix timestamp (seconds)
+				int64 UnixTimestamp = 0;
+				MemoryReader << UnixTimestamp;
+				Delta.Timestamp = FDateTime::FromUnixTimestamp(UnixTimestamp);
+			}
+			else if (Version == 2)
+			{
+				// Version 2 format: High-resolution ticks (100-nanosecond precision)
+				int64 Ticks = 0;
+				MemoryReader << Ticks;
+				Delta.Timestamp = FDateTime(Ticks);
+			}
+
+			// For older versions, assign Order based on read index
+			Delta.Order = static_cast<uint32>(i);
 		}
 
 		// Validate that deserialized ModificationId is valid (should never be zero after proper serialization)
@@ -1237,39 +1276,30 @@ void UHeightfieldService::ApplyModificationsToTile(FTileCoord TileCoord, TArray<
 	const int32 Resolution = 64; // Locked per coordinate system
 	const float SampleSpacing = 1.0f; // 1m per sample
 
-	// Deduplicate modifications by ModificationId to prevent cross-tile duplicates
-	TMap<FGuid, FHeightfieldModification> UniqueModifications;
+	// Stable deduplication using TArray + TSet (preserves first-seen order)
+	TArray<FHeightfieldModification> UniqueModifications;
+	UniqueModifications.Reserve(ModList->Modifications.Num());
+	TSet<FGuid> SeenModifications;
+	
 	for (const FHeightfieldModification& Modification : ModList->Modifications)
 	{
-		UniqueModifications.Add(Modification.ModificationId, Modification);
+		if (!SeenModifications.Contains(Modification.ModificationId))
+		{
+			SeenModifications.Add(Modification.ModificationId);
+			UniqueModifications.Add(Modification);
+		}
 	}
 
-	// Convert to array and sort by timestamp to ensure consistent order
-	TArray<FHeightfieldModification> SortedModifications;
-	for (const auto& Pair : UniqueModifications)
-	{
-		SortedModifications.Add(Pair.Value);
-	}
-	// Helper for deterministic GUID comparison
-	auto LessGuid = [](const FGuid& L, const FGuid& R) {
-		if (L.A != R.A) return L.A < R.A;
-		if (L.B != R.B) return L.B < R.B;
-		if (L.C != R.C) return L.C < R.C;
-		return L.D < R.D;
-	};
-
-	// Sort with deterministic tie-breaker for identical timestamps
-	SortedModifications.Sort([&](const FHeightfieldModification& A, const FHeightfieldModification& B) {
-		if (A.Timestamp != B.Timestamp) return A.Timestamp < B.Timestamp;
-		// Tie-break identical timestamps deterministically using ModificationId
-		return LessGuid(A.ModificationId, B.ModificationId);
+	// Sort by Order field only - no other sorting
+	Algo::Sort(UniqueModifications, [](const FHeightfieldModification& A, const FHeightfieldModification& B) {
+		return A.Order < B.Order;
 	});
 
 	UE_LOG(LogHeightfieldService, Log, TEXT("ApplyModificationsToTile: After deduplication, applying %d unique modifications to tile (%d, %d)"), 
-		SortedModifications.Num(), TileCoord.X, TileCoord.Y);
+		UniqueModifications.Num(), TileCoord.X, TileCoord.Y);
 
-	// Apply each modification in chronological order
-	for (const FHeightfieldModification& Modification : SortedModifications)
+	// Apply each modification in Order sequence
+	for (const FHeightfieldModification& Modification : UniqueModifications)
 	{
 		// For smooth operations, create a snapshot of the current state
 		TArray<float> HeightSnapshot;

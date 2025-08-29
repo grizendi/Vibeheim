@@ -34,23 +34,31 @@ graph TB
 ### Root Cause Analysis
 
 **Issue 1: Terrain Persistence Checksum Determinism**
-- **Symptom**: Checksum mismatch between "Modified" and "Reloaded" heightfields even when data should be identical
-- **Root Cause**: Non-deterministic ordering due to timestamp ties and different processing pipelines
-  - Multiple modifications created with same Unix second timestamp (FDateTime::Now() granularity)
-  - UE's sort is not stable, causing arbitrary reorder on reload when timestamps are identical
-  - Two different pipelines: cached incremental updates vs regenerated from base + sorted modifications
-  - Non-deterministic TMap iteration order when serializing to disk
-- **Impact**: Integration tests fail with small but real differences (0.0001-0.15) due to operation order sensitivity
+- **Symptom**: Modified Checksum: 0x878FEA7F vs Reloaded Checksum: 0x9C24F2AA
+- **Root Cause**: Two different processing pipelines creating non-identical results
+  - **Step 3 (Modified)**: Uses cached heightfield mutated by `UHeightfieldService::ModifyHeightfield` (GetCachedHeightfield path)
+  - **Step 7 (Reloaded)**: Uses `GenerateHeightfield` which rebuilds base terrain then replays serialized edits
+  - **Timestamp Collisions**: Multiple edits share same Unix second timestamp, causing non-deterministic ordering
+  - **Non-Stable Sort**: `ApplyModificationsToTile` sorts only by Timestamp; when multiple edits have same second, order flips across runs/platforms
+  - **Serialization Order**: `SaveTileTerrainDeltas` deduplicates via TMap and writes whatever iteration order the map gives unless sorted
+- **Impact**: Two pipelines are not bit-for-bit identical, causing checksum drift even with same logical operations
 
-**Issue 2: PCG Content Generation**
-- **Symptom**: 0 instances generated for all biomes in headless mode
-- **Root Cause**: PCG generation logic not producing instances when no UWorld is available
-- **Impact**: Content generation validation cannot be tested
+**Issue 2: PCG Content Generation - "No content generated for biome 2"**
+- **Symptom**: Biome content spawning failed: No content generated for biome 2 (Forest)
+- **Root Cause**: Missing mesh assets in JSON-loaded biome definitions
+  - **Mesh Skipping**: `UPCGWorldService::GenerateVegetationInstances` skips rules with `VegRule.VegetationMesh.IsNull()`
+  - **JSON vs Defaults**: `UBiomeService` loads JSON definitions but doesn't parse mesh paths, so every rule is skipped → 0 instances
+  - **Headless Mode**: Test runs without UWorld, but current logic requires actual UStaticMesh for counting instances
+- **Impact**: Forest biome produces 0 instances because all vegetation rules lack mesh references
 
-**Issue 3: POI Placement Validation**
-- **Symptom**: Valid placement locations being rejected
-- **Root Cause**: Constraint validation logic incorrectly calculating or applying slope/altitude thresholds
-- **Impact**: POI placement system appears broken when it may be working correctly
+**Issue 3: POI Placement Validation - "Valid placement location was rejected"**
+- **Symptom**: Slope and altitude constraint validation failed: Valid placement location was rejected
+- **Root Cause**: Overly strict flatness validation for synthetic test terrain
+  - **Test Terrain**: Uses `sin(x*0.1)*5 + cos(y*0.1)*3` with gentle variations
+  - **Flatness Check**: `ValidateFlatGround` samples 3×3 neighborhood with `FlatGroundCheckRadius = 3.0f` and `FlatGroundTolerance = 2.0f`
+  - **Height Variation**: Over ±3m sample radius, peak-to-peak variation can exceed 2m (~2.4m), failing flatness test
+  - **Constraint Mismatch**: Center point has acceptable slope angle (<30°) but fails flatness tolerance
+- **Impact**: Service correctly enforces rules, but test assumption about "valid" location was too optimistic
 
 ## Components and Interfaces
 

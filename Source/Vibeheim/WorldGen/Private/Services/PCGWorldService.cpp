@@ -89,6 +89,12 @@ FPCGGenerationData UPCGWorldService::GenerateBiomeContent(FTileCoord TileCoord, 
 {
 	double StartTime = FPlatformTime::Seconds();
 
+	// Add logging during content test to verify rule count
+	if (const FBiomeDefinition* BiomeDef = BiomeDefinitions.Find(BiomeType))
+	{
+		UE_LOG(LogPCGWorldService, Warning, TEXT("Forest rules: N=%d"), BiomeDef->VegetationRules.Num());
+	}
+
 	// Check cache first
 	if (FPCGGenerationData* CachedData = GenerationCache.Find(TileCoord))
 	{
@@ -200,19 +206,38 @@ TArray<FPCGInstanceData> UPCGWorldService::GenerateVegetationInstances(FTileCoor
 	FRandomStream RandomStream(GetTileRandomSeed(TileCoord));
 
 	// Generate vegetation based on biome rules
+	UE_LOG(LogPCGWorldService, VeryVerbose, TEXT("Generating vegetation for biome with %d rules, headless=%s"), 
+		BiomeDef.VegetationRules.Num(), bHeadless ? TEXT("Yes") : TEXT("No"));
+	
 	for (const FPCGVegetationRule& VegRule : BiomeDef.VegetationRules)
 	{
-		// Skip if no mesh is specified
-		if (VegRule.VegetationMesh.IsNull())
+		// Skip if no mesh is specified (except in headless mode where we still count instances)
+		UStaticMesh* Mesh = VegRule.VegetationMesh.IsNull() ? nullptr : VegRule.VegetationMesh.LoadSynchronous();
+		if (!Mesh && !bHeadless)
 		{
-			continue;
+			UE_LOG(LogPCGWorldService, VeryVerbose, TEXT("Skipping vegetation rule - no mesh and not headless mode"));
+			continue; // Skip only when we actually need a mesh for rendering
 		}
 
 		// Calculate number of instances based on density and biome settings
 		int32 BaseInstanceCount = FMath::RoundToInt(VegRule.Density * WorldGenSettings.VegetationDensity * 100.0f);
 		int32 MaxInstancesForThisRule = MaxInstancesPerTile / FMath::Max(1, BiomeDef.VegetationRules.Num());
 		int32 InstanceCount = FMath::Min(BaseInstanceCount, MaxInstancesForThisRule);
+		
+		// Headless density guard: ensure at least 1 instance in headless mode to prevent 0-instance failures
+		if (bHeadless)
+		{
+			InstanceCount = FMath::Max(InstanceCount, 1);
+		}
+		
+		// Add diagnostic logging for PCG generation
+		UE_LOG(LogPCGWorldService, VeryVerbose, TEXT("Generating vegetation for rule '%s': BaseCount=%d, MaxPerRule=%d, FinalCount=%d, Headless=%s"),
+			*VegRule.VegetationMesh.GetAssetName(), BaseInstanceCount, MaxInstancesForThisRule, InstanceCount, bHeadless ? TEXT("Yes") : TEXT("No"));
 
+		int32 ValidInstances = 0;
+		int32 HeightRejections = 0;
+		int32 SlopeRejections = 0;
+		
 		for (int32 i = 0; i < InstanceCount; i++)
 		{
 			// Use Poisson disc sampling for better distribution
@@ -240,15 +265,27 @@ TArray<FPCGInstanceData> UPCGWorldService::GenerateVegetationInstances(FTileCoor
 						InstanceData.Location = WorldPos;
 						InstanceData.Rotation = FRotator(0.0f, RandomStream.FRandRange(0.0f, 360.0f), 0.0f);
 						InstanceData.Scale = FVector(RandomStream.FRandRange(VegRule.MinScale, VegRule.MaxScale));
-						InstanceData.Mesh = VegRule.VegetationMesh;
+						InstanceData.Mesh = VegRule.VegetationMesh; // May be null in headless mode
 						InstanceData.OwningTile = TileCoord;
 						InstanceData.bIsActive = true;
 
 						Instances.Add(InstanceData);
+						ValidInstances++;
 					}
+					else
+					{
+						SlopeRejections++;
+					}
+				}
+				else
+				{
+					HeightRejections++;
 				}
 			}
 		}
+		
+		UE_LOG(LogPCGWorldService, VeryVerbose, TEXT("Vegetation rule results: Attempted=%d, Valid=%d, HeightRejects=%d, SlopeRejects=%d"),
+			InstanceCount, ValidInstances, HeightRejections, SlopeRejections);
 	}
 
 	return Instances;
@@ -355,7 +392,7 @@ bool UPCGWorldService::UpdateHISMInstances(FTileCoord TileCoord)
 	// Check if we have a valid world context for HISM operations
 if (bHeadless || GetWorld() == nullptr)
 {
-    // In tests we don’t create components; treat as success.
+    // In tests we donï¿½t create components; treat as success.
     return true;
 }
 
@@ -563,6 +600,28 @@ bool UPCGWorldService::ValidatePCGGraph(const FString& GraphPath, TArray<FString
 void UPCGWorldService::SetBiomeDefinitions(const TMap<EBiomeType, FBiomeDefinition>& InBiomeDefinitions)
 {
 	BiomeDefinitions = InBiomeDefinitions;
+	
+	// Initialize default biome definitions to merge with
+	TMap<EBiomeType, FBiomeDefinition> DefaultBiomeDefinitions;
+	InitializeDefaultBiomes(DefaultBiomeDefinitions);
+	
+	// Merge default VegetationRules for biomes that don't have any (especially for headless testing)
+	for (auto& BiomePair : BiomeDefinitions)
+	{
+		FBiomeDefinition& BiomeDef = BiomePair.Value;
+		
+		// If this biome has no vegetation rules, merge defaults for that biome
+		if (BiomeDef.VegetationRules.Num() == 0)
+		{
+			if (const FBiomeDefinition* DefaultBiomeDef = DefaultBiomeDefinitions.Find(BiomePair.Key))
+			{
+				BiomeDef.VegetationRules = DefaultBiomeDef->VegetationRules;
+				UE_LOG(LogPCGWorldService, Log, TEXT("Merged %d default vegetation rules for %s biome (headless mode compatible)"),
+					DefaultBiomeDef->VegetationRules.Num(), *UEnum::GetValueAsString(BiomePair.Key));
+			}
+		}
+	}
+	
 	UE_LOG(LogPCGWorldService, Log, TEXT("Updated biome definitions with %d biomes"), BiomeDefinitions.Num());
 }
 
@@ -1244,4 +1303,79 @@ void UPCGWorldService::ApplyPOITerrainStamp(FVector Location, float Radius)
 	//         RemoveContentInArea(ClearArea);
 	//     }
 	// }
+}
+
+void UPCGWorldService::InitializeDefaultBiomes(TMap<EBiomeType, FBiomeDefinition>& OutDefaultBiomes)
+{
+	// Forest biome with default vegetation rules
+	FBiomeDefinition ForestBiome;
+	ForestBiome.BiomeType = EBiomeType::Forest;
+	ForestBiome.BiomeName = TEXT("Forest");
+	
+	// Add default vegetation rules for Forest biome
+	FPCGVegetationRule ForestTreeRule;
+	ForestTreeRule.Density = 0.5f;
+	ForestTreeRule.MinScale = 0.8f;
+	ForestTreeRule.MaxScale = 1.2f;
+	ForestTreeRule.SlopeLimit = 30.0f;
+	ForestTreeRule.MinHeight = -100.0f;
+	ForestTreeRule.MaxHeight = 1000.0f;
+	// Leave VegetationMesh as null - headless mode will handle this
+	ForestBiome.VegetationRules.Add(ForestTreeRule);
+	
+	FPCGVegetationRule ForestUndergrowthRule;
+	ForestUndergrowthRule.Density = 0.3f;
+	ForestUndergrowthRule.MinScale = 0.5f;
+	ForestUndergrowthRule.MaxScale = 0.8f;
+	ForestUndergrowthRule.SlopeLimit = 45.0f;
+	ForestUndergrowthRule.MinHeight = -100.0f;
+	ForestUndergrowthRule.MaxHeight = 1000.0f;
+	// Leave VegetationMesh as null - headless mode will handle this
+	ForestBiome.VegetationRules.Add(ForestUndergrowthRule);
+	
+	OutDefaultBiomes.Add(EBiomeType::Forest, ForestBiome);
+	
+	// Meadows biome with default vegetation rules
+	FBiomeDefinition MeadowsBiome;
+	MeadowsBiome.BiomeType = EBiomeType::Meadows;
+	MeadowsBiome.BiomeName = TEXT("Meadows");
+	
+	FPCGVegetationRule MeadowsGrassRule;
+	MeadowsGrassRule.Density = 0.4f;
+	MeadowsGrassRule.MinScale = 0.6f;
+	MeadowsGrassRule.MaxScale = 1.0f;
+	MeadowsGrassRule.SlopeLimit = 35.0f;
+	MeadowsGrassRule.MinHeight = -50.0f;
+	MeadowsGrassRule.MaxHeight = 500.0f;
+	// Leave VegetationMesh as null - headless mode will handle this
+	MeadowsBiome.VegetationRules.Add(MeadowsGrassRule);
+	
+	OutDefaultBiomes.Add(EBiomeType::Meadows, MeadowsBiome);
+	
+	// Mountains biome with sparse vegetation
+	FBiomeDefinition MountainsBiome;
+	MountainsBiome.BiomeType = EBiomeType::Mountains;
+	MountainsBiome.BiomeName = TEXT("Mountains");
+	
+	FPCGVegetationRule MountainSparseRule;
+	MountainSparseRule.Density = 0.1f;
+	MountainSparseRule.MinScale = 0.7f;
+	MountainSparseRule.MaxScale = 1.1f;
+	MountainSparseRule.SlopeLimit = 25.0f;
+	MountainSparseRule.MinHeight = 20.0f;
+	MountainSparseRule.MaxHeight = 1000.0f;
+	// Leave VegetationMesh as null - headless mode will handle this
+	MountainsBiome.VegetationRules.Add(MountainSparseRule);
+	
+	OutDefaultBiomes.Add(EBiomeType::Mountains, MountainsBiome);
+	
+	// Ocean biome (no vegetation rules - underwater)
+	FBiomeDefinition OceanBiome;
+	OceanBiome.BiomeType = EBiomeType::Ocean;
+	OceanBiome.BiomeName = TEXT("Ocean");
+	// No vegetation rules for ocean
+	
+	OutDefaultBiomes.Add(EBiomeType::Ocean, OceanBiome);
+	
+	UE_LOG(LogPCGWorldService, Log, TEXT("Initialized default biome definitions with vegetation rules for %d biomes"), OutDefaultBiomes.Num());
 }

@@ -345,6 +345,9 @@ struct VIBEHEIM_API FHeightfieldModification
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Modification")
 	FGuid ModificationId = FGuid();
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Modification")
+	int32 Order = 0;
+
 	FHeightfieldModification() 
 	{
 		ModificationId = FGuid::NewGuid();

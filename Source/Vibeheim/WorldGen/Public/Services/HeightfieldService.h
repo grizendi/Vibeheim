@@ -194,6 +194,9 @@ private:
 
 	TSet<FTileCoord> DirtyTiles;
 
+	// Order tracking for deterministic modification ordering
+	TMap<FTileCoord, uint32> NextOrderIndexPerTile;
+
 	// Performance tracking
 	TArray<float> GenerationTimes;
 	float TotalGenerationTime;

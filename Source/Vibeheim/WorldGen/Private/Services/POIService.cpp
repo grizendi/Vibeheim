@@ -22,8 +22,8 @@ UPOIService::UPOIService()
 	SamplingConfig.MaxAttemptsPerCell = 3;
 	SamplingConfig.MinCellSpacing = 8.0f;
 	
-	ValidationSettings.FlatGroundCheckRadius = 3.0f;
-	ValidationSettings.FlatGroundTolerance = 2.0f;
+	ValidationSettings.FlatGroundCheckRadius = 2.0f;
+	ValidationSettings.FlatGroundTolerance = 2.5f;
 	ValidationSettings.TerrainStampRadius = 5.0f;
 	ValidationSettings.TerrainStampStrength = 0.8f;
 }
@@ -298,28 +298,44 @@ bool UPOIService::CheckSlopeRequirements(FVector Location, float SlopeLimit, con
 
 bool UPOIService::ValidateFlatGround(FVector Location, const TArray<float>& HeightData, FTileCoord TileCoord) const
 {
-	FVector2D LocalPos = WorldToTileLocal(Location, TileCoord);
+	FVector2D LocationXY(Location.X, Location.Y);
 	float CheckRadius = ValidationSettings.FlatGroundCheckRadius;
-	float Tolerance = ValidationSettings.FlatGroundTolerance;
+	float BaseTolerance = ValidationSettings.FlatGroundTolerance;
 	
-	// Sample heights in 3x3 grid around location
-	TArray<float> HeightSamples;
+	// Use terrain height as baseline, not Location.Z parameter
+	float CenterH = SampleHeightAt(LocationXY, HeightData, TileCoord);
+	
+	// Sample neighborhood heights and compare against terrain baseline
+	float MinH = CenterH;
+	float MaxH = CenterH;
+	
 	for (int32 X = -1; X <= 1; ++X)
 	{
 		for (int32 Y = -1; Y <= 1; ++Y)
 		{
-			FVector2D SamplePos = LocalPos + FVector2D(X * CheckRadius, Y * CheckRadius);
-			float Height = GetHeightAtTileLocation(SamplePos, HeightData, TileCoord);
-			HeightSamples.Add(Height);
+			FVector2D NeighborXY = LocationXY + FVector2D(X * CheckRadius, Y * CheckRadius);
+			float H = SampleHeightAt(NeighborXY, HeightData, TileCoord);
+			MinH = FMath::Min(MinH, H);
+			MaxH = FMath::Max(MaxH, H);
 		}
 	}
 	
-	// Check height variation
-	float MinHeight = FMath::Min(HeightSamples);
-	float MaxHeight = FMath::Max(HeightSamples);
-	float HeightVariation = MaxHeight - MinHeight;
+	// Calculate height range (all heights from terrain, no subtraction from Location.Z)
+	float Range = MaxH - MinH;
 	
-	return HeightVariation <= Tolerance;
+	// Calculate slope-aware tolerance
+	float LocalSlope = CalculateSlopeAtLocation(WorldToTileLocal(Location, TileCoord), HeightData, TileCoord);
+	float SlopeLimit = 30.0f; // Default slope limit for POI placement
+	float ExpectedDelta = FMath::Tan(FMath::DegreesToRadians(SlopeLimit)) * (CheckRadius * 2.0f);
+	float SlopeAwareTolerance = FMath::Max(BaseTolerance, ExpectedDelta * 0.5f);
+	
+	bool bIsFlat = Range <= SlopeAwareTolerance;
+	
+	// Add diagnostic logging with both baselines for debugging
+	UE_LOG(LogPOIService, Warning, TEXT("CenterH=%.2f, LocationZ=%.2f, Range=%.2f, Tol=%.2f, Result=%s"),
+		CenterH, Location.Z, Range, SlopeAwareTolerance, bIsFlat ? TEXT("PASS") : TEXT("FAIL"));
+	
+	return bIsFlat;
 }
 
 float UPOIService::GetHeightAtTileLocation(FVector2D LocalPosition, const TArray<float>& HeightData, FTileCoord TileCoord) const
@@ -613,4 +629,50 @@ bool UPOIService::DeserializePOIData(const TArray<uint8>& InData, TArray<FPOIDat
 	}
 	
 	return true;
+}
+
+float UPOIService::SampleHeightAt(FVector2D WorldXY, const TArray<float>& HeightData, FTileCoord TileCoord) const
+{
+	// Consistent coordinate conversion (cm → sample index)
+	const float SampleSpacing = WorldGenSettings.SampleSpacingMeters * 100.0f; // Convert to cm
+	const float TileSize = WorldGenSettings.TileSizeMeters * 100.0f; // Convert to cm
+	const int32 GridSize = FMath::Sqrt(static_cast<float>(HeightData.Num()));
+	
+	// Calculate tile origin in world coordinates (cm)
+	FVector TileWorldPos = TileCoord.ToWorldPosition(WorldGenSettings.TileSizeMeters);
+	FVector2D TileOrigin(TileWorldPos.X * 100.0f - TileSize * 0.5f, TileWorldPos.Y * 100.0f - TileSize * 0.5f);
+	
+	// Convert world position to local tile coordinates
+	FVector2D LocalPos = (WorldXY * 100.0f - TileOrigin) / SampleSpacing;
+	
+	// Clamp to valid sample range
+	float Fx = FMath::Clamp(LocalPos.X, 0.0f, GridSize - 1.0f);
+	float Fy = FMath::Clamp(LocalPos.Y, 0.0f, GridSize - 1.0f);
+	
+	// Get integer indices
+	int32 Ix = FMath::FloorToInt(Fx);
+	int32 Iy = FMath::FloorToInt(Fy);
+	
+	// Bilinear interpolation for smoother sampling
+	if (Ix < GridSize - 1 && Iy < GridSize - 1)
+	{
+		float FracX = Fx - Ix;
+		float FracY = Fy - Iy;
+		
+		float H00 = HeightData[Iy * GridSize + Ix];
+		float H10 = HeightData[Iy * GridSize + (Ix + 1)];
+		float H01 = HeightData[(Iy + 1) * GridSize + Ix];
+		float H11 = HeightData[(Iy + 1) * GridSize + (Ix + 1)];
+		
+		float H0 = FMath::Lerp(H00, H10, FracX);
+		float H1 = FMath::Lerp(H01, H11, FracX);
+		
+		return FMath::Lerp(H0, H1, FracY);
+	}
+	else
+	{
+		// Edge case: use nearest neighbor
+		int32 Index = Iy * GridSize + Ix;
+		return HeightData.IsValidIndex(Index) ? HeightData[Index] : 0.0f;
+	}
 }

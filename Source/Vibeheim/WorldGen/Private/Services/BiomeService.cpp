@@ -521,6 +521,13 @@ bool UBiomeService::LoadBiomesFromJSON(const FString& ConfigPath)
 				VegRuleObject->Get()->TryGetNumberField(TEXT("MinHeight"), VegRule.MinHeight);
 				VegRuleObject->Get()->TryGetNumberField(TEXT("MaxHeight"), VegRule.MaxHeight);
 				
+				// Parse mesh path for vegetation
+				FString MeshPath;
+				if (VegRuleObject->Get()->TryGetStringField(TEXT("Mesh"), MeshPath) && !MeshPath.IsEmpty())
+				{
+					VegRule.VegetationMesh = TSoftObjectPtr<UStaticMesh>(FSoftObjectPath(MeshPath));
+				}
+				
 				BiomeDef.VegetationRules.Add(VegRule);
 			}
 		}

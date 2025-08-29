@@ -189,6 +189,11 @@ private:
 	float GetHeightAtTileLocation(FVector2D LocalPosition, const TArray<float>& HeightData, FTileCoord TileCoord) const;
 
 	/**
+	 * Sample height at world coordinates with consistent coordinate conversion (cm → sample index)
+	 */
+	float SampleHeightAt(FVector2D WorldXY, const TArray<float>& HeightData, FTileCoord TileCoord) const;
+
+	/**
 	 * Calculate slope at specific location
 	 */
 	float CalculateSlopeAtLocation(FVector2D LocalPosition, const TArray<float>& HeightData, FTileCoord TileCoord) const;

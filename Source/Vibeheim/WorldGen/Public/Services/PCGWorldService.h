@@ -194,6 +194,11 @@ private:
 	void InitializeDefaultBiomes();
 
 	/**
+	 * Initialize default biome definitions with vegetation rules (for merging)
+	 */
+	void InitializeDefaultBiomes(TMap<EBiomeType, FBiomeDefinition>& OutDefaultBiomes);
+
+	/**
 	 * Get deterministic random seed for a tile
 	 */
 	uint32 GetTileRandomSeed(FTileCoord TileCoord) const;
