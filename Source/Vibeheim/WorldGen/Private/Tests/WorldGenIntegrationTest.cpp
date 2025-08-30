@@ -2143,8 +2143,15 @@ FIntegrationTestResult UWorldGenIntegrationTest::RunPersistenceTest()
 		// Step 8: Generate heightfield with loaded modifications and verify consistency
 		FHeightfieldData ReloadedHeightfield = HeightfieldService->GenerateHeightfield(TestConfig.TestSeed, TestTile);
 		
-		uint32 ReloadedChecksum = FCrc::MemCrc32(ReloadedHeightfield.HeightData.GetData(), 
-			ReloadedHeightfield.HeightData.Num() * sizeof(float));
+		// Apply same quantization as ModifiedChecksum for fair comparison
+		TArray<float> QuantizedReloadedHeights = ReloadedHeightfield.HeightData;
+		for (float& Height : QuantizedReloadedHeights)
+		{
+			Height = FMath::RoundToFloat(Height * 1000.0f) / 1000.0f; // Round to 3 decimal places
+		}
+		
+		uint32 ReloadedChecksum = FCrc::MemCrc32(QuantizedReloadedHeights.GetData(), 
+			QuantizedReloadedHeights.Num() * sizeof(float));
 		
 		if (ModifiedChecksum != ReloadedChecksum)
 		{

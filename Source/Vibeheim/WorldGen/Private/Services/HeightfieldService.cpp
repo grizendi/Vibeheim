@@ -91,11 +91,15 @@ FHeightfieldData UHeightfieldService::GenerateHeightfield(int32 Seed, FTileCoord
 	HeightfieldData.MinHeight = MinHeight;
 	HeightfieldData.MaxHeight = MaxHeight;
 
-	// Recalculate normals and slopes after modifications (deterministic)
-	// Ensure buffers exist & are zeroed so CRCs are stable across runs
+	// Force identical derived buffer lengths and zero them for deterministic checksums
+	// This ensures normals/slopes arrays are exactly HeightData.Num() in both edit and reload paths
 	const int32 SampleCount = HeightfieldData.HeightData.Num();
+	HeightfieldData.NormalData.Empty(SampleCount);
 	HeightfieldData.NormalData.SetNumZeroed(SampleCount);
+	HeightfieldData.SlopeData.Empty(SampleCount);
 	HeightfieldData.SlopeData.SetNumZeroed(SampleCount);
+	
+	// Calculate normals and slopes with deterministic ordering
 	CalculateNormalsAndSlopes(HeightfieldData);
 
 
@@ -133,7 +137,24 @@ FHeightfieldData UHeightfieldService::GenerateHeightfield(int32 Seed, FTileCoord
 		HeightfieldData.MinHeight = NewMinHeight;
 		HeightfieldData.MaxHeight = NewMaxHeight;
 
-		// Rebuild derived data (normals/slopes) after edits
+		// Apply thermal smoothing after modifications to mirror base generation processing sequence
+		// This ensures both edit and reload paths use identical thermal smoothing + post-processing
+		if (GenerationSettings.bEnableThermalSmoothing)
+		{
+			ApplyThermalSmoothing(HeightfieldData, GenerationSettings.ThermalSmoothingIterations);
+		}
+		
+		// Force identical derived buffer lengths and zero them before rebuilding
+		// This prevents slack bytes from affecting checksums in TArray capacity differences
+		{
+			const int32 ModifiedSampleCount = HeightfieldData.HeightData.Num();
+			HeightfieldData.NormalData.Empty(ModifiedSampleCount);
+			HeightfieldData.NormalData.SetNumZeroed(ModifiedSampleCount);
+			HeightfieldData.SlopeData.Empty(ModifiedSampleCount);
+			HeightfieldData.SlopeData.SetNumZeroed(ModifiedSampleCount);
+		}
+		
+		// Rebuild derived data (normals/slopes) after edits with deterministic calculation order
 		CalculateNormalsAndSlopes(HeightfieldData);
 
 		UE_LOG(LogHeightfieldService, Log, TEXT("Successfully applied terrain modifications to tile (%d, %d), height range: [%.2f, %.2f]"),
@@ -328,21 +349,29 @@ void UHeightfieldService::CalculateNormalsAndSlopes(FHeightfieldData& Heightfiel
 {
 	const int32 Resolution = HeightfieldData.Resolution;
 	const float SampleSpacing = 1.0f; // 1 meter per sample
+	const int32 TotalSamples = Resolution * Resolution;
 
-	HeightfieldData.NormalData.Empty();
-	HeightfieldData.SlopeData.Empty();
-	HeightfieldData.NormalData.Reserve(Resolution * Resolution);
-	HeightfieldData.SlopeData.Reserve(Resolution * Resolution);
+	// Ensure arrays are exactly the right size and zeroed for deterministic checksums
+	// This prevents TArray capacity differences from affecting memory layout
+	HeightfieldData.NormalData.Empty(TotalSamples);
+	HeightfieldData.NormalData.SetNumZeroed(TotalSamples);
+	HeightfieldData.SlopeData.Empty(TotalSamples);
+	HeightfieldData.SlopeData.SetNumZeroed(TotalSamples);
 
+	// Calculate normals and slopes in deterministic order (Y-major, X-minor)
+	// This ensures identical calculation sequence in both edit and reload paths
 	for (int32 Y = 0; Y < Resolution; Y++)
 	{
 		for (int32 X = 0; X < Resolution; X++)
 		{
+			int32 Index = Y * Resolution + X;
+			
 			FVector Normal = CalculateNormal(HeightfieldData.HeightData, X, Y, Resolution, SampleSpacing);
 			float Slope = CalculateSlope(Normal);
 
-			HeightfieldData.NormalData.Add(Normal);
-			HeightfieldData.SlopeData.Add(Slope);
+			// Direct assignment instead of Add() to ensure exact indexing
+			HeightfieldData.NormalData[Index] = Normal;
+			HeightfieldData.SlopeData[Index] = Slope;
 		}
 	}
 }
@@ -384,7 +413,15 @@ float UHeightfieldService::CalculateSlope(const FVector& Normal) const
 		ApplyThermalErosionIteration(HeightfieldData, GenerationSettings.ThermalSmoothingStrength);
 	}
 
-	// Recalculate normals and slopes after smoothing
+	// Force identical derived buffer lengths and zero them before rebuilding
+	// This prevents slack bytes from affecting checksums in TArray capacity differences
+	const int32 SampleCount = HeightfieldData.HeightData.Num();
+	HeightfieldData.NormalData.Empty(SampleCount);
+	HeightfieldData.NormalData.SetNumZeroed(SampleCount);
+	HeightfieldData.SlopeData.Empty(SampleCount);
+	HeightfieldData.SlopeData.SetNumZeroed(SampleCount);
+	
+	// Recalculate normals and slopes after smoothing with deterministic calculation order
 	CalculateNormalsAndSlopes(HeightfieldData);
 }
 
@@ -908,7 +945,15 @@ void UHeightfieldService::ApplyModificationToCache(const FHeightfieldModificatio
 		CachedData->MinHeight = MinHeight;
 		CachedData->MaxHeight = MaxHeight;
 
-		// Recalculate normals and slopes
+		// Force identical derived buffer lengths and zero them before rebuilding
+		// This prevents slack bytes from affecting checksums in TArray capacity differences
+		const int32 SampleCount = CachedData->HeightData.Num();
+		CachedData->NormalData.Empty(SampleCount);
+		CachedData->NormalData.SetNumZeroed(SampleCount);
+		CachedData->SlopeData.Empty(SampleCount);
+		CachedData->SlopeData.SetNumZeroed(SampleCount);
+		
+		// Recalculate normals and slopes with deterministic calculation order
 		CalculateNormalsAndSlopes(*CachedData);
 
 		// Clear vegetation in the modified area (TODO: Integrate with PCGWorldService)
@@ -1093,7 +1138,15 @@ bool UHeightfieldService::LoadTileTerrainDeltas(FTileCoord TileCoord)
 		CachedData->MinHeight = NewMinHeight;
 		CachedData->MaxHeight = NewMaxHeight;
 
-		// Recalculate normals and slopes after modifications
+		// Force identical derived buffer lengths and zero them before rebuilding
+		// This prevents slack bytes from affecting checksums in TArray capacity differences
+		const int32 SampleCount = CachedData->HeightData.Num();
+		CachedData->NormalData.Empty(SampleCount);
+		CachedData->NormalData.SetNumZeroed(SampleCount);
+		CachedData->SlopeData.Empty(SampleCount);
+		CachedData->SlopeData.SetNumZeroed(SampleCount);
+		
+		// Recalculate normals and slopes after modifications with deterministic calculation order
 		CalculateNormalsAndSlopes(*CachedData);
 	}
 
