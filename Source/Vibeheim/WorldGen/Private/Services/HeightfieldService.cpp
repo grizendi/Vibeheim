@@ -91,8 +91,13 @@ FHeightfieldData UHeightfieldService::GenerateHeightfield(int32 Seed, FTileCoord
 	HeightfieldData.MinHeight = MinHeight;
 	HeightfieldData.MaxHeight = MaxHeight;
 
-	// Calculate normals and slopes
+	// Recalculate normals and slopes after modifications (deterministic)
+	// Ensure buffers exist & are zeroed so CRCs are stable across runs
+	const int32 SampleCount = HeightfieldData.HeightData.Num();
+	HeightfieldData.NormalData.SetNumZeroed(SampleCount);
+	HeightfieldData.SlopeData.SetNumZeroed(SampleCount);
 	CalculateNormalsAndSlopes(HeightfieldData);
+
 
 	// Apply thermal smoothing if enabled
 	if (GenerationSettings.bEnableThermalSmoothing)
@@ -111,7 +116,7 @@ FHeightfieldData UHeightfieldService::GenerateHeightfield(int32 Seed, FTileCoord
 	const FHeightfieldModificationList* Mods = TileModifications.Find(TileCoord);
 	if (Mods && Mods->Modifications.Num() > 0)
 	{
-		UE_LOG(LogHeightfieldService, Log, TEXT("Applying %d terrain modifications to tile (%d, %d) during generation"), 
+		UE_LOG(LogHeightfieldService, Log, TEXT("Applying %d terrain modifications to tile (%d, %d) during generation"),
 			Mods->Modifications.Num(), TileCoord.X, TileCoord.Y);
 
 		// Apply edits into the height array
@@ -131,12 +136,12 @@ FHeightfieldData UHeightfieldService::GenerateHeightfield(int32 Seed, FTileCoord
 		// Rebuild derived data (normals/slopes) after edits
 		CalculateNormalsAndSlopes(HeightfieldData);
 
-		UE_LOG(LogHeightfieldService, Log, TEXT("Successfully applied terrain modifications to tile (%d, %d), height range: [%.2f, %.2f]"), 
+		UE_LOG(LogHeightfieldService, Log, TEXT("Successfully applied terrain modifications to tile (%d, %d), height range: [%.2f, %.2f]"),
 			TileCoord.X, TileCoord.Y, NewMinHeight, NewMaxHeight);
 	}
 	else
 	{
-		UE_LOG(LogHeightfieldService, VeryVerbose, TEXT("No terrain modifications found for tile (%d, %d)"), 
+		UE_LOG(LogHeightfieldService, VeryVerbose, TEXT("No terrain modifications found for tile (%d, %d)"),
 			TileCoord.X, TileCoord.Y);
 	}
 
@@ -486,10 +491,10 @@ bool UHeightfieldService::ExportHeightfieldPNG(const FHeightfieldData& Heightfie
 bool UHeightfieldService::ModifyHeightfield(FVector Location, float Radius, float Strength, EHeightfieldOperation Operation)
 {
 	FHeightfieldModification Modification;
-	
+
 	// Validate that ModificationId was properly initialized (Persistent ID pattern)
 	ensureMsgf(Modification.ModificationId.IsValid(), TEXT("FHeightfieldModification::ModificationId must be valid after construction"));
-	
+
 	Modification.Center = FVector2D(Location.X, Location.Y);
 	Modification.Radius = Radius;
 	Modification.Strength = Strength;
@@ -499,7 +504,7 @@ bool UHeightfieldService::ModifyHeightfield(FVector Location, float Radius, floa
 
 	// Persist derived parameters for bit-for-bit determinism
 	Modification.KernelRadius = FMath::RoundToInt(Modification.Radius);
-	
+
 	// For flatten operations, capture the target height from current heightfield
 	if (Modification.Operation == EHeightfieldOperation::Flatten)
 	{
@@ -517,9 +522,9 @@ bool UHeightfieldService::ModifyHeightfield(FVector Location, float Radius, floa
 			Modification.FlattenTargetZ = SampleHeightAt(Modification.Center, TempHeightfield.HeightData, CenterTile);
 			Modification.bFlattenUsesTarget = true;
 		}
-		
+
 		UE_LOG(LogHeightfieldService, Warning, TEXT("ModifyHeightfield: Flatten Op=%d KernelRadius=%d FlattenTargetZ=%.4f at (%.1f,%.1f)"),
-			(int32)Modification.Operation, Modification.KernelRadius, Modification.FlattenTargetZ, 
+			(int32)Modification.Operation, Modification.KernelRadius, Modification.FlattenTargetZ,
 			Modification.Center.X, Modification.Center.Y);
 	}
 	else
@@ -562,7 +567,7 @@ bool UHeightfieldService::ModifyHeightfield(FVector Location, float Radius, floa
 	{
 		// Get or create next order index for this tile
 		uint32& NextOrder = NextOrderIndexPerTile.FindOrAdd(TileCoord);
-		
+
 		// Create a copy of the modification with the correct Order for this tile
 		FHeightfieldModification TileModification = Modification;
 		TileModification.Order = NextOrder++;
@@ -879,7 +884,7 @@ void UHeightfieldService::ApplyModificationToCache(const FHeightfieldModificatio
 
 			// Clamp to max terrain height
 			CurrentHeight = FMath::Clamp(CurrentHeight, -WorldGenSettings.MaxTerrainHeight, WorldGenSettings.MaxTerrainHeight);
-			
+
 			// Round to 2 decimal places (centimeter precision) to eliminate floating point precision issues
 			CurrentHeight = FMath::RoundToFloat(CurrentHeight * 100.0f) / 100.0f;
 
@@ -961,13 +966,13 @@ bool UHeightfieldService::SaveTileTerrainDeltas(FTileCoord TileCoord)
 {
 	FHeightfieldModificationList* List = TileModifications.Find(TileCoord);
 	TArray<FHeightfieldModification>* TileDeltas = List ? &List->Modifications : nullptr;
-	
-	UE_LOG(LogHeightfieldService, Log, TEXT("SaveTileTerrainDeltas: Attempting to save deltas for tile (%d, %d)"), 
+
+	UE_LOG(LogHeightfieldService, Log, TEXT("SaveTileTerrainDeltas: Attempting to save deltas for tile (%d, %d)"),
 		TileCoord.X, TileCoord.Y);
-	
+
 	if (!TileDeltas || TileDeltas->Num() == 0)
 	{
-		UE_LOG(LogHeightfieldService, VeryVerbose, TEXT("SaveTileTerrainDeltas: No deltas to save for tile (%d, %d)"), 
+		UE_LOG(LogHeightfieldService, VeryVerbose, TEXT("SaveTileTerrainDeltas: No deltas to save for tile (%d, %d)"),
 			TileCoord.X, TileCoord.Y);
 		return true; // No deltas to save
 	}
@@ -976,7 +981,7 @@ bool UHeightfieldService::SaveTileTerrainDeltas(FTileCoord TileCoord)
 	TArray<FHeightfieldModification> DeduplicatedDeltas;
 	DeduplicatedDeltas.Reserve(TileDeltas->Num());
 	TSet<FGuid> SeenModifications;
-	
+
 	for (const FHeightfieldModification& Modification : *TileDeltas)
 	{
 		if (!SeenModifications.Contains(Modification.ModificationId))
@@ -989,9 +994,9 @@ bool UHeightfieldService::SaveTileTerrainDeltas(FTileCoord TileCoord)
 	// Sort by Order field for deterministic serialization
 	Algo::Sort(DeduplicatedDeltas, [](const FHeightfieldModification& A, const FHeightfieldModification& B) {
 		return A.Order < B.Order;
-	});
+		});
 
-	UE_LOG(LogHeightfieldService, Log, TEXT("SaveTileTerrainDeltas: Found %d deltas to save for tile (%d, %d) (deduplicated from %d)"), 
+	UE_LOG(LogHeightfieldService, Log, TEXT("SaveTileTerrainDeltas: Found %d deltas to save for tile (%d, %d) (deduplicated from %d)"),
 		DeduplicatedDeltas.Num(), TileCoord.X, TileCoord.Y, TileDeltas->Num());
 
 	double StartTime = FPlatformTime::Seconds();
@@ -1024,18 +1029,18 @@ bool UHeightfieldService::LoadTileTerrainDeltas(FTileCoord TileCoord)
 {
 	FString FilePath = GetTerraDeltaPath(TileCoord);
 
-	UE_LOG(LogHeightfieldService, Log, TEXT("LoadTileTerrainDeltas: Attempting to load deltas for tile (%d, %d) from: %s"), 
+	UE_LOG(LogHeightfieldService, Log, TEXT("LoadTileTerrainDeltas: Attempting to load deltas for tile (%d, %d) from: %s"),
 		TileCoord.X, TileCoord.Y, *FilePath);
 
 	if (!IFileManager::Get().FileExists(*FilePath))
 	{
-		UE_LOG(LogHeightfieldService, VeryVerbose, TEXT("LoadTileTerrainDeltas: No delta file exists for tile (%d, %d)"), 
+		UE_LOG(LogHeightfieldService, VeryVerbose, TEXT("LoadTileTerrainDeltas: No delta file exists for tile (%d, %d)"),
 			TileCoord.X, TileCoord.Y);
 		return true; // No file to load, which is fine
 	}
 
 	int64 FileSize = IFileManager::Get().FileSize(*FilePath);
-	UE_LOG(LogHeightfieldService, Log, TEXT("LoadTileTerrainDeltas: Found delta file for tile (%d, %d), size: %lld bytes"), 
+	UE_LOG(LogHeightfieldService, Log, TEXT("LoadTileTerrainDeltas: Found delta file for tile (%d, %d), size: %lld bytes"),
 		TileCoord.X, TileCoord.Y, FileSize);
 
 	double StartTime = FPlatformTime::Seconds();
@@ -1054,7 +1059,7 @@ bool UHeightfieldService::LoadTileTerrainDeltas(FTileCoord TileCoord)
 		return false;
 	}
 
-	UE_LOG(LogHeightfieldService, Log, TEXT("LoadTileTerrainDeltas: Successfully deserialized %d deltas from file"), 
+	UE_LOG(LogHeightfieldService, Log, TEXT("LoadTileTerrainDeltas: Successfully deserialized %d deltas from file"),
 		LoadedDeltas.Num());
 
 	// Add instrumentation logging to verify loaded sequence matches creation order
@@ -1076,7 +1081,7 @@ bool UHeightfieldService::LoadTileTerrainDeltas(FTileCoord TileCoord)
 	if (CachedData)
 	{
 		ApplyModificationsToTile(TileCoord, CachedData->HeightData);
-		
+
 		// Recalculate min/max heights after applying modifications
 		float NewMinHeight = FLT_MAX;
 		float NewMaxHeight = -FLT_MAX;
@@ -1087,7 +1092,7 @@ bool UHeightfieldService::LoadTileTerrainDeltas(FTileCoord TileCoord)
 		}
 		CachedData->MinHeight = NewMinHeight;
 		CachedData->MaxHeight = NewMaxHeight;
-		
+
 		// Recalculate normals and slopes after modifications
 		CalculateNormalsAndSlopes(*CachedData);
 	}
@@ -1098,7 +1103,7 @@ bool UHeightfieldService::LoadTileTerrainDeltas(FTileCoord TileCoord)
 	// Get the actual count from the stored list
 	const FHeightfieldModificationList* StoredList = TileModifications.Find(TileCoord);
 	int32 StoredCount = StoredList ? StoredList->Modifications.Num() : 0;
-	
+
 	UE_LOG(LogHeightfieldService, Log, TEXT("Loaded %d terrain deltas for tile (%d, %d) from %s (%.2fms)"),
 		StoredCount, TileCoord.X, TileCoord.Y, *FilePath, LoadTimeMs);
 
@@ -1256,7 +1261,7 @@ bool UHeightfieldService::DeserializeTerrainDeltas(const TArray<uint8>& InData, 
 
 			// For older versions, assign Order based on read index
 			Delta.Order = static_cast<uint32>(i);
-			
+
 			// Compute derived parameters for legacy versions
 			Delta.KernelRadius = FMath::RoundToInt(Delta.Radius);
 			Delta.FlattenTargetZ = 0.0f; // Default to sea level
@@ -1287,17 +1292,17 @@ void UHeightfieldService::ClearTileModifications(FTileCoord TileCoord)
 {
 	// Remove from tile modifications map
 	TileModifications.Remove(TileCoord);
-	
+
 	// Remove from dirty tiles set
 	DirtyTiles.Remove(TileCoord);
-	
+
 	// Remove from heightfield cache to force regeneration
 	HeightfieldCache.Remove(TileCoord);
-	
+
 	// Delete the persisted .terra file if it exists
 	FString TileFilename = FString::Printf(TEXT("tile_%d_%d.terra"), TileCoord.X, TileCoord.Y);
 	FString TileFilePath = PersistenceDirectory / TileFilename;
-	
+
 	if (IFileManager::Get().FileExists(*TileFilePath))
 	{
 		if (IFileManager::Get().Delete(*TileFilePath))
@@ -1309,7 +1314,7 @@ void UHeightfieldService::ClearTileModifications(FTileCoord TileCoord)
 			UE_LOG(LogHeightfieldService, Warning, TEXT("Failed to delete persisted terrain deltas file: %s"), *TileFilePath);
 		}
 	}
-	
+
 	UE_LOG(LogHeightfieldService, Log, TEXT("Cleared all modifications for tile (%d, %d)"), TileCoord.X, TileCoord.Y);
 }
 
@@ -1318,7 +1323,7 @@ void UHeightfieldService::ApplyModificationsToTile(FTileCoord TileCoord, TArray<
 	const FHeightfieldModificationList* ModList = TileModifications.Find(TileCoord);
 	if (!ModList || ModList->Modifications.Num() == 0)
 	{
-		UE_LOG(LogHeightfieldService, VeryVerbose, TEXT("ApplyModificationsToTile: No modifications found for tile (%d, %d)"), 
+		UE_LOG(LogHeightfieldService, VeryVerbose, TEXT("ApplyModificationsToTile: No modifications found for tile (%d, %d)"),
 			TileCoord.X, TileCoord.Y);
 		return;
 	}
@@ -1331,7 +1336,7 @@ void UHeightfieldService::ApplyModificationsToTile(FTileCoord TileCoord, TArray<
 		InitialChecksum = InitialChecksum * 31 + FloatBits;
 	}
 
-	UE_LOG(LogHeightfieldService, Log, TEXT("ApplyModificationsToTile: Applying %d modifications to tile (%d, %d), initial checksum: 0x%08X"), 
+	UE_LOG(LogHeightfieldService, Log, TEXT("ApplyModificationsToTile: Applying %d modifications to tile (%d, %d), initial checksum: 0x%08X"),
 		ModList->Modifications.Num(), TileCoord.X, TileCoord.Y, InitialChecksum);
 
 	// Calculate tile world bounds
@@ -1345,7 +1350,7 @@ void UHeightfieldService::ApplyModificationsToTile(FTileCoord TileCoord, TArray<
 	TArray<FHeightfieldModification> UniqueModifications;
 	UniqueModifications.Reserve(ModList->Modifications.Num());
 	TSet<FGuid> SeenModifications;
-	
+
 	for (const FHeightfieldModification& Modification : ModList->Modifications)
 	{
 		if (!SeenModifications.Contains(Modification.ModificationId))
@@ -1358,17 +1363,17 @@ void UHeightfieldService::ApplyModificationsToTile(FTileCoord TileCoord, TArray<
 	// Sort by Order field only - no other sorting
 	Algo::Sort(UniqueModifications, [](const FHeightfieldModification& A, const FHeightfieldModification& B) {
 		return A.Order < B.Order;
-	});
+		});
 
-	UE_LOG(LogHeightfieldService, Log, TEXT("ApplyModificationsToTile: After deduplication, applying %d unique modifications to tile (%d, %d)"), 
+	UE_LOG(LogHeightfieldService, Log, TEXT("ApplyModificationsToTile: After deduplication, applying %d unique modifications to tile (%d, %d)"),
 		UniqueModifications.Num(), TileCoord.X, TileCoord.Y);
 
 	// Apply each modification in Order sequence
 	for (int32 ModIndex = 0; ModIndex < UniqueModifications.Num(); ++ModIndex)
 	{
 		const FHeightfieldModification& Modification = UniqueModifications[ModIndex];
-		
-		UE_LOG(LogHeightfieldService, Warning, TEXT("ApplyModificationsToTile: [%d/%d] Applying Op=%d Order=%u KR=%d FlattenZ=%.4f bUsesTarget=%s at (%.1f,%.1f)"), 
+
+		UE_LOG(LogHeightfieldService, Warning, TEXT("ApplyModificationsToTile: [%d/%d] Applying Op=%d Order=%u KR=%d FlattenZ=%.4f bUsesTarget=%s at (%.1f,%.1f)"),
 			ModIndex + 1, UniqueModifications.Num(), (int32)Modification.Operation, Modification.Order,
 			Modification.KernelRadius, Modification.FlattenTargetZ, Modification.bFlattenUsesTarget ? TEXT("true") : TEXT("false"),
 			Modification.Center.X, Modification.Center.Y);
@@ -1413,48 +1418,48 @@ void UHeightfieldService::ApplyModificationsToTile(FTileCoord TileCoord, TArray<
 					CurrentHeight -= Modification.Strength * Falloff;
 					break;
 				case EHeightfieldOperation::Flatten:
-					{
-						// Use persisted FlattenTargetZ if available, otherwise fall back to sea level
-						float TargetHeight = (Modification.bFlattenUsesTarget) ? Modification.FlattenTargetZ : 0.0f;
-						CurrentHeight = FMath::Lerp(CurrentHeight, TargetHeight, Modification.Strength * Falloff);
-					}
-					break;
+				{
+					// Use persisted FlattenTargetZ if available, otherwise fall back to sea level
+					float TargetHeight = (Modification.bFlattenUsesTarget) ? Modification.FlattenTargetZ : 0.0f;
+					CurrentHeight = FMath::Lerp(CurrentHeight, TargetHeight, Modification.Strength * Falloff);
+				}
+				break;
 				case EHeightfieldOperation::Smooth:
+				{
+					// Smooth by averaging with neighbors from the snapshot
+					float AverageHeight = 0.0f;
+					int32 NeighborCount = 0;
+
+					// Sample 3x3 neighborhood from snapshot
+					for (int32 DY = -1; DY <= 1; DY++)
 					{
-						// Smooth by averaging with neighbors from the snapshot
-						float AverageHeight = 0.0f;
-						int32 NeighborCount = 0;
-
-						// Sample 3x3 neighborhood from snapshot
-						for (int32 DY = -1; DY <= 1; DY++)
+						for (int32 DX = -1; DX <= 1; DX++)
 						{
-							for (int32 DX = -1; DX <= 1; DX++)
-							{
-								int32 NeighborX = X + DX;
-								int32 NeighborY = Y + DY;
+							int32 NeighborX = X + DX;
+							int32 NeighborY = Y + DY;
 
-								if (NeighborX >= 0 && NeighborX < Resolution &&
-									NeighborY >= 0 && NeighborY < Resolution)
-								{
-									int32 NeighborIndex = NeighborY * Resolution + NeighborX;
-									AverageHeight += HeightSnapshot[NeighborIndex];
-									NeighborCount++;
-								}
+							if (NeighborX >= 0 && NeighborX < Resolution &&
+								NeighborY >= 0 && NeighborY < Resolution)
+							{
+								int32 NeighborIndex = NeighborY * Resolution + NeighborX;
+								AverageHeight += HeightSnapshot[NeighborIndex];
+								NeighborCount++;
 							}
 						}
-
-						if (NeighborCount > 0)
-						{
-							AverageHeight /= NeighborCount;
-							CurrentHeight = FMath::Lerp(CurrentHeight, AverageHeight, Modification.Strength * Falloff);
-						}
 					}
-					break;
+
+					if (NeighborCount > 0)
+					{
+						AverageHeight /= NeighborCount;
+						CurrentHeight = FMath::Lerp(CurrentHeight, AverageHeight, Modification.Strength * Falloff);
+					}
+				}
+				break;
 				}
 
 				// Clamp to max terrain height
 				CurrentHeight = FMath::Clamp(CurrentHeight, -WorldGenSettings.MaxTerrainHeight, WorldGenSettings.MaxTerrainHeight);
-				
+
 				// Round to 2 decimal places (centimeter precision) to eliminate floating point precision issues
 				CurrentHeight = FMath::RoundToFloat(CurrentHeight * 100.0f) / 100.0f;
 			}
@@ -1469,7 +1474,7 @@ void UHeightfieldService::ApplyModificationsToTile(FTileCoord TileCoord, TArray<
 		FinalChecksum = FinalChecksum * 31 + FloatBits;
 	}
 
-	UE_LOG(LogHeightfieldService, Log, TEXT("ApplyModificationsToTile: Completed applying %d modifications to tile (%d, %d), final checksum: 0x%08X"), 
+	UE_LOG(LogHeightfieldService, Log, TEXT("ApplyModificationsToTile: Completed applying %d modifications to tile (%d, %d), final checksum: 0x%08X"),
 		ModList->Modifications.Num(), TileCoord.X, TileCoord.Y, FinalChecksum);
 }
 
@@ -1571,7 +1576,7 @@ void UHeightfieldService::ApplyModificationToHeightfield(FHeightfieldData& Heigh
 
 			// Clamp to max terrain height
 			CurrentHeight = FMath::Clamp(CurrentHeight, -WorldGenSettings.MaxTerrainHeight, WorldGenSettings.MaxTerrainHeight);
-			
+
 			// Round to 2 decimal places (centimeter precision) to eliminate floating point precision issues
 			CurrentHeight = FMath::RoundToFloat(CurrentHeight * 100.0f) / 100.0f;
 
@@ -1603,36 +1608,36 @@ float UHeightfieldService::SampleHeightAt(FVector2D WorldXY, const TArray<float>
 	const float SampleSpacing = 100.0f; // 1m per sample in cm
 	const float TileSize = 64.0f * 100.0f; // 64m tile size in cm
 	const int32 GridSize = 64; // Fixed resolution
-	
+
 	// Calculate tile origin in world coordinates (cm)
 	FVector TileWorldPos = TileCoord.ToWorldPosition(64.0f);
 	FVector2D TileOrigin(TileWorldPos.X * 100.0f - TileSize * 0.5f, TileWorldPos.Y * 100.0f - TileSize * 0.5f);
-	
+
 	// Convert world position to local tile coordinates
 	FVector2D LocalPos = (WorldXY * 100.0f - TileOrigin) / SampleSpacing;
-	
+
 	// Clamp to valid sample range
 	float Fx = FMath::Clamp(LocalPos.X, 0.0f, GridSize - 1.0f);
 	float Fy = FMath::Clamp(LocalPos.Y, 0.0f, GridSize - 1.0f);
-	
+
 	// Get integer indices
 	int32 Ix = FMath::FloorToInt(Fx);
 	int32 Iy = FMath::FloorToInt(Fy);
-	
+
 	// Bilinear interpolation for smoother sampling
 	if (Ix < GridSize - 1 && Iy < GridSize - 1)
 	{
 		float FracX = Fx - Ix;
 		float FracY = Fy - Iy;
-		
+
 		float H00 = HeightData[Iy * GridSize + Ix];
 		float H10 = HeightData[Iy * GridSize + (Ix + 1)];
 		float H01 = HeightData[(Iy + 1) * GridSize + Ix];
 		float H11 = HeightData[(Iy + 1) * GridSize + (Ix + 1)];
-		
+
 		float H0 = FMath::Lerp(H00, H10, FracX);
 		float H1 = FMath::Lerp(H01, H11, FracX);
-		
+
 		return FMath::Lerp(H0, H1, FracY);
 	}
 	else
