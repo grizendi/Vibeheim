@@ -267,7 +267,20 @@
   - Add deterministic rebuild of normals/slopes after all modifications applied using identical calculation order
   - _Requirements: 1.5, 1.8_
 
-- [ ] 11. Fix PCG content generation - resolve "No content generated for biome 2" issue
+- [x] 11. Fix PCG content generation - resolve "No content generated for biome 2" issue
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
   - **Current Issue**: BiomeContentTest final: rules=3 area=4096.0m2 density=1.000 -> count=0 (despite intermediate counts showing 33, 25, 61)
@@ -280,12 +293,26 @@
   - Bypass "stamp terrain" integration step in headless mode: skip terrain modification when no world context available
   - _Requirements: 2.1, 2.2, 2.6_
 
-- [ ] 12. Execute final integration test validation with targeted fixes
+- [x] 12. Fix PCG area removal test - implement content caching in GenerateBiomeContent
 
 
-  - Execute full `wg.IntegrationTest` command to verify both remaining bugs are resolved
+
+
+  - **Current Issue**: Area removal test fails because `RemoveContentInArea()` returns false (no content removed)
+  - **Root Cause**: `GenerateBiomeContent()` generates content but doesn't cache it, while `RemoveContentInArea()` looks for content in `GenerationCache`
+  - Modify `GenerateBiomeContent()` method to cache generated content in `GenerationCache` after generation
+  - Ensure cached content includes the correct tile coordinate and biome type
+  - Verify that `RemoveContentInArea()` can find and remove the cached content
+  - Add logging to confirm content is being cached and found for removal
+  - _Requirements: 2.6, 2.7_
+
+- [ ] 13. Execute final integration test validation with targeted fixes
+
+
+  - Execute full `wg.IntegrationTest` command to verify all remaining bugs are resolved
   - Ensure terrain persistence test passes with matching checksums (fix 0xDF3E8B9B vs 0xFE9E9EFC mismatch)
   - Ensure PCG content test passes with non-zero instances for Forest biome (fix "No content generated for biome 2")
+  - Ensure PCG area removal test passes (fix "Failed to remove content in specified area")
   - Validate that all 7 integration tests now pass consistently
   - Confirm integration test displays "✓ ALL INTEGRATION TESTS PASSED" message
   - _Requirements: 4.1, 4.2, 4.3, 4.4_

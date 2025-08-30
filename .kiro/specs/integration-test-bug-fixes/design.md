@@ -51,6 +51,14 @@ graph TB
   - **Headless Mode**: Test runs without UWorld, but current logic requires actual UStaticMesh for counting instances
 - **Impact**: Forest biome produces 0 instances because all vegetation rules lack mesh references
 
+**Issue 2b: PCG Area Removal Test - "Failed to remove content in specified area"**
+- **Symptom**: Area removal test fails because `RemoveContentInArea()` returns false (no content removed)
+- **Root Cause**: Content generation and caching mismatch
+  - **Generation Method**: Area removal test calls `GenerateBiomeContent()` which generates content but doesn't cache it
+  - **Removal Method**: `RemoveContentInArea()` looks for content in `GenerationCache` but finds nothing
+  - **Cache Mismatch**: Only `LoadTileWithPersistence()` caches content, not `GenerateBiomeContent()`
+- **Impact**: Area removal test always fails because there's no cached content to remove
+
 **Issue 3: POI Placement Validation - "Valid placement location was rejected"**
 - **Symptom**: Slope and altitude constraint validation failed: Valid placement location was rejected
 - **Root Cause**: Overly strict flatness validation for synthetic test terrain
@@ -142,6 +150,17 @@ bool UPCGWorldService::GenerateInstancesForTile(const FTileCoord& TileCoord, TAr
     }
     // ... existing code ...
 }
+
+// Fix area removal test by caching generated content
+FPCGGenerationData UPCGWorldService::GenerateBiomeContent(FTileCoord TileCoord, EBiomeType BiomeType, const TArray<float>& HeightData) {
+    // Generate content
+    FPCGGenerationData GenerationData = GenerateContentInternal(TileCoord, BiomeType, HeightData);
+    
+    // Cache the generated content so RemoveContentInArea can find it
+    GenerationCache.Add(TileCoord, GenerationData);
+    
+    return GenerationData;
+}
 ```
 
 **Diagnostic Approach:**
@@ -149,6 +168,7 @@ bool UPCGWorldService::GenerateInstancesForTile(const FTileCoord& TileCoord, TAr
 2. Verify biome content rules are being applied correctly
 3. Ensure headless mode doesn't skip instance data generation
 4. Check if biome-specific spawning parameters are configured properly
+5. Ensure `GenerateBiomeContent` caches data for area removal tests
 
 ### Fix 3: POI Placement Validation System
 

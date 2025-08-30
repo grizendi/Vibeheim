@@ -33,7 +33,9 @@ The Integration Test Bug Fixes feature addresses three specific failures discove
 3. WHEN PCG content generation runs THEN the system SHALL respect biome-specific spawning rules and generate appropriate content
 4. WHEN `UpdateHISMInstances()` is called in headless mode THEN the system SHALL return success without attempting component creation
 5. WHEN PCG generation completes THEN the system SHALL report accurate instance counts even in headless mode
-6. IF biome content rules are not being applied correctly THEN the system SHALL fix the content generation logic to produce instances
+6. WHEN `GenerateBiomeContent()` is called for area removal testing THEN the system SHALL cache the generated content in GenerationCache so it can be removed later
+7. WHEN `RemoveContentInArea()` is called THEN the system SHALL find and remove content from the cached generation data
+8. IF biome content rules are not being applied correctly THEN the system SHALL fix the content generation logic to produce instances
 
 ### Requirement 3
 

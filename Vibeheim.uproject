@@ -31,14 +31,6 @@
 			"Enabled": true
 		},
 		{
-			"Name": "PCGBiomeCore",
-			"Enabled": true
-		},
-		{
-			"Name": "PCGBiomeSample",
-			"Enabled": true
-		},
-		{
 			"Name": "VirtualHeightfieldMesh",
 			"Enabled": true
 		}
