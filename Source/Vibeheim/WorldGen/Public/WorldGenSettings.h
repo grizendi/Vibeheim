@@ -68,6 +68,7 @@ public:
 	bool ValidateStreamingSettings(TArray<FString>& OutErrors);
 	bool ValidatePCGSettings(TArray<FString>& OutErrors);
 	bool ValidatePerformanceSettings(TArray<FString>& OutErrors);
+	bool ValidateVHMSettings(TArray<FString>& OutErrors);
 
 private:
 	// Internal JSON parsing helpers

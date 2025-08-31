@@ -191,6 +191,28 @@ struct VIBEHEIM_API FWorldGenConfig
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Performance")
 	float PCGTargetMsPerTile = 1.0f;
 
+	// VHM terrain rendering settings
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VHM")
+	int32 VHMHeightTextureResolution = 64;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VHM")
+	int32 VHMLODLevels = 4;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VHM")
+	float VHMMaxViewDistance = 2000.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VHM")
+	bool bVHMEnableRealTimeEditing = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VHM")
+	bool bVHMUseRuntimeVirtualTexturing = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VHM")
+	float VHMMeshGenerationBudgetMs = 2.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VHM")
+	bool bVHMUseHighPrecisionHeightTextures = false;
+
 	FWorldGenConfig()
 	{
 		// Ensure locked values are set correctly

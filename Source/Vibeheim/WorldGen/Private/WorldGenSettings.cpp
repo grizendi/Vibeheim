@@ -235,6 +235,49 @@ bool UWorldGenSettings::ParseJSONObject(const TSharedPtr<FJsonObject>& JsonObjec
 		}
 	}
 
+	// Parse VHM settings object if it exists
+	if (JsonObject->HasField(TEXT("VHMSettings")))
+	{
+		const TSharedPtr<FJsonObject> VHMSettings = JsonObject->GetObjectField(TEXT("VHMSettings"));
+		if (VHMSettings.IsValid())
+		{
+			if (VHMSettings->HasField(TEXT("HeightTextureResolution")))
+			{
+				Settings.VHMHeightTextureResolution = static_cast<int32>(VHMSettings->GetNumberField(TEXT("HeightTextureResolution")));
+			}
+			
+			if (VHMSettings->HasField(TEXT("LODLevels")))
+			{
+				Settings.VHMLODLevels = static_cast<int32>(VHMSettings->GetNumberField(TEXT("LODLevels")));
+			}
+			
+			if (VHMSettings->HasField(TEXT("MaxViewDistance")))
+			{
+				Settings.VHMMaxViewDistance = static_cast<float>(VHMSettings->GetNumberField(TEXT("MaxViewDistance")));
+			}
+			
+			if (VHMSettings->HasField(TEXT("EnableRealTimeEditing")))
+			{
+				Settings.bVHMEnableRealTimeEditing = VHMSettings->GetBoolField(TEXT("EnableRealTimeEditing"));
+			}
+			
+			if (VHMSettings->HasField(TEXT("UseRuntimeVirtualTexturing")))
+			{
+				Settings.bVHMUseRuntimeVirtualTexturing = VHMSettings->GetBoolField(TEXT("UseRuntimeVirtualTexturing"));
+			}
+			
+			if (VHMSettings->HasField(TEXT("MeshGenerationBudgetMs")))
+			{
+				Settings.VHMMeshGenerationBudgetMs = static_cast<float>(VHMSettings->GetNumberField(TEXT("MeshGenerationBudgetMs")));
+			}
+			
+			if (VHMSettings->HasField(TEXT("UseHighPrecisionHeightTextures")))
+			{
+				Settings.bVHMUseHighPrecisionHeightTextures = VHMSettings->GetBoolField(TEXT("UseHighPrecisionHeightTextures"));
+			}
+		}
+	}
+
 	return true;
 }
 
@@ -283,6 +326,17 @@ TSharedPtr<FJsonObject> UWorldGenSettings::CreateJSONObject() const
 	PerfTargets->SetNumberField(TEXT("PCGMsPerTile"), Settings.PCGTargetMsPerTile);
 	JsonObject->SetObjectField(TEXT("PerfTargets"), PerfTargets);
 
+	// VHM settings (nested object)
+	TSharedPtr<FJsonObject> VHMSettings = MakeShareable(new FJsonObject);
+	VHMSettings->SetNumberField(TEXT("HeightTextureResolution"), Settings.VHMHeightTextureResolution);
+	VHMSettings->SetNumberField(TEXT("LODLevels"), Settings.VHMLODLevels);
+	VHMSettings->SetNumberField(TEXT("MaxViewDistance"), Settings.VHMMaxViewDistance);
+	VHMSettings->SetBoolField(TEXT("EnableRealTimeEditing"), Settings.bVHMEnableRealTimeEditing);
+	VHMSettings->SetBoolField(TEXT("UseRuntimeVirtualTexturing"), Settings.bVHMUseRuntimeVirtualTexturing);
+	VHMSettings->SetNumberField(TEXT("MeshGenerationBudgetMs"), Settings.VHMMeshGenerationBudgetMs);
+	VHMSettings->SetBoolField(TEXT("UseHighPrecisionHeightTextures"), Settings.bVHMUseHighPrecisionHeightTextures);
+	JsonObject->SetObjectField(TEXT("VHMSettings"), VHMSettings);
+
 	return JsonObject;
 }
 
@@ -300,6 +354,7 @@ bool UWorldGenSettings::ValidateSettings(TArray<FString>& OutValidationErrors)
 	bAllValid &= ValidateStreamingSettings(OutValidationErrors);
 	bAllValid &= ValidatePCGSettings(OutValidationErrors);
 	bAllValid &= ValidatePerformanceSettings(OutValidationErrors);
+	bAllValid &= ValidateVHMSettings(OutValidationErrors);
 
 	// Log validation results
 	if (OutValidationErrors.Num() > 0)
@@ -460,6 +515,46 @@ bool UWorldGenSettings::ValidatePerformanceSettings(TArray<FString>& OutErrors)
 	// Validate performance targets (reasonable ranges for frame time budgets)
 	ClampSettingValue(Settings.TileGenTargetMs, 0.1f, 10.0f, TEXT("TileGenTargetMs"), OutErrors);
 	ClampSettingValue(Settings.PCGTargetMsPerTile, 0.1f, 5.0f, TEXT("PCGTargetMsPerTile"), OutErrors);
+
+	return bValid;
+}
+
+bool UWorldGenSettings::ValidateVHMSettings(TArray<FString>& OutErrors)
+{
+	bool bValid = true;
+
+	// Validate VHM height texture resolution (must be power of 2, reasonable range)
+	ClampSettingValue(Settings.VHMHeightTextureResolution, 32, 256, TEXT("VHMHeightTextureResolution"), OutErrors);
+	
+	// Check if it's a power of 2
+	if ((Settings.VHMHeightTextureResolution & (Settings.VHMHeightTextureResolution - 1)) != 0)
+	{
+		int32 NearestPowerOf2 = 1;
+		while (NearestPowerOf2 < Settings.VHMHeightTextureResolution)
+		{
+			NearestPowerOf2 <<= 1;
+		}
+		
+		int32 LowerPowerOf2 = NearestPowerOf2 >> 1;
+		if (FMath::Abs(Settings.VHMHeightTextureResolution - LowerPowerOf2) < FMath::Abs(Settings.VHMHeightTextureResolution - NearestPowerOf2))
+		{
+			NearestPowerOf2 = LowerPowerOf2;
+		}
+		
+		OutErrors.Add(FString::Printf(TEXT("VHMHeightTextureResolution must be power of 2. Changed from %d to %d"), 
+			Settings.VHMHeightTextureResolution, NearestPowerOf2));
+		Settings.VHMHeightTextureResolution = NearestPowerOf2;
+		bValid = false;
+	}
+
+	// Validate LOD levels
+	ClampSettingValue(Settings.VHMLODLevels, 2, 8, TEXT("VHMLODLevels"), OutErrors);
+
+	// Validate view distance
+	ClampSettingValue(Settings.VHMMaxViewDistance, 500.0f, 10000.0f, TEXT("VHMMaxViewDistance"), OutErrors);
+
+	// Validate mesh generation budget
+	ClampSettingValue(Settings.VHMMeshGenerationBudgetMs, 0.5f, 10.0f, TEXT("VHMMeshGenerationBudgetMs"), OutErrors);
 
 	return bValid;
 }

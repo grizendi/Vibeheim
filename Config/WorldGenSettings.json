@@ -21,5 +21,14 @@
   "PerfTargets": {
     "TileGenMs": 2.0,
     "PCGMsPerTile": 1.0
+  },
+  "VHMSettings": {
+    "HeightTextureResolution": 64,
+    "LODLevels": 4,
+    "MaxViewDistance": 2000.0,
+    "EnableRealTimeEditing": true,
+    "UseRuntimeVirtualTexturing": true,
+    "MeshGenerationBudgetMs": 2.0,
+    "UseHighPrecisionHeightTextures": false
   }
 }

@@ -9,7 +9,7 @@ public class Vibeheim : ModuleRules
 
         bUseUnity = false;
 
-        // Add these two lines so “WorldGen/Public” and “WorldGen/Private” become include roots
+        // Add these two lines so ï¿½WorldGen/Publicï¿½ and ï¿½WorldGen/Privateï¿½ become include roots
         PublicIncludePaths.Add(Path.Combine(ModuleDirectory, "WorldGen", "Public"));
         PrivateIncludePaths.Add(Path.Combine(ModuleDirectory, "WorldGen", "Private"));
 
@@ -21,7 +21,9 @@ public class Vibeheim : ModuleRules
             "Engine",
             "InputCore",
             "EnhancedInput",
-            "PCG"
+            "PCG",
+            "VirtualHeightfieldMesh",
+            "RenderCore"
         });
 
         // Private-only usage
