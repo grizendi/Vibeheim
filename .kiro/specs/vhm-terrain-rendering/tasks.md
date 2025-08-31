@@ -12,7 +12,12 @@
   - Add VHM settings to WorldGenSettings.json configuration
   - _Requirements: 3.1, 3.4_
 
-- [ ] 2. Implement HeightfieldTextureManager for texture conversion
+- [x] 2. Implement HeightfieldTextureManager for texture conversion
+
+
+
+
+
   - Create HeightfieldTextureManager.h/.cpp with texture creation methods
   - Implement CreateHeightTexture() to convert float arrays to UTexture2D
   - Add texture format optimization for GPU performance (R16F or R32F)
