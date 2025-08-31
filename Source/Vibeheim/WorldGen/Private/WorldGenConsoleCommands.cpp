@@ -10,6 +10,8 @@
 #include "Services/TileStreamingService.h"
 #include "Services/POIService.h"
 #include "Tests/WorldGenIntegrationTest.h"
+#include "VHMTerrainRendering/VHMTerrainRenderer.h"
+#include "GameFramework/Actor.h"
 
 
 
@@ -2191,4 +2193,94 @@ static TAutoConsoleVariable<bool> CVarVHMRealTimeEditing(
 	true,
 	TEXT("Enable real-time terrain editing for VHM system"),
 	ECVF_Default
+);
+// VHM Terrain Rendering Commands
+static FAutoConsoleCommand WorldGenTestVHMCommand(
+	TEXT("wg.TestVHM"),
+	TEXT("Test VHM terrain rendering for a specific tile. Usage: wg.TestVHM TileX TileY"),
+	FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+	{
+		if (Args.Num() < 2)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Usage: wg.TestVHM TileX TileY"));
+			return;
+		}
+
+		int32 TileX = FCString::Atoi(*Args[0]);
+		int32 TileY = FCString::Atoi(*Args[1]);
+
+		// Get world gen settings
+		UWorldGenSettings* Settings = UWorldGenSettings::GetWorldGenSettings();
+		if (!Settings)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Failed to get WorldGen settings"));
+			return;
+		}
+
+		// Create services
+		UNoiseSystem* NoiseSystem = NewObject<UNoiseSystem>();
+		UClimateSystem* ClimateSystem = NewObject<UClimateSystem>();
+		UHeightfieldService* HeightfieldService = NewObject<UHeightfieldService>();
+		UBiomeService* BiomeService = NewObject<UBiomeService>();
+		UPCGWorldService* PCGService = NewObject<UPCGWorldService>();
+		UTileStreamingService* TileStreamingService = NewObject<UTileStreamingService>();
+		UVHMTerrainRenderer* VHMRenderer = NewObject<UVHMTerrainRenderer>();
+
+		// Initialize services
+		NoiseSystem->Initialize(Settings->Settings.Seed);
+		FClimateSettings ClimateSettings;
+		ClimateSystem->Initialize(ClimateSettings, Settings->Settings.Seed);
+		HeightfieldService->Initialize(Settings->Settings);
+		HeightfieldService->SetNoiseSystem(NoiseSystem);
+		HeightfieldService->SetClimateSystem(ClimateSystem);
+		BiomeService->Initialize(ClimateSystem, Settings->Settings);
+		PCGService->Initialize(Settings->Settings);
+		TileStreamingService->Initialize(Settings->Settings, HeightfieldService, BiomeService, PCGService);
+
+		// Initialize VHM renderer
+		bool bVHMInitialized = VHMRenderer->Initialize(Settings, HeightfieldService, TileStreamingService);
+		if (!bVHMInitialized)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Failed to initialize VHM terrain renderer"));
+			return;
+		}
+
+		// Test VHM component creation
+		FTileCoord TileCoord(TileX, TileY);
+		bool bMeshCreated = VHMRenderer->CreateTerrainMeshForTile(TileCoord);
+
+		UE_LOG(LogTemp, Log, TEXT("=== VHM Test Results ==="));
+		UE_LOG(LogTemp, Log, TEXT("Tile: (%d, %d)"), TileX, TileY);
+		UE_LOG(LogTemp, Log, TEXT("VHM Initialization: %s"), bVHMInitialized ? TEXT("Success") : TEXT("Failed"));
+		UE_LOG(LogTemp, Log, TEXT("Mesh Creation: %s"), bMeshCreated ? TEXT("Success") : TEXT("Failed"));
+
+		if (bMeshCreated)
+		{
+			UE_LOG(LogTemp, Log, TEXT("VHM Component: Created successfully"));
+
+			// Get performance stats
+			FVHMPerformanceStats PerfStats = VHMRenderer->GetPerformanceStats();
+			UE_LOG(LogTemp, Log, TEXT("Active VHM Components: %d"), PerfStats.ActiveVHMComponents);
+			UE_LOG(LogTemp, Log, TEXT("Last Generation Time: %.2fms"), PerfStats.LastMeshGenerationMs);
+			UE_LOG(LogTemp, Log, TEXT("Texture Memory Usage: %.2fMB"), PerfStats.TextureMemoryUsageMB);
+		}
+
+		// Cleanup
+		VHMRenderer->Cleanup();
+	})
+);
+
+static FAutoConsoleCommand WorldGenVHMStatsCommand(
+	TEXT("wg.VHMStats"),
+	TEXT("Display VHM terrain rendering performance statistics"),
+	FConsoleCommandDelegate::CreateLambda([]()
+	{
+		UE_LOG(LogTemp, Log, TEXT("=== VHM Terrain Rendering Statistics ==="));
+		UE_LOG(LogTemp, Warning, TEXT("VHM stats require WorldGenManager instance with active VHM renderer"));
+		UE_LOG(LogTemp, Log, TEXT("Expected metrics:"));
+		UE_LOG(LogTemp, Log, TEXT("  Active VHM Components"));
+		UE_LOG(LogTemp, Log, TEXT("  Texture Memory Usage"));
+		UE_LOG(LogTemp, Log, TEXT("  Average Mesh Generation Time"));
+		UE_LOG(LogTemp, Log, TEXT("  LOD Transitions per Frame"));
+	})
 );

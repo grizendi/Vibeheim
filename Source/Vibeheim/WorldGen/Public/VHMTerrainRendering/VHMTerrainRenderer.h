@@ -14,10 +14,15 @@ class UHeightfieldService;
 class UTileStreamingService;
 class UHeightfieldTextureManager;
 class UVirtualHeightfieldMeshComponent;
+class UWorld;
+class AActor;
 
 /**
  * Main VHM terrain rendering coordinator
  * Manages VirtualHeightfieldMeshComponent lifecycle and integrates with world generation services
+ * 
+ * Note: Current implementation creates basic VHM components. VHM-specific API calls
+ * will be added once the correct UE5 VirtualHeightfieldMesh API is determined.
  */
 UCLASS(BlueprintType)
 class VIBEHEIM_API UVHMTerrainRenderer : public UObject, public IVHMTerrainRendererInterface
@@ -108,6 +113,16 @@ private:
     void ConfigureVHMComponent(UVirtualHeightfieldMeshComponent* VHMComponent, const FTileCoord& TileCoord);
 
     /**
+     * Generate mesh from heightfield data for VHM component
+     */
+    bool GenerateMeshFromHeightfield(UVirtualHeightfieldMeshComponent* VHMComponent, const FTileCoord& TileCoord, UTexture2D* HeightTexture);
+
+    /**
+     * Validate VHM component is properly configured
+     */
+    bool ValidateVHMComponent(UVirtualHeightfieldMeshComponent* VHMComponent, const FTileCoord& TileCoord) const;
+
+    /**
      * Calculate world bounds for a tile
      */
     FBox CalculateTileWorldBounds(const FTileCoord& TileCoord) const;
@@ -131,6 +146,11 @@ private:
      * Get tile center position in world coordinates
      */
     FVector GetTileCenterWorldPosition(const FTileCoord& TileCoord) const;
+
+    /**
+     * Get tile corner position in world coordinates (bottom-left corner)
+     */
+    FVector GetTileCornerWorldPosition(const FTileCoord& TileCoord) const;
 
     /**
      * Validate tile coordinate is within reasonable bounds
