@@ -3,7 +3,6 @@
 #include "CoreMinimal.h"
 #include "Engine/Texture2D.h"
 #include "Materials/MaterialInstanceDynamic.h"
-#include "Components/VirtualHeightfieldMeshComponent.h"
 #include "Data/WorldGenTypes.h"
 #include "VHMTypes.generated.h"
 
