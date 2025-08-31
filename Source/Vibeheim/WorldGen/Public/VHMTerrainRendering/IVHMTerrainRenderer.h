@@ -9,19 +9,20 @@
 // Forward declarations
 class UWorldGenSettings;
 class UHeightfieldService;
+class UTileStreamingService;
 class UVirtualHeightfieldMeshComponent;
 
 UINTERFACE(MinimalAPI, Blueprintable)
-class UVHMTerrainRenderer : public UInterface
+class UVHMTerrainRendererInterface : public UInterface
 {
     GENERATED_BODY()
 };
 
 /**
  * Interface for VHM terrain rendering coordination
- * Manages the lifecycle of VirtualHeightfieldMeshComponent instances
+ * Manages VirtualHeightfieldMeshComponent lifecycle and integration with world generation services
  */
-class VIBEHEIM_API IVHMTerrainRenderer
+class VIBEHEIM_API IVHMTerrainRendererInterface
 {
     GENERATED_BODY()
 
@@ -29,10 +30,13 @@ public:
     /**
      * Initialize VHM system with world generation services
      * @param Settings World generation configuration
-     * @param HeightfieldSvc Service providing heightfield data
+     * @param HeightfieldService Service for heightfield data generation
+     * @param TileStreamingService Service for tile streaming coordination
      * @return True if initialization succeeded
      */
-    virtual bool Initialize(UWorldGenSettings* Settings, UHeightfieldService* HeightfieldSvc) = 0;
+    virtual bool Initialize(UWorldGenSettings* Settings, 
+                          UHeightfieldService* HeightfieldService,
+                          UTileStreamingService* TileStreamingService) = 0;
     
     /**
      * Create terrain mesh for a specific tile
@@ -63,20 +67,26 @@ public:
     virtual UVirtualHeightfieldMeshComponent* GetVHMComponent(const FTileCoord& TileCoord) = 0;
 
     /**
-     * Get current performance statistics
-     * @return Performance stats structure
-     */
-    virtual FVHMPerformanceStats GetPerformanceStats() const = 0;
-
-    /**
      * Update LOD levels for all visible tiles based on viewer position
      * @param ViewerPosition Current camera/player position
      */
     virtual void UpdateLODLevels(const FVector& ViewerPosition) = 0;
 
     /**
-     * Check if VHM system is properly initialized
-     * @return True if system is ready for use
+     * Get current VHM performance statistics
+     * @return Performance statistics structure
      */
-    virtual bool IsInitialized() const = 0;
+    virtual FVHMPerformanceStats GetPerformanceStats() const = 0;
+
+    /**
+     * Handle tile streaming events (tile loaded/unloaded)
+     * @param TileCoord Coordinate of the affected tile
+     * @param bTileLoaded True if tile was loaded, false if unloaded
+     */
+    virtual void OnTileStreamingEvent(const FTileCoord& TileCoord, bool bTileLoaded) = 0;
+
+    /**
+     * Cleanup VHM system resources
+     */
+    virtual void Cleanup() = 0;
 };

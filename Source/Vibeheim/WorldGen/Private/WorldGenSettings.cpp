@@ -238,42 +238,42 @@ bool UWorldGenSettings::ParseJSONObject(const TSharedPtr<FJsonObject>& JsonObjec
 	// Parse VHM settings object if it exists
 	if (JsonObject->HasField(TEXT("VHMSettings")))
 	{
-		const TSharedPtr<FJsonObject> VHMSettings = JsonObject->GetObjectField(TEXT("VHMSettings"));
-		if (VHMSettings.IsValid())
+		const TSharedPtr<FJsonObject> VHMSettingsJson = JsonObject->GetObjectField(TEXT("VHMSettings"));
+		if (VHMSettingsJson.IsValid())
 		{
-			if (VHMSettings->HasField(TEXT("HeightTextureResolution")))
+			if (VHMSettingsJson->HasField(TEXT("HeightTextureResolution")))
 			{
-				Settings.VHMHeightTextureResolution = static_cast<int32>(VHMSettings->GetNumberField(TEXT("HeightTextureResolution")));
+				Settings.VHMHeightTextureResolution = static_cast<int32>(VHMSettingsJson->GetNumberField(TEXT("HeightTextureResolution")));
 			}
 			
-			if (VHMSettings->HasField(TEXT("LODLevels")))
+			if (VHMSettingsJson->HasField(TEXT("LODLevels")))
 			{
-				Settings.VHMLODLevels = static_cast<int32>(VHMSettings->GetNumberField(TEXT("LODLevels")));
+				Settings.VHMLODLevels = static_cast<int32>(VHMSettingsJson->GetNumberField(TEXT("LODLevels")));
 			}
 			
-			if (VHMSettings->HasField(TEXT("MaxViewDistance")))
+			if (VHMSettingsJson->HasField(TEXT("MaxViewDistance")))
 			{
-				Settings.VHMMaxViewDistance = static_cast<float>(VHMSettings->GetNumberField(TEXT("MaxViewDistance")));
+				Settings.VHMMaxViewDistance = static_cast<float>(VHMSettingsJson->GetNumberField(TEXT("MaxViewDistance")));
 			}
 			
-			if (VHMSettings->HasField(TEXT("EnableRealTimeEditing")))
+			if (VHMSettingsJson->HasField(TEXT("EnableRealTimeEditing")))
 			{
-				Settings.bVHMEnableRealTimeEditing = VHMSettings->GetBoolField(TEXT("EnableRealTimeEditing"));
+				Settings.bVHMEnableRealTimeEditing = VHMSettingsJson->GetBoolField(TEXT("EnableRealTimeEditing"));
 			}
 			
-			if (VHMSettings->HasField(TEXT("UseRuntimeVirtualTexturing")))
+			if (VHMSettingsJson->HasField(TEXT("UseRuntimeVirtualTexturing")))
 			{
-				Settings.bVHMUseRuntimeVirtualTexturing = VHMSettings->GetBoolField(TEXT("UseRuntimeVirtualTexturing"));
+				Settings.bVHMUseRuntimeVirtualTexturing = VHMSettingsJson->GetBoolField(TEXT("UseRuntimeVirtualTexturing"));
 			}
 			
-			if (VHMSettings->HasField(TEXT("MeshGenerationBudgetMs")))
+			if (VHMSettingsJson->HasField(TEXT("MeshGenerationBudgetMs")))
 			{
-				Settings.VHMMeshGenerationBudgetMs = static_cast<float>(VHMSettings->GetNumberField(TEXT("MeshGenerationBudgetMs")));
+				Settings.VHMMeshGenerationBudgetMs = static_cast<float>(VHMSettingsJson->GetNumberField(TEXT("MeshGenerationBudgetMs")));
 			}
 			
-			if (VHMSettings->HasField(TEXT("UseHighPrecisionHeightTextures")))
+			if (VHMSettingsJson->HasField(TEXT("UseHighPrecisionHeightTextures")))
 			{
-				Settings.bVHMUseHighPrecisionHeightTextures = VHMSettings->GetBoolField(TEXT("UseHighPrecisionHeightTextures"));
+				Settings.bVHMUseHighPrecisionHeightTextures = VHMSettingsJson->GetBoolField(TEXT("UseHighPrecisionHeightTextures"));
 			}
 		}
 	}
@@ -327,15 +327,15 @@ TSharedPtr<FJsonObject> UWorldGenSettings::CreateJSONObject() const
 	JsonObject->SetObjectField(TEXT("PerfTargets"), PerfTargets);
 
 	// VHM settings (nested object)
-	TSharedPtr<FJsonObject> VHMSettings = MakeShareable(new FJsonObject);
-	VHMSettings->SetNumberField(TEXT("HeightTextureResolution"), Settings.VHMHeightTextureResolution);
-	VHMSettings->SetNumberField(TEXT("LODLevels"), Settings.VHMLODLevels);
-	VHMSettings->SetNumberField(TEXT("MaxViewDistance"), Settings.VHMMaxViewDistance);
-	VHMSettings->SetBoolField(TEXT("EnableRealTimeEditing"), Settings.bVHMEnableRealTimeEditing);
-	VHMSettings->SetBoolField(TEXT("UseRuntimeVirtualTexturing"), Settings.bVHMUseRuntimeVirtualTexturing);
-	VHMSettings->SetNumberField(TEXT("MeshGenerationBudgetMs"), Settings.VHMMeshGenerationBudgetMs);
-	VHMSettings->SetBoolField(TEXT("UseHighPrecisionHeightTextures"), Settings.bVHMUseHighPrecisionHeightTextures);
-	JsonObject->SetObjectField(TEXT("VHMSettings"), VHMSettings);
+	TSharedPtr<FJsonObject> VHMSettingsJson = MakeShareable(new FJsonObject);
+	VHMSettingsJson->SetNumberField(TEXT("HeightTextureResolution"), Settings.VHMHeightTextureResolution);
+	VHMSettingsJson->SetNumberField(TEXT("LODLevels"), Settings.VHMLODLevels);
+	VHMSettingsJson->SetNumberField(TEXT("MaxViewDistance"), Settings.VHMMaxViewDistance);
+	VHMSettingsJson->SetBoolField(TEXT("EnableRealTimeEditing"), Settings.bVHMEnableRealTimeEditing);
+	VHMSettingsJson->SetBoolField(TEXT("UseRuntimeVirtualTexturing"), Settings.bVHMUseRuntimeVirtualTexturing);
+	VHMSettingsJson->SetNumberField(TEXT("MeshGenerationBudgetMs"), Settings.VHMMeshGenerationBudgetMs);
+	VHMSettingsJson->SetBoolField(TEXT("UseHighPrecisionHeightTextures"), Settings.bVHMUseHighPrecisionHeightTextures);
+	JsonObject->SetObjectField(TEXT("VHMSettings"), VHMSettingsJson);
 
 	return JsonObject;
 }

@@ -13,6 +13,7 @@ class UBiomeService;
 class UPCGWorldService;
 class UTileStreamingService;
 class UPOIService;
+class UVHMTerrainRenderer;
 struct FTileCoord;
 
 /**
@@ -83,6 +84,9 @@ protected:
 
     UPROPERTY(BlueprintReadOnly, Category = "World Generation")
     UTileStreamingService* TileStreamingService;
+
+    UPROPERTY(BlueprintReadOnly, Category = "World Generation")
+    UVHMTerrainRenderer* VHMTerrainRenderer;
 
     // Streaming parameters
     UPROPERTY(BlueprintReadOnly, Category = "World Generation")

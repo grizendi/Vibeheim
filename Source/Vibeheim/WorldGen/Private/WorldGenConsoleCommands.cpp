@@ -2054,3 +2054,141 @@ static FAutoConsoleCommand WorldGenTestPerformanceIntegrationCommand(
 		}
 	})
 );
+
+// VHM Terrain Rendering Commands
+static FAutoConsoleCommand VHMShowMeshesCommand(
+	TEXT("wg.VHM.ShowMeshes"),
+	TEXT("Display information about active VHM terrain meshes"),
+	FConsoleCommandDelegate::CreateLambda([]()
+	{
+		UE_LOG(LogTemp, Log, TEXT("=== VHM Terrain Meshes ==="));
+		UE_LOG(LogTemp, Warning, TEXT("VHM mesh information requires WorldGenManager instance with VHMTerrainRenderer"));
+		UE_LOG(LogTemp, Log, TEXT("Expected information:"));
+		UE_LOG(LogTemp, Log, TEXT("  Active mesh count"));
+		UE_LOG(LogTemp, Log, TEXT("  Tile coordinates"));
+		UE_LOG(LogTemp, Log, TEXT("  LOD levels"));
+		UE_LOG(LogTemp, Log, TEXT("  Memory usage"));
+	})
+);
+
+static FAutoConsoleCommand VHMShowTexturesCommand(
+	TEXT("wg.VHM.ShowTextures"),
+	TEXT("Display information about VHM height textures"),
+	FConsoleCommandDelegate::CreateLambda([]()
+	{
+		UE_LOG(LogTemp, Log, TEXT("=== VHM Height Textures ==="));
+		UE_LOG(LogTemp, Warning, TEXT("VHM texture information requires WorldGenManager instance with VHMTerrainRenderer"));
+		UE_LOG(LogTemp, Log, TEXT("Expected information:"));
+		UE_LOG(LogTemp, Log, TEXT("  Texture count"));
+		UE_LOG(LogTemp, Log, TEXT("  Resolution"));
+		UE_LOG(LogTemp, Log, TEXT("  Memory usage"));
+		UE_LOG(LogTemp, Log, TEXT("  Format"));
+	})
+);
+
+static FAutoConsoleCommand VHMPerformanceStatsCommand(
+	TEXT("wg.VHM.PerfStats"),
+	TEXT("Display VHM terrain rendering performance statistics"),
+	FConsoleCommandDelegate::CreateLambda([]()
+	{
+		UE_LOG(LogTemp, Log, TEXT("=== VHM Performance Statistics ==="));
+		UE_LOG(LogTemp, Warning, TEXT("VHM performance stats require WorldGenManager instance with VHMTerrainRenderer"));
+		UE_LOG(LogTemp, Log, TEXT("Expected metrics:"));
+		UE_LOG(LogTemp, Log, TEXT("  Active VHM components"));
+		UE_LOG(LogTemp, Log, TEXT("  Texture memory usage"));
+		UE_LOG(LogTemp, Log, TEXT("  Average mesh generation time"));
+		UE_LOG(LogTemp, Log, TEXT("  LOD transitions per frame"));
+		UE_LOG(LogTemp, Log, TEXT("  Current FPS"));
+	})
+);
+
+static FAutoConsoleCommand VHMCreateMeshCommand(
+	TEXT("wg.VHM.CreateMesh"),
+	TEXT("Create VHM terrain mesh for a specific tile. Usage: wg.VHM.CreateMesh <TileX> <TileY>"),
+	FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+	{
+		if (Args.Num() < 2)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Usage: wg.VHM.CreateMesh <TileX> <TileY>"));
+			return;
+		}
+
+		int32 TileX = FCString::Atoi(*Args[0]);
+		int32 TileY = FCString::Atoi(*Args[1]);
+
+		UE_LOG(LogTemp, Log, TEXT("Creating VHM terrain mesh for tile (%d, %d)..."), TileX, TileY);
+		UE_LOG(LogTemp, Warning, TEXT("VHM mesh creation requires WorldGenManager instance with VHMTerrainRenderer"));
+	})
+);
+
+static FAutoConsoleCommand VHMRemoveMeshCommand(
+	TEXT("wg.VHM.RemoveMesh"),
+	TEXT("Remove VHM terrain mesh for a specific tile. Usage: wg.VHM.RemoveMesh <TileX> <TileY>"),
+	FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+	{
+		if (Args.Num() < 2)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Usage: wg.VHM.RemoveMesh <TileX> <TileY>"));
+			return;
+		}
+
+		int32 TileX = FCString::Atoi(*Args[0]);
+		int32 TileY = FCString::Atoi(*Args[1]);
+
+		UE_LOG(LogTemp, Log, TEXT("Removing VHM terrain mesh for tile (%d, %d)..."), TileX, TileY);
+		UE_LOG(LogTemp, Warning, TEXT("VHM mesh removal requires WorldGenManager instance with VHMTerrainRenderer"));
+	})
+);
+
+static FAutoConsoleCommand VHMUpdateLODCommand(
+	TEXT("wg.VHM.UpdateLOD"),
+	TEXT("Update LOD levels for all VHM meshes based on current camera position"),
+	FConsoleCommandDelegate::CreateLambda([]()
+	{
+		UE_LOG(LogTemp, Log, TEXT("Updating VHM LOD levels..."));
+		UE_LOG(LogTemp, Warning, TEXT("VHM LOD update requires WorldGenManager instance with VHMTerrainRenderer"));
+	})
+);
+
+// VHM Console Variables
+static TAutoConsoleVariable<bool> CVarVHMShowDebug(
+	TEXT("wg.VHM.ShowDebug"),
+	false,
+	TEXT("Show VHM terrain rendering debug information"),
+	ECVF_Default
+);
+
+static TAutoConsoleVariable<bool> CVarVHMShowBounds(
+	TEXT("wg.VHM.ShowBounds"),
+	false,
+	TEXT("Show VHM component bounds visualization"),
+	ECVF_Default
+);
+
+static TAutoConsoleVariable<bool> CVarVHMShowLOD(
+	TEXT("wg.VHM.ShowLOD"),
+	false,
+	TEXT("Show VHM LOD level visualization"),
+	ECVF_Default
+);
+
+static TAutoConsoleVariable<int32> CVarVHMMaxLOD(
+	TEXT("wg.VHM.MaxLOD"),
+	4,
+	TEXT("Maximum LOD level for VHM terrain rendering (0-8)"),
+	ECVF_Default
+);
+
+static TAutoConsoleVariable<float> CVarVHMViewDistance(
+	TEXT("wg.VHM.ViewDistance"),
+	2000.0f,
+	TEXT("Maximum view distance for VHM terrain rendering"),
+	ECVF_Default
+);
+
+static TAutoConsoleVariable<bool> CVarVHMRealTimeEditing(
+	TEXT("wg.VHM.RealTimeEditing"),
+	true,
+	TEXT("Enable real-time terrain editing for VHM system"),
+	ECVF_Default
+);

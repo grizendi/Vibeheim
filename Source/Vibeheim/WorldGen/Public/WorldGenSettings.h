@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "UObject/NoExportTypes.h"
 #include "Data/WorldGenTypes.h"
+#include "VHMTerrainRendering/VHMTypes.h"
 #include "WorldGenSettings.generated.h"
 
 /**
@@ -20,6 +21,10 @@ public:
 	// Core settings data
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Config, Category = "WorldGen")
 	FWorldGenConfig Settings;
+
+	// VHM terrain rendering settings
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Config, Category = "VHM")
+	TOptional<FVHMSettings> VHMSettings;
 
 	/**
 	 * Load settings from JSON configuration file
@@ -56,6 +61,12 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "WorldGen")
 	static UWorldGenSettings* GetWorldGenSettings();
+
+	/**
+	 * Get the world generation configuration
+	 */
+	UFUNCTION(BlueprintCallable, Category = "WorldGen")
+	const FWorldGenConfig& GetWorldGenConfig() const { return Settings; }
 
 	/**
 	 * Apply locked coordinate system values (cannot be changed)

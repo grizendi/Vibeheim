@@ -6,6 +6,7 @@
 #include "Services/PCGWorldService.h"
 #include "Services/TileStreamingService.h"
 #include "Services/POIService.h"
+#include "VHMTerrainRendering/VHMTerrainRenderer.h"
 #include "Data/WorldGenTypes.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
@@ -38,6 +39,7 @@ AWorldGenManager::AWorldGenManager()
 	PCGWorldService = nullptr;
 	TileStreamingService = nullptr;
 	POIService = nullptr;
+	VHMTerrainRenderer = nullptr;
 }
 
 void AWorldGenManager::BeginPlay()
@@ -132,6 +134,14 @@ bool AWorldGenManager::InitializeWorldGenSystems()
 	if (!TileStreamingService || !TileStreamingService->Initialize(WorldGenSettings->Settings, HeightfieldService, BiomeService, PCGWorldService))
 	{
 		UE_LOG(LogWorldGenManager, Error, TEXT("Failed to initialize Tile Streaming Service"));
+		return false;
+	}
+
+	// Initialize VHM Terrain Renderer
+	VHMTerrainRenderer = NewObject<UVHMTerrainRenderer>(this);
+	if (!VHMTerrainRenderer || !VHMTerrainRenderer->Initialize(WorldGenSettings, HeightfieldService, TileStreamingService))
+	{
+		UE_LOG(LogWorldGenManager, Error, TEXT("Failed to initialize VHM Terrain Renderer"));
 		return false;
 	}
 
