@@ -7,6 +7,7 @@
 #include "Services/TileStreamingService.h"
 #include "Services/POIService.h"
 #include "VHMTerrainRendering/VHMTerrainRenderer.h"
+#include "VHMTerrainRendering/VHMDebugSystem.h"
 #include "Data/WorldGenTypes.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
@@ -40,6 +41,7 @@ AWorldGenManager::AWorldGenManager()
 	TileStreamingService = nullptr;
 	POIService = nullptr;
 	VHMTerrainRenderer = nullptr;
+	VHMDebugSystem = nullptr;
 }
 
 void AWorldGenManager::BeginPlay()
@@ -142,6 +144,14 @@ bool AWorldGenManager::InitializeWorldGenSystems()
 	if (!VHMTerrainRenderer || !VHMTerrainRenderer->Initialize(WorldGenSettings, HeightfieldService, TileStreamingService))
 	{
 		UE_LOG(LogWorldGenManager, Error, TEXT("Failed to initialize VHM Terrain Renderer"));
+		return false;
+	}
+
+	// Initialize VHM Debug System
+	VHMDebugSystem = NewObject<UVHMDebugSystem>(this);
+	if (!VHMDebugSystem || !VHMDebugSystem->Initialize(VHMTerrainRenderer, GetWorld()))
+	{
+		UE_LOG(LogWorldGenManager, Error, TEXT("Failed to initialize VHM Debug System"));
 		return false;
 	}
 

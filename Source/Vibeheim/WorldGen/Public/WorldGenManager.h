@@ -14,6 +14,7 @@ class UPCGWorldService;
 class UTileStreamingService;
 class UPOIService;
 class UVHMTerrainRenderer;
+class UVHMDebugSystem;
 struct FTileCoord;
 
 /**
@@ -67,6 +68,12 @@ public:
     UFUNCTION(BlueprintCallable, Category = "World Generation")
     UVHMTerrainRenderer* GetVHMTerrainRenderer() const { return VHMTerrainRenderer; }
 
+    /**
+     * Get VHM debug system
+     */
+    UFUNCTION(BlueprintCallable, Category = "World Generation")
+    UVHMDebugSystem* GetVHMDebugSystem() const { return VHMDebugSystem; }
+
 protected:
     // World generation configuration
     UPROPERTY(BlueprintReadOnly, Category = "World Generation")
@@ -93,6 +100,9 @@ protected:
 
     UPROPERTY(BlueprintReadOnly, Category = "World Generation")
     UVHMTerrainRenderer* VHMTerrainRenderer;
+
+    UPROPERTY(BlueprintReadOnly, Category = "World Generation")
+    UVHMDebugSystem* VHMDebugSystem;
 
     // Streaming parameters
     UPROPERTY(BlueprintReadOnly, Category = "World Generation")
