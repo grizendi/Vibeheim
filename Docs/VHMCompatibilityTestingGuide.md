@@ -44,7 +44,32 @@ Tests Passed: 6/6
 🎉 ALL TESTS PASSED - UE5.6 compatibility fixes are working correctly!
 ```
 
-### 2. Individual Component Tests
+### 2. Basic Compatibility Test (`wg.TestVHMBasic`)
+
+**File**: `Source/Vibeheim/WorldGen/Private/Tests/VHMBasicTests.cpp`
+
+A safe, minimal test that validates core compatibility without complex object creation:
+- WorldGenSettings access and VHMTerrainRenderer property
+- Basic service creation (TerrainMaterialSystem, BiomeService, ClimateSystem)
+- Settings validation
+- Minimal object cleanup (relies on UE's automatic garbage collection)
+
+**Usage**:
+```
+wg.TestVHMBasic
+```
+
+**Expected Output**:
+```
+=== Basic VHM UE5.6 Compatibility Test ===
+✅ Settings access test PASSED
+✅ Service creation test PASSED
+=== Basic Test Results ===
+Tests Passed: 2/2
+🎉 BASIC TESTS PASSED - Core VHM compatibility is working!
+```
+
+### 3. Individual Component Tests
 
 **File**: `Source/Vibeheim/WorldGen/Private/Tests/VHMComponentTests.cpp`
 
@@ -85,7 +110,7 @@ Tests performance metrics and memory usage tracking:
 - Memory usage calculation
 - Active tile management
 
-### 3. Stress Tests
+### 4. Stress Tests
 
 **File**: `Source/Vibeheim/WorldGen/Private/Tests/VHMStressTests.cpp`
 
@@ -144,11 +169,15 @@ wg.BenchmarkVHM 100
 
 1. **Start the editor** and load your project
 2. **Open the console** (` key or Window > Developer Tools > Output Log)
-3. **Run basic test**:
+3. **Run basic test first** (safer, minimal object creation):
+   ```
+   wg.TestVHMBasic
+   ```
+4. **If basic test passes, run full test**:
    ```
    wg.TestVHMCompatibility
    ```
-4. **Verify all tests pass** - look for "ALL TESTS PASSED" message
+5. **Verify all tests pass** - look for "ALL TESTS PASSED" message
 
 ### Individual Component Testing
 
@@ -237,6 +266,12 @@ This test validates:
    - If you see "cannot access protected member" errors, ensure you're using UE5.6 compatible API calls
    - The test files have been updated to use base class methods where needed
    - Console command access uses `FindConsoleObject` instead of `FindConsoleCommand` for UE5.6 compatibility
+
+6. **Editor Crashes During Testing**
+   - If the editor crashes during `wg.TestVHMCompatibility`, try `wg.TestVHMBasic` first
+   - Crashes may occur due to object cleanup issues in UE5.6's garbage collection system
+   - The basic test uses minimal object creation and is safer to run
+   - Individual component tests (`wg.TestMaterialCreation`, etc.) are also safer alternatives
 
 ### Performance Issues
 

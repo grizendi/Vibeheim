@@ -107,10 +107,10 @@ void FVHMComponentTests::TestMaterialCreation()
         float MemoryUsage = MaterialSystem->GetMaterialMemoryUsageMB();
         UE_LOG(LogVHMComponentTests, Log, TEXT("📊 Material system memory usage: %.2f MB"), MemoryUsage);
         
-        // Cleanup
-        MaterialSystem->MarkAsGarbage();
-        BiomeService->MarkAsGarbage();
-        ClimateSystem->MarkAsGarbage();
+        // Cleanup - let UE's garbage collector handle cleanup automatically
+        MaterialSystem = nullptr;
+        BiomeService = nullptr;
+        ClimateSystem = nullptr;
         
         UE_LOG(LogVHMComponentTests, Log, TEXT("✅ Material creation test completed successfully"));
     }
@@ -251,13 +251,13 @@ void FVHMComponentTests::TestVHMComponentCreation()
             UE_LOG(LogVHMComponentTests, Warning, TEXT("⚠️ VHM component not properly cleaned up"));
         }
         
-        // Cleanup test objects
-        TerrainRenderer->MarkAsGarbage();
-        HeightfieldService->MarkAsGarbage();
-        TileStreamingService->MarkAsGarbage();
-        BiomeService->MarkAsGarbage();
-        ClimateSystem->MarkAsGarbage();
-        NoiseSystem->MarkAsGarbage();
+        // Cleanup test objects - let UE's garbage collector handle cleanup automatically
+        TerrainRenderer = nullptr;
+        HeightfieldService = nullptr;
+        TileStreamingService = nullptr;
+        BiomeService = nullptr;
+        ClimateSystem = nullptr;
+        NoiseSystem = nullptr;
         
         UE_LOG(LogVHMComponentTests, Log, TEXT("✅ VHM component test completed successfully"));
     }
@@ -462,11 +462,11 @@ void FVHMComponentTests::TestRVTFallback()
         MaterialSystemRVT->SetRVTConfig(RVTConfig);
         UE_LOG(LogVHMComponentTests, Log, TEXT("✅ RVT configuration set without errors"));
         
-        // Cleanup
-        MaterialSystem->MarkAsGarbage();
-        MaterialSystemRVT->MarkAsGarbage();
-        BiomeService->MarkAsGarbage();
-        ClimateSystem->MarkAsGarbage();
+        // Cleanup - let UE's garbage collector handle cleanup automatically
+        MaterialSystem = nullptr;
+        MaterialSystemRVT = nullptr;
+        BiomeService = nullptr;
+        ClimateSystem = nullptr;
         
         UE_LOG(LogVHMComponentTests, Log, TEXT("✅ RVT fallback test completed successfully"));
     }
@@ -601,10 +601,10 @@ void FVHMComponentTests::TestPerformanceMetrics()
             TerrainRenderer->RemoveTerrainMesh(Tile);
         }
         
-        TerrainRenderer->MarkAsGarbage();
-        HeightfieldService->MarkAsGarbage();
-        TileStreamingService->MarkAsGarbage();
-        NoiseSystem->MarkAsGarbage();
+        TerrainRenderer = nullptr;
+        HeightfieldService = nullptr;
+        TileStreamingService = nullptr;
+        NoiseSystem = nullptr;
         
         UE_LOG(LogVHMComponentTests, Log, TEXT("✅ Performance metrics test completed successfully"));
     }

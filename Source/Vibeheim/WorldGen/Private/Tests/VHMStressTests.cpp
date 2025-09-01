@@ -156,10 +156,10 @@ void FVHMStressTests::RunMaterialStressTest(int32 NumTiles)
         UE_LOG(LogVHMStressTests, Log, TEXT("📊 Cleaned up %d materials in %.2f ms"), 
                CreatedTiles.Num(), CleanupTime);
         
-        // Cleanup objects
-        MaterialSystem->MarkAsGarbage();
-        BiomeService->MarkAsGarbage();
-        ClimateSystem->MarkAsGarbage();
+        // Cleanup objects - let UE's garbage collector handle cleanup automatically
+        MaterialSystem = nullptr;
+        BiomeService = nullptr;
+        ClimateSystem = nullptr;
         
         CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
         
@@ -294,13 +294,13 @@ void FVHMStressTests::RunVHMComponentStressTest(int32 NumComponents)
         UE_LOG(LogVHMStressTests, Log, TEXT("📊 Cleaned up %d components in %.2f ms"), 
                CreatedTiles.Num(), CleanupTime);
         
-        // Cleanup objects
-        TerrainRenderer->MarkAsGarbage();
-        HeightfieldService->MarkAsGarbage();
-        TileStreamingService->MarkAsGarbage();
-        BiomeService->MarkAsGarbage();
-        ClimateSystem->MarkAsGarbage();
-        NoiseSystem->MarkAsGarbage();
+        // Cleanup objects - let UE's garbage collector handle cleanup automatically
+        TerrainRenderer = nullptr;
+        HeightfieldService = nullptr;
+        TileStreamingService = nullptr;
+        BiomeService = nullptr;
+        ClimateSystem = nullptr;
+        NoiseSystem = nullptr;
         
         CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
         
@@ -384,10 +384,10 @@ void FVHMStressTests::RunMemoryLeakTest(int32 Iterations)
                 }
             }
             
-            // Mark objects for garbage collection
-            MaterialSystem->MarkAsGarbage();
-            BiomeService->MarkAsGarbage();
-            ClimateSystem->MarkAsGarbage();
+            // Clear object references - let UE's garbage collector handle cleanup
+            MaterialSystem = nullptr;
+            BiomeService = nullptr;
+            ClimateSystem = nullptr;
             
             // Force garbage collection every few iterations
             if (i % 3 == 0)
@@ -562,10 +562,10 @@ void FVHMStressTests::RunPerformanceBenchmark(int32 NumTiles)
             UE_LOG(LogVHMStressTests, Warning, TEXT("⚠️ Performance benchmark completed with some operations below threshold"));
         }
         
-        // Cleanup
-        MaterialSystem->MarkAsGarbage();
-        BiomeService->MarkAsGarbage();
-        ClimateSystem->MarkAsGarbage();
+        // Cleanup - let UE's garbage collector handle cleanup automatically
+        MaterialSystem = nullptr;
+        BiomeService = nullptr;
+        ClimateSystem = nullptr;
     }
     catch (...)
     {

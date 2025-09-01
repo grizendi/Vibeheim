@@ -706,10 +706,10 @@ bool FVHMCompatibilityRuntimeTests::TestMemoryLeaks()
                 }
             }
             
-            // Mark objects for garbage collection
-            MaterialSystem->MarkAsGarbage();
-            BiomeService->MarkAsGarbage();
-            ClimateSystem->MarkAsGarbage();
+            // Clear object references - let UE's garbage collector handle cleanup
+            MaterialSystem = nullptr;
+            BiomeService = nullptr;
+            ClimateSystem = nullptr;
         }
         
         // Force garbage collection
@@ -753,13 +753,8 @@ UWorld* FVHMCompatibilityRuntimeTests::GetTestWorld()
 
 void FVHMCompatibilityRuntimeTests::CleanupTestObjects()
 {
-    for (UObject* TestObject : TestObjects)
-    {
-        if (IsValid(TestObject))
-        {
-            TestObject->MarkAsGarbage();
-        }
-    }
+    // UE5.6 compatible cleanup - let GC handle object cleanup automatically
+    // Clear our references and force garbage collection
     TestObjects.Empty();
     
     // Force garbage collection to clean up test objects
