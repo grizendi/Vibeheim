@@ -51,7 +51,10 @@
   - Create tile coordinate to world position mapping for VHM placement
   - _Requirements: 1.1, 1.3, 3.1_
 
-- [ ] 5. Add real-time terrain modification support
+- [x] 5. Add real-time terrain modification support
+
+
+
   - Implement UpdateTerrainMesh() for handling heightfield modifications
   - Create texture update pipeline for terrain brush operations
   - Add batched mesh updates to prevent frame rate spikes
@@ -59,8 +62,13 @@
   - Implement visual feedback for terrain modification operations
   - _Requirements: 2.1, 2.2, 2.3_
 
-- [ ] 6. Create TerrainMaterialSystem for biome-based rendering
-  - Implement TerrainMaterialSystem.h/.cpp for material management
+- [x] 6. Create TerrainMaterialSystem for biome-based rendering
+
+
+
+
+
+  - Implement TerrainMaterialSystem.h/.cpp concrete class implementing ITerrainMaterialSystem
   - Create biome-specific material instances and parameter binding
   - Implement CreateTileMaterial() using biome data from BiomeService
   - Add material blending support for biome transitions
@@ -68,22 +76,38 @@
   - _Requirements: 5.1, 5.2, 5.3_
 
 - [ ] 7. Implement TerrainLODManager for performance optimization
-  - Create TerrainLODManager.h/.cpp for distance-based quality management
+  - Create TerrainLODManager.h/.cpp concrete class implementing ITerrainLODManager
   - Implement CalculateLODLevel() based on camera distance and performance targets
   - Add automatic LOD updates during player movement
   - Create mesh culling system for tiles outside viewing range
   - Implement performance monitoring and adaptive quality adjustment
   - _Requirements: 4.1, 4.2, 4.4_
 
-- [ ] 8. Integrate VHM system with WorldGenManager
-  - Add VHMTerrainRenderer as a service in WorldGenManager
-  - Create initialization sequence for VHM system during world startup
-  - Implement tile streaming integration with mesh creation/destruction
-  - Add VHM system to existing integration test suite
-  - Create console commands for VHM debugging and testing
-  - _Requirements: 3.3, 3.4_
+- [ ] 8. Add VHM console commands for debugging and testing
+  - Implement wg.VHM.ShowMeshes command to display VHM component information
+  - Add wg.VHM.ShowTextures command to display texture memory usage
+  - Create wg.VHM.CreateMesh command to manually create mesh for specific tile
+  - Add wg.VHM.UpdateMesh command to test real-time terrain modifications
+  - Implement wg.VHM.Stats command to display VHM performance statistics
+  - _Requirements: 4.2, 4.4_
 
-- [ ] 9. Implement seamless tile boundary handling
+- [ ] 9. Integrate TerrainMaterialSystem with VHMTerrainRenderer
+  - Add TerrainMaterialSystem as a dependency in VHMTerrainRenderer
+  - Integrate material creation during CreateTerrainMeshForTile()
+  - Apply materials to VHM components after mesh generation
+  - Update materials when biome data changes during tile updates
+  - Handle material cleanup when tiles are removed
+  - _Requirements: 5.1, 5.2, 5.3_
+
+- [ ] 10. Integrate TerrainLODManager with VHMTerrainRenderer
+  - Add TerrainLODManager as a dependency in VHMTerrainRenderer
+  - Replace basic LOD calculation with TerrainLODManager implementation
+  - Integrate visibility culling with mesh creation/destruction
+  - Add performance-based adaptive quality adjustment
+  - Implement frame-based LOD update coordination
+  - _Requirements: 4.1, 4.2, 4.4_
+
+- [ ] 11. Implement seamless tile boundary handling
   - Create mesh stitching system for adjacent tile boundaries
   - Implement height data sampling at tile edges for seamless transitions
   - Add normal vector calculation across tile boundaries
@@ -91,23 +115,23 @@
   - Implement boundary update system when adjacent tiles are modified
   - _Requirements: 1.3, 5.2_
 
-- [ ] 10. Add Runtime Virtual Texturing integration
-  - Implement RVT setup and configuration for terrain materials
+- [ ] 12. Add Runtime Virtual Texturing integration
+  - Implement RVT setup and configuration in TerrainMaterialSystem
   - Create RVT texture streaming for large terrain areas
   - Add biome-based texture blending through RVT system
   - Implement texture detail layers (base, normal, roughness) for terrain materials
   - Create RVT performance optimization and memory management
   - _Requirements: 5.1, 5.4_
 
-- [ ] 11. Create VHM debugging and visualization tools
-  - Implement console commands for VHM system testing (wg.VHM.ShowMeshes, wg.VHM.ShowTextures)
+- [ ] 13. Create VHM debugging and visualization tools
   - Add visual debugging for VHM component bounds and LOD levels
   - Create texture export functionality for height and material textures
   - Implement performance profiling tools for mesh generation timing
   - Add wireframe and debug material modes for terrain inspection
+  - Create debug draw functions for tile boundaries and mesh data
   - _Requirements: 4.2, 4.4_
 
-- [ ] 12. Implement comprehensive VHM testing suite
+- [ ] 14. Implement comprehensive VHM testing suite
   - Create VHMIntegrationTest.cpp with automated VHM system validation
   - Add mesh generation correctness tests comparing heightfield data to rendered geometry
   - Implement performance regression tests for mesh creation and update times

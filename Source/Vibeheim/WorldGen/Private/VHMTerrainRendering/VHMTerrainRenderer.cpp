@@ -1,7 +1,9 @@
 #include "VHMTerrainRendering/VHMTerrainRenderer.h"
 #include "VHMTerrainRendering/HeightfieldTextureManager.h"
+#include "VHMTerrainRendering/TerrainMaterialSystem.h"
 #include "Services/HeightfieldService.h"
 #include "Services/TileStreamingService.h"
+#include "Services/BiomeService.h"
 #include "WorldGenSettings.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
@@ -23,7 +25,9 @@ UVHMTerrainRenderer::UVHMTerrainRenderer()
     WorldGenSettings = nullptr;
     HeightfieldService = nullptr;
     TileStreamingService = nullptr;
+    BiomeService = nullptr;
     HeightfieldTextureManager.SetInterface(nullptr);
+    TerrainMaterialSystem.SetInterface(nullptr);
     CachedWorld = nullptr;
 
     // Initialize performance tracking
@@ -68,6 +72,37 @@ bool UVHMTerrainRenderer::Initialize(UWorldGenSettings* Settings,
     }
 
     UE_LOG(LogVHMTerrainRenderer, Log, TEXT("VHMTerrainRenderer initialized successfully"));
+    return true;
+}
+
+bool UVHMTerrainRenderer::InitializeWithBiomeService(UWorldGenSettings* Settings, 
+                                                   UHeightfieldService* InHeightfieldService,
+                                                   UTileStreamingService* InTileStreamingService,
+                                                   UBiomeService* InBiomeService)
+{
+    // First initialize the base system
+    if (!Initialize(Settings, InHeightfieldService, InTileStreamingService))
+    {
+        return false;
+    }
+
+    if (!InBiomeService)
+    {
+        UE_LOG(LogVHMTerrainRenderer, Error, TEXT("InitializeWithBiomeService - BiomeService is null"));
+        return false;
+    }
+
+    // Store biome service reference
+    BiomeService = InBiomeService;
+
+    // Initialize terrain material system
+    if (!InitializeTerrainMaterialSystem())
+    {
+        UE_LOG(LogVHMTerrainRenderer, Error, TEXT("InitializeWithBiomeService - Failed to initialize TerrainMaterialSystem"));
+        return false;
+    }
+
+    UE_LOG(LogVHMTerrainRenderer, Log, TEXT("VHMTerrainRenderer initialized with BiomeService successfully"));
     return true;
 }
 
@@ -135,11 +170,44 @@ bool UVHMTerrainRenderer::CreateTerrainMeshForTile(const FTileCoord& TileCoord)
         // Continue anyway as this might be a non-critical issue
     }
 
+    // Create material for the tile if material system is available
+    UMaterialInstanceDynamic* TileMaterial = nullptr;
+    if (BiomeService && TerrainMaterialSystem.GetInterface())
+    {
+        // Get biome data for this tile
+        EBiomeType TileBiome = BiomeService->DetermineTileBiome(TileCoord, HeightfieldData.HeightData);
+        FBiomeDefinition BiomeDefinition;
+        if (BiomeService->GetBiomeDefinition(TileBiome, BiomeDefinition))
+        {
+            // Create material for this tile
+            TileMaterial = TerrainMaterialSystem.GetInterface()->CreateTileMaterial(TileCoord, BiomeDefinition);
+            if (TileMaterial)
+            {
+                // Apply material to VHM component using public base class method
+                // Use explicit base class call to avoid protected SetMaterial() in UE5.6
+                VHMComponent->UPrimitiveComponent::SetMaterial(0, TileMaterial);
+                
+                // Verify material was set successfully using base class method
+                if (VHMComponent->UPrimitiveComponent::GetMaterial(0) == TileMaterial)
+                {
+                    UE_LOG(LogVHMTerrainRenderer, Verbose, TEXT("Applied material for biome %s to tile (%d, %d)"), 
+                           *BiomeDefinition.BiomeName, TileCoord.X, TileCoord.Y);
+                }
+                else
+                {
+                    UE_LOG(LogVHMTerrainRenderer, Warning, TEXT("Failed to apply material for biome %s to tile (%d, %d) - material verification failed"), 
+                           *BiomeDefinition.BiomeName, TileCoord.X, TileCoord.Y);
+                }
+            }
+        }
+    }
+
     // Create terrain mesh data
     FTerrainMeshData MeshData;
     MeshData.TileCoord = TileCoord;
     MeshData.VHMComponent = VHMComponent;
     MeshData.HeightTexture = HeightTexture;
+    MeshData.MaterialInstance = TileMaterial;
     MeshData.CurrentLODLevel = 0;
     MeshData.LastUpdateTime = FPlatformTime::Seconds();
     MeshData.WorldBounds = CalculateTileWorldBounds(TileCoord);
@@ -198,6 +266,25 @@ bool UVHMTerrainRenderer::UpdateTerrainMesh(const FTileCoord& TileCoord, const T
         UE_LOG(LogVHMTerrainRenderer, Log, TEXT("Regenerated VHM mesh for tile (%d, %d) after height texture update"), TileCoord.X, TileCoord.Y);
     }
 
+    // Update material parameters if material system is available
+    if (BiomeService && TerrainMaterialSystem.GetInterface())
+    {
+        // Get updated heightfield data
+        FHeightfieldData UpdatedHeightfieldData;
+        if (HeightfieldService->GetCachedHeightfield(TileCoord, UpdatedHeightfieldData))
+        {
+            // Determine biome for updated terrain
+            EBiomeType TileBiome = BiomeService->DetermineTileBiome(TileCoord, UpdatedHeightfieldData.HeightData);
+            FBiomeDefinition BiomeDefinition;
+            if (BiomeService->GetBiomeDefinition(TileBiome, BiomeDefinition))
+            {
+                // Update material parameters
+                TerrainMaterialSystem.GetInterface()->UpdateMaterialParameters(TileCoord, BiomeDefinition);
+                UE_LOG(LogVHMTerrainRenderer, Verbose, TEXT("Updated material parameters for tile (%d, %d)"), TileCoord.X, TileCoord.Y);
+            }
+        }
+    }
+
     float UpdateTime = (FPlatformTime::Seconds() - StartTime) * 1000.0f;
     UE_LOG(LogVHMTerrainRenderer, Log, TEXT("Updated terrain mesh for tile (%d, %d) in %.2fms"), TileCoord.X, TileCoord.Y, UpdateTime);
     return true;
@@ -220,6 +307,12 @@ void UVHMTerrainRenderer::RemoveTerrainMesh(const FTileCoord& TileCoord)
     if (IHeightfieldTextureManager* TextureManagerInterface = Cast<IHeightfieldTextureManager>(HeightfieldTextureManager.GetObject()))
     {
         TextureManagerInterface->RemoveTexture(TileCoord);
+    }
+
+    // Remove material from material system
+    if (TerrainMaterialSystem.GetInterface())
+    {
+        TerrainMaterialSystem.GetInterface()->RemoveTileMaterial(TileCoord);
     }
 
     UE_LOG(LogVHMTerrainRenderer, Log, TEXT("Removed terrain mesh for tile: (%d, %d)"), TileCoord.X, TileCoord.Y);
@@ -321,11 +414,18 @@ void UVHMTerrainRenderer::Cleanup()
     WorldGenSettings = nullptr;
     HeightfieldService = nullptr;
     TileStreamingService = nullptr;
+    BiomeService = nullptr;
     
     if (IHeightfieldTextureManager* TextureManagerInterface = Cast<IHeightfieldTextureManager>(HeightfieldTextureManager.GetObject()))
     {
         TextureManagerInterface->OptimizeTextureMemory();
         HeightfieldTextureManager.SetInterface(nullptr);
+    }
+
+    // Cleanup terrain material system
+    if (TerrainMaterialSystem.GetInterface())
+    {
+        TerrainMaterialSystem.SetInterface(nullptr);
     }
 
     CachedWorld = nullptr;
@@ -611,4 +711,32 @@ bool UVHMTerrainRenderer::InitializeHeightfieldTextureManager()
 
     // Initialize texture manager with VHM settings (call on concrete object, not interface)
     return TextureManager->Initialize(VHMSettings);
+}
+
+bool UVHMTerrainRenderer::InitializeTerrainMaterialSystem()
+{
+    if (!BiomeService)
+    {
+        UE_LOG(LogVHMTerrainRenderer, Error, TEXT("InitializeTerrainMaterialSystem - BiomeService is null"));
+        return false;
+    }
+
+    UVHMTerrainMaterialSystem* MaterialSystem = NewObject<UVHMTerrainMaterialSystem>(this);
+    if (!MaterialSystem)
+    {
+        UE_LOG(LogVHMTerrainRenderer, Error, TEXT("InitializeTerrainMaterialSystem - Failed to create TerrainMaterialSystem"));
+        return false;
+    }
+
+    TerrainMaterialSystem.SetObject(MaterialSystem);
+
+    // Initialize material system with biome service and VHM settings
+    if (!MaterialSystem->Initialize(BiomeService, VHMSettings))
+    {
+        UE_LOG(LogVHMTerrainRenderer, Error, TEXT("InitializeTerrainMaterialSystem - Failed to initialize TerrainMaterialSystem"));
+        return false;
+    }
+
+    UE_LOG(LogVHMTerrainRenderer, Log, TEXT("TerrainMaterialSystem initialized successfully"));
+    return true;
 }

@@ -120,4 +120,20 @@ struct VIBEHEIM_API FVHMPerformanceStats
     // Current frame rate
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Performance")
     float CurrentFPS = 0.0f;
+
+    // Total number of meshes created
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Performance")
+    int32 TotalMeshesCreated = 0;
+
+    // Average generation time in milliseconds
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Performance")
+    float AverageGenerationTimeMs = 0.0f;
+
+    // Peak generation time in milliseconds
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Performance")
+    float PeakGenerationTimeMs = 0.0f;
+
+    // Total generation time in milliseconds
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Performance")
+    float TotalGenerationTimeMs = 0.0f;
 };

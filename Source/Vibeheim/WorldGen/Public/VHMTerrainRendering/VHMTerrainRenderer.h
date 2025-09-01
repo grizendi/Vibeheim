@@ -4,6 +4,7 @@
 #include "UObject/NoExportTypes.h"
 #include "VHMTerrainRendering/IVHMTerrainRenderer.h"
 #include "VHMTerrainRendering/IHeightfieldTextureManager.h"
+#include "VHMTerrainRendering/ITerrainMaterialSystem.h"
 #include "VHMTerrainRendering/VHMTypes.h"
 #include "Data/WorldGenTypes.h"
 #include "VHMTerrainRenderer.generated.h"
@@ -13,6 +14,8 @@ class UWorldGenSettings;
 class UHeightfieldService;
 class UTileStreamingService;
 class UHeightfieldTextureManager;
+class UBiomeService;
+class UVHMTerrainMaterialSystem;
 class UVirtualHeightfieldMeshComponent;
 class UWorld;
 class AActor;
@@ -36,6 +39,15 @@ public:
     virtual bool Initialize(UWorldGenSettings* Settings, 
                           UHeightfieldService* HeightfieldService,
                           UTileStreamingService* TileStreamingService) override;
+
+    /**
+     * Initialize with biome service for material system
+     */
+    UFUNCTION(BlueprintCallable, Category = "VHM")
+    bool InitializeWithBiomeService(UWorldGenSettings* Settings, 
+                                  UHeightfieldService* HeightfieldService,
+                                  UTileStreamingService* TileStreamingService,
+                                  UBiomeService* BiomeService);
     
     virtual bool CreateTerrainMeshForTile(const FTileCoord& TileCoord) override;
     virtual bool UpdateTerrainMesh(const FTileCoord& TileCoord, const TArray<FHeightfieldModification>& Modifications) override;
@@ -87,6 +99,12 @@ protected:
 
     UPROPERTY()
     TScriptInterface<UHeightfieldTextureManager> HeightfieldTextureManager;
+
+    UPROPERTY()
+    UBiomeService* BiomeService;
+
+    UPROPERTY()
+    TScriptInterface<ITerrainMaterialSystem> TerrainMaterialSystem;
 
     // Terrain mesh management
     UPROPERTY()
@@ -166,4 +184,9 @@ private:
      * Initialize heightfield texture manager
      */
     bool InitializeHeightfieldTextureManager();
+
+    /**
+     * Initialize terrain material system
+     */
+    bool InitializeTerrainMaterialSystem();
 };

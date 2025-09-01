@@ -6,6 +6,9 @@
 #include "VHMTerrainRendering/VHMTypes.h"
 #include "WorldGenSettings.generated.h"
 
+// Forward declarations
+class UVHMTerrainRenderer;
+
 /**
  * Settings manager for world generation configuration
  * Handles loading, validation, and persistence of world generation settings
@@ -25,6 +28,10 @@ public:
 	// VHM terrain rendering settings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Config, Category = "VHM")
 	TOptional<FVHMSettings> VHMSettings;
+
+	// VHM terrain renderer instance
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VHM")
+	UVHMTerrainRenderer* VHMTerrainRenderer;
 
 	/**
 	 * Load settings from JSON configuration file

@@ -11,7 +11,9 @@
 #include "Services/POIService.h"
 #include "Tests/WorldGenIntegrationTest.h"
 #include "VHMTerrainRendering/VHMTerrainRenderer.h"
+#include "VHMTerrainRendering/TerrainMaterialSystem.h"
 #include "GameFramework/Actor.h"
+#include "VirtualHeightfieldMeshComponent.h"
 
 
 
@@ -2063,13 +2065,53 @@ static FAutoConsoleCommand VHMShowMeshesCommand(
 	TEXT("Display information about active VHM terrain meshes"),
 	FConsoleCommandDelegate::CreateLambda([]()
 	{
+		UWorldGenSettings* Settings = UWorldGenSettings::GetWorldGenSettings();
+		if (!Settings)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Failed to get WorldGen settings instance"));
+			return;
+		}
+
+		if (!Settings->VHMTerrainRenderer)
+		{
+			UE_LOG(LogTemp, Error, TEXT("VHM terrain renderer is not available. Please ensure VHMTerrainRenderer is properly initialized in WorldGenSettings."));
+			return;
+		}
+
+		UVHMTerrainRenderer* VHMRenderer = Settings->VHMTerrainRenderer;
+		TArray<FTileCoord> ActiveTiles = VHMRenderer->GetActiveMeshTiles();
+		FVHMPerformanceStats PerfStats = VHMRenderer->GetPerformanceStats();
+
 		UE_LOG(LogTemp, Log, TEXT("=== VHM Terrain Meshes ==="));
-		UE_LOG(LogTemp, Warning, TEXT("VHM mesh information requires WorldGenManager instance with VHMTerrainRenderer"));
-		UE_LOG(LogTemp, Log, TEXT("Expected information:"));
-		UE_LOG(LogTemp, Log, TEXT("  Active mesh count"));
-		UE_LOG(LogTemp, Log, TEXT("  Tile coordinates"));
-		UE_LOG(LogTemp, Log, TEXT("  LOD levels"));
-		UE_LOG(LogTemp, Log, TEXT("  Memory usage"));
+		UE_LOG(LogTemp, Log, TEXT("Active mesh count: %d"), ActiveTiles.Num());
+		
+		if (ActiveTiles.Num() > 0)
+		{
+			UE_LOG(LogTemp, Log, TEXT("Active tile coordinates:"));
+			for (const FTileCoord& TileCoord : ActiveTiles)
+			{
+				FTerrainMeshData MeshData;
+				if (VHMRenderer->GetTerrainMeshData(TileCoord, MeshData))
+				{
+					UE_LOG(LogTemp, Log, TEXT("  Tile (%d, %d): Component = %s, Material = %s"), 
+						TileCoord.X, TileCoord.Y,
+						MeshData.VHMComponent.Get() ? *MeshData.VHMComponent.Get()->GetName() : TEXT("None"),
+						MeshData.MaterialInstance.Get() ? *MeshData.MaterialInstance.Get()->GetName() : TEXT("None"));
+				}
+				else
+				{
+					UE_LOG(LogTemp, Log, TEXT("  Tile (%d, %d): Failed to get mesh data"), TileCoord.X, TileCoord.Y);
+				}
+			}
+		}
+		else
+		{
+			UE_LOG(LogTemp, Log, TEXT("No active VHM terrain meshes found"));
+		}
+
+		UE_LOG(LogTemp, Log, TEXT("Performance stats:"));
+		UE_LOG(LogTemp, Log, TEXT("  Average generation time: %.2fms"), PerfStats.AverageGenerationTimeMs);
+		UE_LOG(LogTemp, Log, TEXT("  Total meshes created: %d"), PerfStats.TotalMeshesCreated);
 	})
 );
 
@@ -2078,13 +2120,57 @@ static FAutoConsoleCommand VHMShowTexturesCommand(
 	TEXT("Display information about VHM height textures"),
 	FConsoleCommandDelegate::CreateLambda([]()
 	{
+		UWorldGenSettings* Settings = UWorldGenSettings::GetWorldGenSettings();
+		if (!Settings)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Failed to get WorldGen settings instance"));
+			return;
+		}
+
+		if (!Settings->VHMTerrainRenderer)
+		{
+			UE_LOG(LogTemp, Error, TEXT("VHM terrain renderer is not available. Please ensure VHMTerrainRenderer is properly initialized in WorldGenSettings."));
+			return;
+		}
+
+		UVHMTerrainRenderer* VHMRenderer = Settings->VHMTerrainRenderer;
+		TArray<FTileCoord> ActiveTiles = VHMRenderer->GetActiveMeshTiles();
+
 		UE_LOG(LogTemp, Log, TEXT("=== VHM Height Textures ==="));
-		UE_LOG(LogTemp, Warning, TEXT("VHM texture information requires WorldGenManager instance with VHMTerrainRenderer"));
-		UE_LOG(LogTemp, Log, TEXT("Expected information:"));
-		UE_LOG(LogTemp, Log, TEXT("  Texture count"));
-		UE_LOG(LogTemp, Log, TEXT("  Resolution"));
-		UE_LOG(LogTemp, Log, TEXT("  Memory usage"));
-		UE_LOG(LogTemp, Log, TEXT("  Format"));
+		UE_LOG(LogTemp, Log, TEXT("Active tiles with textures: %d"), ActiveTiles.Num());
+
+		if (ActiveTiles.Num() > 0)
+		{
+			for (const FTileCoord& TileCoord : ActiveTiles)
+			{
+				FTerrainMeshData MeshData;
+				if (VHMRenderer->GetTerrainMeshData(TileCoord, MeshData))
+				{
+					if (MeshData.HeightTexture)
+					{
+						UE_LOG(LogTemp, Log, TEXT("  Tile (%d, %d): Texture = %s, Size = %dx%d"), 
+							TileCoord.X, TileCoord.Y,
+							*MeshData.HeightTexture->GetName(),
+							MeshData.HeightTexture->GetSizeX(),
+							MeshData.HeightTexture->GetSizeY());
+					}
+					else
+					{
+						UE_LOG(LogTemp, Log, TEXT("  Tile (%d, %d): No height texture"), TileCoord.X, TileCoord.Y);
+					}
+				}
+			}
+		}
+		else
+		{
+			UE_LOG(LogTemp, Log, TEXT("No active VHM terrain meshes with textures found"));
+		}
+
+		// Display VHM settings related to textures
+		const FVHMSettings& VHMSettings = VHMRenderer->GetVHMSettings();
+		UE_LOG(LogTemp, Log, TEXT("VHM texture settings:"));
+		UE_LOG(LogTemp, Log, TEXT("  Heightfield resolution: %d"), Settings->Settings.HeightfieldResolution);
+		UE_LOG(LogTemp, Log, TEXT("  Heightfield scale: %.2f"), Settings->Settings.HeightfieldScale);
 	})
 );
 
@@ -2093,14 +2179,49 @@ static FAutoConsoleCommand VHMPerformanceStatsCommand(
 	TEXT("Display VHM terrain rendering performance statistics"),
 	FConsoleCommandDelegate::CreateLambda([]()
 	{
+		UWorldGenSettings* Settings = UWorldGenSettings::GetWorldGenSettings();
+		if (!Settings)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Failed to get WorldGen settings instance"));
+			return;
+		}
+
+		if (!Settings->VHMTerrainRenderer)
+		{
+			UE_LOG(LogTemp, Error, TEXT("VHM terrain renderer is not available. Please ensure VHMTerrainRenderer is properly initialized in WorldGenSettings."));
+			return;
+		}
+
+		UVHMTerrainRenderer* VHMRenderer = Settings->VHMTerrainRenderer;
+		FVHMPerformanceStats PerfStats = VHMRenderer->GetPerformanceStats();
+		TArray<FTileCoord> ActiveTiles = VHMRenderer->GetActiveMeshTiles();
+
 		UE_LOG(LogTemp, Log, TEXT("=== VHM Performance Statistics ==="));
-		UE_LOG(LogTemp, Warning, TEXT("VHM performance stats require WorldGenManager instance with VHMTerrainRenderer"));
-		UE_LOG(LogTemp, Log, TEXT("Expected metrics:"));
-		UE_LOG(LogTemp, Log, TEXT("  Active VHM components"));
-		UE_LOG(LogTemp, Log, TEXT("  Texture memory usage"));
-		UE_LOG(LogTemp, Log, TEXT("  Average mesh generation time"));
-		UE_LOG(LogTemp, Log, TEXT("  LOD transitions per frame"));
-		UE_LOG(LogTemp, Log, TEXT("  Current FPS"));
+		UE_LOG(LogTemp, Log, TEXT("Active VHM components: %d"), ActiveTiles.Num());
+		UE_LOG(LogTemp, Log, TEXT("Total meshes created: %d"), PerfStats.TotalMeshesCreated);
+		UE_LOG(LogTemp, Log, TEXT("Average mesh generation time: %.2fms"), PerfStats.AverageGenerationTimeMs);
+		UE_LOG(LogTemp, Log, TEXT("Peak mesh generation time: %.2fms"), PerfStats.PeakGenerationTimeMs);
+		UE_LOG(LogTemp, Log, TEXT("Total generation time: %.2fms"), PerfStats.TotalGenerationTimeMs);
+
+		// Calculate memory usage estimate
+		int32 EstimatedMemoryMB = 0;
+		for (const FTileCoord& TileCoord : ActiveTiles)
+		{
+			FTerrainMeshData MeshData;
+			if (VHMRenderer->GetTerrainMeshData(TileCoord, MeshData) && MeshData.HeightTexture)
+			{
+				// Rough estimate: Resolution^2 * 4 bytes (R32F format) / 1MB
+				int32 TextureSize = Settings->Settings.HeightfieldResolution;
+				EstimatedMemoryMB += (TextureSize * TextureSize * 4) / (1024 * 1024);
+			}
+		}
+		UE_LOG(LogTemp, Log, TEXT("Estimated texture memory usage: ~%dMB"), EstimatedMemoryMB);
+
+		// Display VHM settings that affect performance
+		const FVHMSettings& VHMSettings = VHMRenderer->GetVHMSettings();
+		UE_LOG(LogTemp, Log, TEXT("Performance-related settings:"));
+		UE_LOG(LogTemp, Log, TEXT("  Heightfield resolution: %d"), Settings->Settings.HeightfieldResolution);
+		UE_LOG(LogTemp, Log, TEXT("  Max terrain height: %.1f"), Settings->Settings.MaxTerrainHeight);
 	})
 );
 
@@ -2117,9 +2238,43 @@ static FAutoConsoleCommand VHMCreateMeshCommand(
 
 		int32 TileX = FCString::Atoi(*Args[0]);
 		int32 TileY = FCString::Atoi(*Args[1]);
+		FTileCoord TileCoord(TileX, TileY);
 
+		UWorldGenSettings* Settings = UWorldGenSettings::GetWorldGenSettings();
+		if (!Settings)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Failed to get WorldGen settings instance"));
+			return;
+		}
+
+		if (!Settings->VHMTerrainRenderer)
+		{
+			UE_LOG(LogTemp, Error, TEXT("VHM terrain renderer is not available. Please ensure VHMTerrainRenderer is properly initialized in WorldGenSettings."));
+			return;
+		}
+
+		UVHMTerrainRenderer* VHMRenderer = Settings->VHMTerrainRenderer;
+		
 		UE_LOG(LogTemp, Log, TEXT("Creating VHM terrain mesh for tile (%d, %d)..."), TileX, TileY);
-		UE_LOG(LogTemp, Warning, TEXT("VHM mesh creation requires WorldGenManager instance with VHMTerrainRenderer"));
+		
+		bool bSuccess = VHMRenderer->CreateTerrainMeshForTile(TileCoord);
+		if (bSuccess)
+		{
+			UE_LOG(LogTemp, Log, TEXT("Successfully created VHM terrain mesh for tile (%d, %d)"), TileX, TileY);
+			
+			// Display mesh information
+			FTerrainMeshData MeshData;
+			if (VHMRenderer->GetTerrainMeshData(TileCoord, MeshData))
+			{
+				UE_LOG(LogTemp, Log, TEXT("  VHM Component: %s"), MeshData.VHMComponent.Get() ? *MeshData.VHMComponent.Get()->GetName() : TEXT("None"));
+				UE_LOG(LogTemp, Log, TEXT("  Height Texture: %s"), MeshData.HeightTexture.Get() ? *MeshData.HeightTexture.Get()->GetName() : TEXT("None"));
+				UE_LOG(LogTemp, Log, TEXT("  Material: %s"), MeshData.MaterialInstance.Get() ? *MeshData.MaterialInstance.Get()->GetName() : TEXT("None"));
+			}
+		}
+		else
+		{
+			UE_LOG(LogTemp, Error, TEXT("Failed to create VHM terrain mesh for tile (%d, %d)"), TileX, TileY);
+		}
 	})
 );
 
@@ -2136,9 +2291,36 @@ static FAutoConsoleCommand VHMRemoveMeshCommand(
 
 		int32 TileX = FCString::Atoi(*Args[0]);
 		int32 TileY = FCString::Atoi(*Args[1]);
+		FTileCoord TileCoord(TileX, TileY);
+
+		UWorldGenSettings* Settings = UWorldGenSettings::GetWorldGenSettings();
+		if (!Settings)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Failed to get WorldGen settings instance"));
+			return;
+		}
+
+		if (!Settings->VHMTerrainRenderer)
+		{
+			UE_LOG(LogTemp, Error, TEXT("VHM terrain renderer is not available. Please ensure VHMTerrainRenderer is properly initialized in WorldGenSettings."));
+			return;
+		}
+
+		UVHMTerrainRenderer* VHMRenderer = Settings->VHMTerrainRenderer;
+		
+		// Check if mesh exists before attempting removal
+		FTerrainMeshData MeshData;
+		bool bMeshExists = VHMRenderer->GetTerrainMeshData(TileCoord, MeshData);
+		
+		if (!bMeshExists)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("No VHM terrain mesh found for tile (%d, %d)"), TileX, TileY);
+			return;
+		}
 
 		UE_LOG(LogTemp, Log, TEXT("Removing VHM terrain mesh for tile (%d, %d)..."), TileX, TileY);
-		UE_LOG(LogTemp, Warning, TEXT("VHM mesh removal requires WorldGenManager instance with VHMTerrainRenderer"));
+		VHMRenderer->RemoveTerrainMesh(TileCoord);
+		UE_LOG(LogTemp, Log, TEXT("Successfully removed VHM terrain mesh for tile (%d, %d)"), TileX, TileY);
 	})
 );
 
@@ -2147,8 +2329,41 @@ static FAutoConsoleCommand VHMUpdateLODCommand(
 	TEXT("Update LOD levels for all VHM meshes based on current camera position"),
 	FConsoleCommandDelegate::CreateLambda([]()
 	{
-		UE_LOG(LogTemp, Log, TEXT("Updating VHM LOD levels..."));
-		UE_LOG(LogTemp, Warning, TEXT("VHM LOD update requires WorldGenManager instance with VHMTerrainRenderer"));
+		UWorldGenSettings* Settings = UWorldGenSettings::GetWorldGenSettings();
+		if (!Settings)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Failed to get WorldGen settings instance"));
+			return;
+		}
+
+		if (!Settings->VHMTerrainRenderer)
+		{
+			UE_LOG(LogTemp, Error, TEXT("VHM terrain renderer is not available. Please ensure VHMTerrainRenderer is properly initialized in WorldGenSettings."));
+			return;
+		}
+
+		UVHMTerrainRenderer* VHMRenderer = Settings->VHMTerrainRenderer;
+		
+		// Try to get camera position from player controller
+		FVector ViewerPosition = FVector::ZeroVector;
+		if (UWorld* World = GEngine->GetWorldFromContextObject(Settings, EGetWorldErrorMode::LogAndReturnNull))
+		{
+			if (APlayerController* PC = World->GetFirstPlayerController())
+			{
+				if (APawn* Pawn = PC->GetPawn())
+				{
+					ViewerPosition = Pawn->GetActorLocation();
+				}
+			}
+		}
+
+		UE_LOG(LogTemp, Log, TEXT("Updating VHM LOD levels from viewer position (%.1f, %.1f, %.1f)..."), 
+			ViewerPosition.X, ViewerPosition.Y, ViewerPosition.Z);
+		
+		VHMRenderer->UpdateLODLevels(ViewerPosition);
+		
+		TArray<FTileCoord> ActiveTiles = VHMRenderer->GetActiveMeshTiles();
+		UE_LOG(LogTemp, Log, TEXT("Updated LOD levels for %d active VHM terrain meshes"), ActiveTiles.Num());
 	})
 );
 
@@ -2193,6 +2408,142 @@ static TAutoConsoleVariable<bool> CVarVHMRealTimeEditing(
 	true,
 	TEXT("Enable real-time terrain editing for VHM system"),
 	ECVF_Default
+);
+
+// VHM Material System Commands
+static FAutoConsoleCommand VHMShowMaterialsCommand(
+	TEXT("wg.VHM.ShowMaterials"),
+	TEXT("Display information about VHM terrain materials"),
+	FConsoleCommandDelegate::CreateLambda([]()
+	{
+		UWorldGenSettings* Settings = UWorldGenSettings::GetWorldGenSettings();
+		if (!Settings)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Failed to get WorldGen settings instance"));
+			return;
+		}
+
+		if (!Settings->VHMTerrainRenderer)
+		{
+			UE_LOG(LogTemp, Error, TEXT("VHM terrain renderer is not available. Please ensure VHMTerrainRenderer is properly initialized in WorldGenSettings."));
+			return;
+		}
+
+		UVHMTerrainRenderer* VHMRenderer = Settings->VHMTerrainRenderer;
+		TArray<FTileCoord> ActiveTiles = VHMRenderer->GetActiveMeshTiles();
+		
+		UE_LOG(LogTemp, Log, TEXT("=== VHM Material Information ==="));
+		UE_LOG(LogTemp, Log, TEXT("Active tiles with materials: %d"), ActiveTiles.Num());
+		
+		for (const FTileCoord& TileCoord : ActiveTiles)
+		{
+			FTerrainMeshData MeshData;
+			if (VHMRenderer->GetTerrainMeshData(TileCoord, MeshData))
+			{
+				UE_LOG(LogTemp, Log, TEXT("Tile (%d, %d): Material = %s"), 
+					TileCoord.X, TileCoord.Y, 
+					MeshData.MaterialInstance ? *MeshData.MaterialInstance->GetName() : TEXT("None"));
+			}
+		}
+	})
+);
+
+static FAutoConsoleCommand VHMUpdateMaterialsCommand(
+	TEXT("wg.VHM.UpdateMaterials"),
+	TEXT("Force update all VHM terrain materials"),
+	FConsoleCommandDelegate::CreateLambda([]()
+	{
+		UWorldGenSettings* Settings = UWorldGenSettings::GetWorldGenSettings();
+		if (!Settings)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Failed to get WorldGen settings instance"));
+			return;
+		}
+
+		if (!Settings->VHMTerrainRenderer)
+		{
+			UE_LOG(LogTemp, Error, TEXT("VHM terrain renderer is not available. Please ensure VHMTerrainRenderer is properly initialized in WorldGenSettings."));
+			return;
+		}
+
+		UVHMTerrainRenderer* VHMRenderer = Settings->VHMTerrainRenderer;
+		TArray<FTileCoord> ActiveTiles = VHMRenderer->GetActiveMeshTiles();
+
+		UE_LOG(LogTemp, Log, TEXT("Force updating materials for %d VHM terrain meshes..."), ActiveTiles.Num());
+		
+		int32 UpdatedCount = 0;
+		for (const FTileCoord& TileCoord : ActiveTiles)
+		{
+			// Force recreation of the mesh which will update materials
+			if (VHMRenderer->CreateTerrainMeshForTile(TileCoord))
+			{
+				UpdatedCount++;
+			}
+		}
+
+		UE_LOG(LogTemp, Log, TEXT("Successfully updated materials for %d/%d VHM terrain meshes"), UpdatedCount, ActiveTiles.Num());
+	})
+);
+
+static FAutoConsoleCommand VHMShowMaterialStatsCommand(
+	TEXT("wg.VHM.MaterialStats"),
+	TEXT("Display VHM material system statistics"),
+	FConsoleCommandDelegate::CreateLambda([]()
+	{
+		UWorldGenSettings* Settings = UWorldGenSettings::GetWorldGenSettings();
+		if (!Settings)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Failed to get WorldGen settings instance"));
+			return;
+		}
+
+		if (!Settings->VHMTerrainRenderer)
+		{
+			UE_LOG(LogTemp, Error, TEXT("VHM terrain renderer is not available. Please ensure VHMTerrainRenderer is properly initialized in WorldGenSettings."));
+			return;
+		}
+
+		UVHMTerrainRenderer* VHMRenderer = Settings->VHMTerrainRenderer;
+		TArray<FTileCoord> ActiveTiles = VHMRenderer->GetActiveMeshTiles();
+
+		UE_LOG(LogTemp, Log, TEXT("=== VHM Material System Statistics ==="));
+		UE_LOG(LogTemp, Log, TEXT("Active tiles with materials: %d"), ActiveTiles.Num());
+
+		int32 TilesWithMaterials = 0;
+		int32 TilesWithoutMaterials = 0;
+		TSet<UMaterialInstanceDynamic*> UniqueMaterials;
+
+		for (const FTileCoord& TileCoord : ActiveTiles)
+		{
+			FTerrainMeshData MeshData;
+			if (VHMRenderer->GetTerrainMeshData(TileCoord, MeshData))
+			{
+				if (MeshData.MaterialInstance)
+				{
+					TilesWithMaterials++;
+					UniqueMaterials.Add(MeshData.MaterialInstance);
+				}
+				else
+				{
+					TilesWithoutMaterials++;
+				}
+			}
+		}
+
+		UE_LOG(LogTemp, Log, TEXT("Tiles with materials: %d"), TilesWithMaterials);
+		UE_LOG(LogTemp, Log, TEXT("Tiles without materials: %d"), TilesWithoutMaterials);
+		UE_LOG(LogTemp, Log, TEXT("Unique material instances: %d"), UniqueMaterials.Num());
+
+		// Display material names
+		if (UniqueMaterials.Num() > 0)
+		{
+			UE_LOG(LogTemp, Log, TEXT("Material instances in use:"));
+			for (UMaterialInstanceDynamic* Material : UniqueMaterials)
+			{
+				UE_LOG(LogTemp, Log, TEXT("  %s"), *Material->GetName());
+			}
+		}
+	})
 );
 // VHM Terrain Rendering Commands
 static FAutoConsoleCommand WorldGenTestVHMCommand(
@@ -2275,12 +2626,41 @@ static FAutoConsoleCommand WorldGenVHMStatsCommand(
 	TEXT("Display VHM terrain rendering performance statistics"),
 	FConsoleCommandDelegate::CreateLambda([]()
 	{
+		UWorldGenSettings* Settings = UWorldGenSettings::GetWorldGenSettings();
+		if (!Settings)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Failed to get WorldGen settings instance"));
+			return;
+		}
+
+		if (!Settings->VHMTerrainRenderer)
+		{
+			UE_LOG(LogTemp, Error, TEXT("VHM terrain renderer is not available. Please ensure VHMTerrainRenderer is properly initialized in WorldGenSettings."));
+			return;
+		}
+
+		UVHMTerrainRenderer* VHMRenderer = Settings->VHMTerrainRenderer;
+		FVHMPerformanceStats PerfStats = VHMRenderer->GetPerformanceStats();
+		TArray<FTileCoord> ActiveTiles = VHMRenderer->GetActiveMeshTiles();
+
 		UE_LOG(LogTemp, Log, TEXT("=== VHM Terrain Rendering Statistics ==="));
-		UE_LOG(LogTemp, Warning, TEXT("VHM stats require WorldGenManager instance with active VHM renderer"));
-		UE_LOG(LogTemp, Log, TEXT("Expected metrics:"));
-		UE_LOG(LogTemp, Log, TEXT("  Active VHM Components"));
-		UE_LOG(LogTemp, Log, TEXT("  Texture Memory Usage"));
-		UE_LOG(LogTemp, Log, TEXT("  Average Mesh Generation Time"));
-		UE_LOG(LogTemp, Log, TEXT("  LOD Transitions per Frame"));
+		UE_LOG(LogTemp, Log, TEXT("Active VHM Components: %d"), ActiveTiles.Num());
+		UE_LOG(LogTemp, Log, TEXT("Total Meshes Created: %d"), PerfStats.TotalMeshesCreated);
+		UE_LOG(LogTemp, Log, TEXT("Average Mesh Generation Time: %.2fms"), PerfStats.AverageGenerationTimeMs);
+		UE_LOG(LogTemp, Log, TEXT("Peak Mesh Generation Time: %.2fms"), PerfStats.PeakGenerationTimeMs);
+		UE_LOG(LogTemp, Log, TEXT("Total Generation Time: %.2fms"), PerfStats.TotalGenerationTimeMs);
+
+		// Calculate estimated texture memory usage
+		int32 EstimatedMemoryMB = 0;
+		for (const FTileCoord& TileCoord : ActiveTiles)
+		{
+			FTerrainMeshData MeshData;
+			if (VHMRenderer->GetTerrainMeshData(TileCoord, MeshData) && MeshData.HeightTexture)
+			{
+				int32 TextureSize = Settings->Settings.HeightfieldResolution;
+				EstimatedMemoryMB += (TextureSize * TextureSize * 4) / (1024 * 1024);
+			}
+		}
+		UE_LOG(LogTemp, Log, TEXT("Estimated Texture Memory Usage: ~%dMB"), EstimatedMemoryMB);
 	})
 );

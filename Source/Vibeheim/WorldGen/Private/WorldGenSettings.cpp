@@ -6,6 +6,7 @@
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
 #include "Misc/Paths.h"
+#include "VHMTerrainRendering/VHMTerrainRenderer.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogWorldGenSettings, Log, All);
 
@@ -17,6 +18,9 @@ UWorldGenSettings::UWorldGenSettings()
 	// Initialize with default settings
 	Settings = FWorldGenConfig();
 	ApplyLockedValues();
+	
+	// Initialize VHM terrain renderer
+	VHMTerrainRenderer = nullptr;
 }
 
 UWorldGenSettings* UWorldGenSettings::GetWorldGenSettings()
