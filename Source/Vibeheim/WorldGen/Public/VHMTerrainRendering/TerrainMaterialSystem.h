@@ -117,6 +117,22 @@ struct VIBEHEIM_API FTerrainRVTConfig
     // Performance optimization level (0-3)
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RVT")
     int32 OptimizationLevel = 2;
+
+    // Maximum number of texture layers to keep in memory
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RVT")
+    int32 MaxActiveTextures = 256;
+
+    // Texture quality level (0=Low, 1=Medium, 2=High, 3=Ultra)
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RVT")
+    int32 TextureQualityLevel = 2;
+
+    // Enable texture compression for RVT layers
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RVT")
+    bool bEnableTextureCompression = true;
+
+    // Texture update frequency in seconds
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RVT")
+    float TextureUpdateFrequency = 0.1f;
 };
 
 /**
@@ -215,6 +231,36 @@ public:
      */
     UFUNCTION(BlueprintCallable, Category = "RVT")
     void GetRVTStreamingStats(int32& OutActiveTextures, float& OutMemoryUsageMB, int32& OutStreamingRequests) const;
+
+    /**
+     * Update RVT streaming based on viewer position
+     */
+    UFUNCTION(BlueprintCallable, Category = "RVT")
+    void UpdateRVTStreaming(const FVector& ViewerPosition);
+
+    /**
+     * Get RVT texture for a specific layer and tile
+     */
+    UFUNCTION(BlueprintCallable, Category = "RVT")
+    UTexture2D* GetRVTTexture(const FString& LayerName, const FTileCoord& TileCoord) const;
+
+    /**
+     * Clear RVT cache for memory management
+     */
+    UFUNCTION(BlueprintCallable, Category = "RVT")
+    void ClearRVTCache();
+
+    /**
+     * Get RVT configuration for external systems
+     */
+    UFUNCTION(BlueprintCallable, Category = "RVT")
+    FTerrainRVTConfig GetCurrentRVTConfig() const { return RVTConfig; }
+
+    /**
+     * Get detailed RVT status information for debugging
+     */
+    UFUNCTION(BlueprintCallable, Category = "RVT")
+    FString GetRVTStatusInfo() const;
 
 protected:
     // Service references

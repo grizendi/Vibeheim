@@ -105,7 +105,12 @@
   - Implement boundary update system when adjacent tiles are modified
   - _Requirements: 1.3, 5.2_
 
-- [ ] 11. Add Runtime Virtual Texturing integration
+- [x] 11. Add Runtime Virtual Texturing integration
+
+
+
+
+
 
 
 

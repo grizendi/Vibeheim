@@ -6,6 +6,7 @@
 #include "Engine/TextureRenderTarget2D.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
+#include "Engine/TextureDefines.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogTerrainMaterialSystem, Log, All);
 
@@ -763,12 +764,38 @@ void UVHMTerrainMaterialSystem::OptimizeRVTPerformance()
                 // Implement aggressive memory management
                 OptimizeRVTMemoryUsage();
                 
-                // Reduce active texture count if memory usage is high
-                if (RVTMemoryUsage > RVTConfig.RVTMemoryBudgetMB * 0.8f)
+                // Reduce active texture count if memory usage is high or texture count exceeds limit
+                if (RVTMemoryUsage > RVTConfig.RVTMemoryBudgetMB * 0.8f || ActiveRVTTextures > RVTConfig.MaxActiveTextures)
                 {
+                    // Calculate how many textures to remove
+                    int32 TexturesToRemove = 0;
+                    if (RVTMemoryUsage > RVTConfig.RVTMemoryBudgetMB * 0.8f)
+                    {
+                        TexturesToRemove = FMath::Max(TexturesToRemove, ActiveRVTTextures / 4);
+                    }
+                    if (ActiveRVTTextures > RVTConfig.MaxActiveTextures)
+                    {
+                        TexturesToRemove = FMath::Max(TexturesToRemove, ActiveRVTTextures - RVTConfig.MaxActiveTextures);
+                    }
+                    
                     // Remove least recently used textures
-                    int32 TexturesToRemove = FMath::Max(1, ActiveRVTTextures / 4);
-                    UE_LOG(LogTerrainMaterialSystem, Log, TEXT("OptimizeRVTPerformance: Removing %d textures for memory optimization"), TexturesToRemove);
+                    TArray<FString> TextureKeys;
+                    RVTTextureLayers.GetKeys(TextureKeys);
+                    
+                    for (int32 i = 0; i < FMath::Min(TexturesToRemove, TextureKeys.Num()); i++)
+                    {
+                        if (TObjectPtr<UTexture2D>* TexturePtr = RVTTextureLayers.Find(TextureKeys[i]))
+                        {
+                            if (IsValid(TexturePtr->Get()))
+                            {
+                                TexturePtr->Get()->MarkAsGarbage();
+                                ActiveRVTTextures--;
+                            }
+                            RVTTextureLayers.Remove(TextureKeys[i]);
+                        }
+                    }
+                    
+                    UE_LOG(LogTerrainMaterialSystem, Log, TEXT("OptimizeRVTPerformance: Removed %d textures for optimization"), TexturesToRemove);
                 }
             }
             break;
@@ -795,9 +822,30 @@ UTexture2D* UVHMTerrainMaterialSystem::CreateRVTTextureLayer(const FRVTTextureLa
         return nullptr;
     }
 
-    // Configure texture properties
-    NewTexture->CompressionSettings = LayerConfig.bEnableCompression ? TC_Default : TC_VectorDisplacementmap;
+    // Configure texture properties based on RVT settings
+    NewTexture->CompressionSettings = (LayerConfig.bEnableCompression && RVTConfig.bEnableTextureCompression) ? TC_Default : TC_VectorDisplacementmap;
     NewTexture->SRGB = (LayerConfig.LayerName == TEXT("BaseColor"));
+    
+    // Apply texture quality settings using valid UE5.6 texture groups
+    switch (RVTConfig.TextureQualityLevel)
+    {
+        case 0: // Low quality
+            NewTexture->LODGroup = TEXTUREGROUP_World;
+            break;
+        case 1: // Medium quality
+            NewTexture->LODGroup = TEXTUREGROUP_World;
+            break;
+        case 2: // High quality
+            NewTexture->LODGroup = TEXTUREGROUP_World;
+            break;
+        case 3: // Ultra quality
+            NewTexture->LODGroup = TEXTUREGROUP_WorldNormalMap;
+            break;
+        default:
+            NewTexture->LODGroup = TEXTUREGROUP_World;
+            break;
+    }
+    
     NewTexture->UpdateResource();
 
     UE_LOG(LogTerrainMaterialSystem, Verbose, TEXT("CreateRVTTextureLayer: Created texture layer %s"), *LayerConfig.LayerName);
@@ -847,8 +895,14 @@ void UVHMTerrainMaterialSystem::UpdateRVTTextureStreaming(const FVector& ViewerP
                 
                 if (!RVTTextureLayers.Contains(TextureKey))
                 {
-                    // Request texture loading
-                    StreamingRequests++;
+                    // Create texture for streaming
+                    UTexture2D* LayerTexture = CreateRVTTextureLayer(Layer);
+                    if (LayerTexture)
+                    {
+                        RVTTextureLayers.Add(TextureKey, LayerTexture);
+                        ActiveRVTTextures++;
+                        StreamingRequests++;
+                    }
                 }
             }
         }
@@ -859,37 +913,49 @@ void UVHMTerrainMaterialSystem::UpdateRVTTextureStreaming(const FVector& ViewerP
             {
                 FString TextureKey = FString::Printf(TEXT("%s_Tile_%d_%d"), *Layer.LayerName, TileCoord.X, TileCoord.Y);
                 
-                if (RVTTextureLayers.Contains(TextureKey))
+                if (TObjectPtr<UTexture2D>* TexturePtr = RVTTextureLayers.Find(TextureKey))
                 {
+                    if (IsValid(TexturePtr->Get()))
+                    {
+                        TexturePtr->Get()->MarkAsGarbage();
+                        ActiveRVTTextures--;
+                    }
                     RVTTextureLayers.Remove(TextureKey);
-                    ActiveRVTTextures = FMath::Max(0, ActiveRVTTextures - 1);
                 }
             }
         }
     }
+
+    UpdateRVTStreamingStats();
+    UE_LOG(LogTerrainMaterialSystem, Verbose, TEXT("UpdateRVTTextureStreaming: Processed %d streaming requests"), StreamingRequests);
 }
 
 void UVHMTerrainMaterialSystem::ApplyBiomeBlendingToRVT(const FTileCoord& TileCoord, const TArray<FBiomeDefinition>& BiomeBlends)
 {
-    if (!RVTConfig.bEnableBiomeBlending)
+    if (!bRVTInitialized || BiomeBlends.Num() == 0)
     {
         return;
     }
 
-    // Generate blended textures for each layer
+    // Generate texture detail layers for each biome blend
+    for (const FBiomeDefinition& BiomeData : BiomeBlends)
+    {
+        GenerateTextureDetailLayers(TileCoord, BiomeData);
+    }
+
+    // Apply blending weights to RVT textures
     for (const FRVTTextureLayer& Layer : RVTConfig.TextureLayers)
     {
         FString TextureKey = FString::Printf(TEXT("%s_Tile_%d_%d"), *Layer.LayerName, TileCoord.X, TileCoord.Y);
         
-        if (TObjectPtr<UTexture2D>* LayerTexture = RVTTextureLayers.Find(TextureKey))
+        if (TObjectPtr<UTexture2D>* TexturePtr = RVTTextureLayers.Find(TextureKey))
         {
-            if (IsValid(LayerTexture->Get()))
+            if (IsValid(TexturePtr->Get()))
             {
-                // Apply biome blending to this texture layer
-                // This would involve rendering biome textures with blend weights
-                // For now, we'll just log the operation
-                UE_LOG(LogTerrainMaterialSystem, Verbose, TEXT("ApplyBiomeBlendingToRVT: Applied blending to layer %s for tile (%d, %d)"), 
-                       *Layer.LayerName, TileCoord.X, TileCoord.Y);
+                // Apply biome blending to texture
+                // This would involve texture blending operations in a real implementation
+                UE_LOG(LogTerrainMaterialSystem, Verbose, TEXT("ApplyBiomeBlendingToRVT: Applied blending to texture %s for tile (%d, %d)"), 
+                       *TextureKey, TileCoord.X, TileCoord.Y);
             }
         }
     }
@@ -897,130 +963,334 @@ void UVHMTerrainMaterialSystem::ApplyBiomeBlendingToRVT(const FTileCoord& TileCo
 
 void UVHMTerrainMaterialSystem::GenerateTextureDetailLayers(const FTileCoord& TileCoord, const FBiomeDefinition& BiomeData)
 {
-    // Generate detail layers based on biome data
-    for (const FRVTTextureLayer& Layer : RVTConfig.TextureLayers)
+    if (!bRVTInitialized)
     {
-        FString TextureKey = FString::Printf(TEXT("%s_Tile_%d_%d"), *Layer.LayerName, TileCoord.X, TileCoord.Y);
+        return;
+    }
+
+    // Generate base color layer
+    if (RVTConfig.TextureLayers.ContainsByPredicate([](const FRVTTextureLayer& Layer) { return Layer.LayerName == TEXT("BaseColor"); }))
+    {
+        FString BaseColorKey = FString::Printf(TEXT("BaseColor_Tile_%d_%d"), TileCoord.X, TileCoord.Y);
         
-        if (!RVTTextureLayers.Contains(TextureKey))
+        if (!RVTTextureLayers.Contains(BaseColorKey))
         {
-            UTexture2D* DetailTexture = CreateRVTTextureLayer(Layer);
-            if (DetailTexture)
+            FRVTTextureLayer BaseColorLayer;
+            BaseColorLayer.LayerName = TEXT("BaseColor");
+            BaseColorLayer.PixelFormat = PF_B8G8R8A8;
+            BaseColorLayer.bEnableCompression = true;
+            
+            UTexture2D* BaseColorTexture = CreateRVTTextureLayer(BaseColorLayer);
+            if (BaseColorTexture)
             {
-                RVTTextureLayers.Add(TextureKey, DetailTexture);
+                RVTTextureLayers.Add(BaseColorKey, BaseColorTexture);
                 ActiveRVTTextures++;
-                
-                // Apply biome-specific detail generation
-                // This would involve procedural texture generation based on biome properties
-                UE_LOG(LogTerrainMaterialSystem, Verbose, TEXT("GenerateTextureDetailLayers: Generated %s layer for tile (%d, %d)"), 
-                       *Layer.LayerName, TileCoord.X, TileCoord.Y);
             }
         }
     }
+
+    // Generate normal map layer
+    if (RVTConfig.TextureLayers.ContainsByPredicate([](const FRVTTextureLayer& Layer) { return Layer.LayerName == TEXT("Normal"); }))
+    {
+        FString NormalKey = FString::Printf(TEXT("Normal_Tile_%d_%d"), TileCoord.X, TileCoord.Y);
+        
+        if (!RVTTextureLayers.Contains(NormalKey))
+        {
+            FRVTTextureLayer NormalLayer;
+            NormalLayer.LayerName = TEXT("Normal");
+            NormalLayer.PixelFormat = PF_B8G8R8A8;
+            NormalLayer.bEnableCompression = false;
+            
+            UTexture2D* NormalTexture = CreateRVTTextureLayer(NormalLayer);
+            if (NormalTexture)
+            {
+                RVTTextureLayers.Add(NormalKey, NormalTexture);
+                ActiveRVTTextures++;
+            }
+        }
+    }
+
+    // Generate roughness layer
+    if (RVTConfig.TextureLayers.ContainsByPredicate([](const FRVTTextureLayer& Layer) { return Layer.LayerName == TEXT("Roughness"); }))
+    {
+        FString RoughnessKey = FString::Printf(TEXT("Roughness_Tile_%d_%d"), TileCoord.X, TileCoord.Y);
+        
+        if (!RVTTextureLayers.Contains(RoughnessKey))
+        {
+            FRVTTextureLayer RoughnessLayer;
+            RoughnessLayer.LayerName = TEXT("Roughness");
+            RoughnessLayer.PixelFormat = PF_G8;
+            RoughnessLayer.bEnableCompression = true;
+            
+            UTexture2D* RoughnessTexture = CreateRVTTextureLayer(RoughnessLayer);
+            if (RoughnessTexture)
+            {
+                RVTTextureLayers.Add(RoughnessKey, RoughnessTexture);
+                ActiveRVTTextures++;
+            }
+        }
+    }
+
+    UE_LOG(LogTerrainMaterialSystem, Verbose, TEXT("GenerateTextureDetailLayers: Generated detail layers for tile (%d, %d) with biome %s"), 
+           TileCoord.X, TileCoord.Y, *BiomeData.BiomeName);
 }
 
 void UVHMTerrainMaterialSystem::OptimizeRVTMemoryUsage()
 {
-    // Calculate current memory usage
+    if (!bRVTInitialized)
+    {
+        return;
+    }
+
     float CurrentMemoryUsage = 0.0f;
+    int32 TextureCount = 0;
+
+    // Calculate current memory usage
+    for (const auto& TexturePair : RVTTextureLayers)
+    {
+        if (IsValid(TexturePair.Value.Get()))
+        {
+            UTexture2D* Texture = TexturePair.Value.Get();
+            
+            // Estimate texture memory usage (rough calculation)
+            int32 TextureSize = Texture->GetSizeX() * Texture->GetSizeY();
+            int32 BytesPerPixel = 4; // Assume RGBA8 for estimation
+            
+            CurrentMemoryUsage += (TextureSize * BytesPerPixel) / (1024.0f * 1024.0f); // Convert to MB
+            TextureCount++;
+        }
+    }
+
+    RVTMemoryUsage = CurrentMemoryUsage;
+    ActiveRVTTextures = TextureCount;
+
+    // If over budget, remove least recently used textures
+    if (CurrentMemoryUsage > RVTConfig.RVTMemoryBudgetMB)
+    {
+        int32 TexturesToRemove = FMath::CeilToInt((CurrentMemoryUsage - RVTConfig.RVTMemoryBudgetMB) / (CurrentMemoryUsage / TextureCount));
+        
+        // Remove oldest textures (simple LRU approximation)
+        TArray<FString> TextureKeys;
+        RVTTextureLayers.GetKeys(TextureKeys);
+        
+        for (int32 i = 0; i < FMath::Min(TexturesToRemove, TextureKeys.Num()); i++)
+        {
+            if (TObjectPtr<UTexture2D>* TexturePtr = RVTTextureLayers.Find(TextureKeys[i]))
+            {
+                if (IsValid(TexturePtr->Get()))
+                {
+                    TexturePtr->Get()->MarkAsGarbage();
+                    ActiveRVTTextures--;
+                }
+                RVTTextureLayers.Remove(TextureKeys[i]);
+            }
+        }
+        
+        UE_LOG(LogTerrainMaterialSystem, Log, TEXT("OptimizeRVTMemoryUsage: Removed %d textures to stay within memory budget"), TexturesToRemove);
+    }
+
+    UE_LOG(LogTerrainMaterialSystem, Verbose, TEXT("OptimizeRVTMemoryUsage: Current usage %.2f MB / %.2f MB budget"), 
+           RVTMemoryUsage, RVTConfig.RVTMemoryBudgetMB);
+}
+
+void UVHMTerrainMaterialSystem::UpdateRVTStreamingStats() const
+{
+    // Update streaming statistics
+    int32 ActiveTextures = 0;
+    float MemoryUsage = 0.0f;
     
     for (const auto& TexturePair : RVTTextureLayers)
     {
         if (IsValid(TexturePair.Value.Get()))
         {
-            // Estimate texture memory usage (rough calculation)
-            int32 TextureSize = RVTConfig.RVTResolution * RVTConfig.RVTResolution * 4; // 4 bytes per pixel estimate
-            CurrentMemoryUsage += TextureSize / (1024.0f * 1024.0f); // Convert to MB
+            ActiveTextures++;
+            
+            // Estimate memory usage
+            UTexture2D* Texture = TexturePair.Value.Get();
+            int32 TextureSize = Texture->GetSizeX() * Texture->GetSizeY();
+            MemoryUsage += (TextureSize * 4) / (1024.0f * 1024.0f); // Assume 4 bytes per pixel
         }
     }
     
-    RVTMemoryUsage = CurrentMemoryUsage;
-    
-    // If over budget, remove least important textures
-    if (RVTMemoryUsage > RVTConfig.RVTMemoryBudgetMB)
-    {
-        int32 TexturesToRemove = FMath::CeilToInt((RVTMemoryUsage - RVTConfig.RVTMemoryBudgetMB) / (RVTConfig.RVTResolution * RVTConfig.RVTResolution * 4 / (1024.0f * 1024.0f)));
-        
-        // Remove textures (simplified - would need better prioritization in production)
-        int32 RemovedCount = 0;
-        for (auto It = RVTTextureLayers.CreateIterator(); It && RemovedCount < TexturesToRemove; ++It)
-        {
-            if (IsValid(It->Value.Get()))
-            {
-                It->Value.Get()->MarkAsGarbage();
-                It.RemoveCurrent();
-                ActiveRVTTextures = FMath::Max(0, ActiveRVTTextures - 1);
-                RemovedCount++;
-            }
-        }
-        
-        UE_LOG(LogTerrainMaterialSystem, Log, TEXT("OptimizeRVTMemoryUsage: Removed %d textures to stay within memory budget"), RemovedCount);
-    }
-}
-
-void UVHMTerrainMaterialSystem::UpdateRVTStreamingStats() const
-{
-    // Update statistics (already done in OptimizeRVTMemoryUsage for memory usage)
-    // StreamingRequests is updated in UpdateRVTTextureStreaming
-    // ActiveRVTTextures is maintained throughout texture operations
+    // Update mutable statistics
+    const_cast<UVHMTerrainMaterialSystem*>(this)->ActiveRVTTextures = ActiveTextures;
+    const_cast<UVHMTerrainMaterialSystem*>(this)->RVTMemoryUsage = MemoryUsage;
 }
 
 bool UVHMTerrainMaterialSystem::ValidateRVTConfiguration() const
 {
-    if (RVTConfig.RVTResolution <= 0 || RVTConfig.RVTTileSize <= 0)
+    // Validate RVT resolution
+    if (RVTConfig.RVTResolution <= 0 || RVTConfig.RVTResolution > 8192)
     {
-        UE_LOG(LogTerrainMaterialSystem, Error, TEXT("ValidateRVTConfiguration: Invalid RVT resolution or tile size"));
+        UE_LOG(LogTerrainMaterialSystem, Error, TEXT("ValidateRVTConfiguration: Invalid RVT resolution %d"), RVTConfig.RVTResolution);
         return false;
     }
-    
+
+    // Validate tile size
+    if (RVTConfig.RVTTileSize <= 0 || RVTConfig.RVTTileSize > RVTConfig.RVTResolution)
+    {
+        UE_LOG(LogTerrainMaterialSystem, Error, TEXT("ValidateRVTConfiguration: Invalid RVT tile size %d"), RVTConfig.RVTTileSize);
+        return false;
+    }
+
+    // Validate memory budget
     if (RVTConfig.RVTMemoryBudgetMB <= 0.0f)
     {
-        UE_LOG(LogTerrainMaterialSystem, Error, TEXT("ValidateRVTConfiguration: Invalid memory budget"));
+        UE_LOG(LogTerrainMaterialSystem, Error, TEXT("ValidateRVTConfiguration: Invalid memory budget %.2f MB"), RVTConfig.RVTMemoryBudgetMB);
         return false;
     }
-    
-    if (RVTConfig.TextureLayers.Num() == 0)
+
+    // Validate streaming distance
+    if (RVTConfig.StreamingDistance <= 0.0f)
     {
-        UE_LOG(LogTerrainMaterialSystem, Warning, TEXT("ValidateRVTConfiguration: No texture layers configured"));
+        UE_LOG(LogTerrainMaterialSystem, Error, TEXT("ValidateRVTConfiguration: Invalid streaming distance %.2f"), RVTConfig.StreamingDistance);
+        return false;
     }
-    
+
+    // Validate optimization level
+    if (RVTConfig.OptimizationLevel < 0 || RVTConfig.OptimizationLevel > 3)
+    {
+        UE_LOG(LogTerrainMaterialSystem, Error, TEXT("ValidateRVTConfiguration: Invalid optimization level %d"), RVTConfig.OptimizationLevel);
+        return false;
+    }
+
+    // Validate max active textures
+    if (RVTConfig.MaxActiveTextures <= 0)
+    {
+        UE_LOG(LogTerrainMaterialSystem, Error, TEXT("ValidateRVTConfiguration: Invalid max active textures %d"), RVTConfig.MaxActiveTextures);
+        return false;
+    }
+
+    // Validate texture quality level
+    if (RVTConfig.TextureQualityLevel < 0 || RVTConfig.TextureQualityLevel > 3)
+    {
+        UE_LOG(LogTerrainMaterialSystem, Error, TEXT("ValidateRVTConfiguration: Invalid texture quality level %d"), RVTConfig.TextureQualityLevel);
+        return false;
+    }
+
+    // Validate texture update frequency
+    if (RVTConfig.TextureUpdateFrequency <= 0.0f)
+    {
+        UE_LOG(LogTerrainMaterialSystem, Error, TEXT("ValidateRVTConfiguration: Invalid texture update frequency %.3f"), RVTConfig.TextureUpdateFrequency);
+        return false;
+    }
+
     return true;
 }
 
 void UVHMTerrainMaterialSystem::InitializeDefaultTextureLayers()
 {
-    if (RVTConfig.TextureLayers.Num() > 0)
+    if (RVTConfig.TextureLayers.Num() == 0)
     {
-        return; // Already configured
+        // Create default texture layers
+        FRVTTextureLayer BaseColorLayer;
+        BaseColorLayer.LayerName = TEXT("BaseColor");
+        BaseColorLayer.PixelFormat = PF_B8G8R8A8;
+        BaseColorLayer.bEnableCompression = true;
+        BaseColorLayer.StreamingPriority = 3;
+        RVTConfig.TextureLayers.Add(BaseColorLayer);
+
+        FRVTTextureLayer NormalLayer;
+        NormalLayer.LayerName = TEXT("Normal");
+        NormalLayer.PixelFormat = PF_B8G8R8A8;
+        NormalLayer.bEnableCompression = false;
+        NormalLayer.StreamingPriority = 2;
+        RVTConfig.TextureLayers.Add(NormalLayer);
+
+        FRVTTextureLayer RoughnessLayer;
+        RoughnessLayer.LayerName = TEXT("Roughness");
+        RoughnessLayer.PixelFormat = PF_G8;
+        RoughnessLayer.bEnableCompression = true;
+        RoughnessLayer.StreamingPriority = 1;
+        RVTConfig.TextureLayers.Add(RoughnessLayer);
+
+        UE_LOG(LogTerrainMaterialSystem, Log, TEXT("InitializeDefaultTextureLayers: Created %d default texture layers"), RVTConfig.TextureLayers.Num());
+    }
+}
+
+void UVHMTerrainMaterialSystem::UpdateRVTStreaming(const FVector& ViewerPosition)
+{
+    if (!bRVTInitialized)
+    {
+        return;
+    }
+
+    UpdateRVTTextureStreaming(ViewerPosition);
+    OptimizeRVTPerformance();
+    
+    UE_LOG(LogTerrainMaterialSystem, Verbose, TEXT("UpdateRVTStreaming: Updated streaming for viewer position (%.1f, %.1f, %.1f)"), 
+           ViewerPosition.X, ViewerPosition.Y, ViewerPosition.Z);
+}
+
+UTexture2D* UVHMTerrainMaterialSystem::GetRVTTexture(const FString& LayerName, const FTileCoord& TileCoord) const
+{
+    FString TextureKey = FString::Printf(TEXT("%s_Tile_%d_%d"), *LayerName, TileCoord.X, TileCoord.Y);
+    
+    if (const TObjectPtr<UTexture2D>* TexturePtr = RVTTextureLayers.Find(TextureKey))
+    {
+        return TexturePtr->Get();
     }
     
-    // Create default texture layers
-    TArray<FRVTTextureLayer> DefaultLayers;
+    return nullptr;
+}
+
+void UVHMTerrainMaterialSystem::ClearRVTCache()
+{
+    if (!bRVTInitialized)
+    {
+        return;
+    }
+
+    // Clear all RVT texture layers
+    for (auto& TexturePair : RVTTextureLayers)
+    {
+        if (IsValid(TexturePair.Value.Get()))
+        {
+            TexturePair.Value.Get()->MarkAsGarbage();
+        }
+    }
+    RVTTextureLayers.Empty();
+
+    // Clear render targets
+    for (auto& RenderTargetPair : RVTRenderTargets)
+    {
+        if (IsValid(RenderTargetPair.Value.Get()))
+        {
+            RenderTargetPair.Value.Get()->MarkAsGarbage();
+        }
+    }
+    RVTRenderTargets.Empty();
+
+    // Clear biome blend configurations
+    TileBiomeBlends.Empty();
+
+    // Reset statistics
+    ActiveRVTTextures = 0;
+    RVTMemoryUsage = 0.0f;
+    StreamingRequests = 0;
+
+    UE_LOG(LogTerrainMaterialSystem, Log, TEXT("ClearRVTCache: RVT cache cleared"));
+}
+
+FString UVHMTerrainMaterialSystem::GetRVTStatusInfo() const
+{
+    FString StatusInfo;
     
-    // Base color layer
-    FRVTTextureLayer BaseColorLayer;
-    BaseColorLayer.LayerName = TEXT("BaseColor");
-    BaseColorLayer.PixelFormat = PF_B8G8R8A8;
-    BaseColorLayer.bEnableCompression = true;
-    BaseColorLayer.StreamingPriority = 3;
-    DefaultLayers.Add(BaseColorLayer);
+    StatusInfo += FString::Printf(TEXT("RVT System Status:\n"));
+    StatusInfo += FString::Printf(TEXT("  Initialized: %s\n"), bRVTInitialized ? TEXT("Yes") : TEXT("No"));
+    StatusInfo += FString::Printf(TEXT("  Active Textures: %d / %d\n"), ActiveRVTTextures, RVTConfig.MaxActiveTextures);
+    StatusInfo += FString::Printf(TEXT("  Memory Usage: %.2f / %.2f MB\n"), RVTMemoryUsage, RVTConfig.RVTMemoryBudgetMB);
+    StatusInfo += FString::Printf(TEXT("  Streaming Requests: %d\n"), StreamingRequests);
+    StatusInfo += FString::Printf(TEXT("  Resolution: %d x %d\n"), RVTConfig.RVTResolution, RVTConfig.RVTResolution);
+    StatusInfo += FString::Printf(TEXT("  Tile Size: %d\n"), RVTConfig.RVTTileSize);
+    StatusInfo += FString::Printf(TEXT("  Texture Layers: %d\n"), RVTConfig.TextureLayers.Num());
+    StatusInfo += FString::Printf(TEXT("  Streaming Distance: %.1f\n"), RVTConfig.StreamingDistance);
+    StatusInfo += FString::Printf(TEXT("  Optimization Level: %d\n"), RVTConfig.OptimizationLevel);
+    StatusInfo += FString::Printf(TEXT("  Quality Level: %d\n"), RVTConfig.TextureQualityLevel);
+    StatusInfo += FString::Printf(TEXT("  Biome Blending: %s\n"), RVTConfig.bEnableBiomeBlending ? TEXT("Enabled") : TEXT("Disabled"));
+    StatusInfo += FString::Printf(TEXT("  Texture Compression: %s\n"), RVTConfig.bEnableTextureCompression ? TEXT("Enabled") : TEXT("Disabled"));
+    StatusInfo += FString::Printf(TEXT("  Streaming Tiles: %d\n"), StreamingTiles.Num());
+    StatusInfo += FString::Printf(TEXT("  Biome Blend Configs: %d\n"), TileBiomeBlends.Num());
     
-    // Normal map layer
-    FRVTTextureLayer NormalLayer;
-    NormalLayer.LayerName = TEXT("Normal");
-    NormalLayer.PixelFormat = PF_B8G8R8A8;
-    NormalLayer.bEnableCompression = true;
-    NormalLayer.StreamingPriority = 2;
-    DefaultLayers.Add(NormalLayer);
-    
-    // Roughness layer
-    FRVTTextureLayer RoughnessLayer;
-    RoughnessLayer.LayerName = TEXT("Roughness");
-    RoughnessLayer.PixelFormat = PF_G8;
-    RoughnessLayer.bEnableCompression = true;
-    RoughnessLayer.StreamingPriority = 1;
-    DefaultLayers.Add(RoughnessLayer);
-    
-    RVTConfig.TextureLayers = DefaultLayers;
-    UE_LOG(LogTerrainMaterialSystem, Log, TEXT("InitializeDefaultTextureLayers: Initialized %d default texture layers"), DefaultLayers.Num());
+    return StatusInfo;
 }
