@@ -16,8 +16,12 @@
 #include "VHMTerrainRendering/TerrainMaterialSystem.h"
 #include "VHMTerrainRendering/TerrainLODManager.h"
 #include "VHMTerrainRendering/HeightfieldTextureManager.h"
+#include "VHMTerrainRendering/TileBoundaryManager.h"
 #include "GameFramework/Actor.h"
 #include "VirtualHeightfieldMeshComponent.h"
+#include "WorldGenManager.h"
+#include "Engine/World.h"
+#include "EngineUtils.h"
 
 
 
@@ -2959,4 +2963,650 @@ static FAutoConsoleCommand VHMUpdateMeshCommand(
 		UE_LOG(LogTemp, Log, TEXT("  Last mesh generation: %.2fms"), PerfStats.LastMeshGenerationMs);
 		UE_LOG(LogTemp, Log, TEXT("  Average generation time: %.2fms"), PerfStats.AverageGenerationTimeMs);
 	})
+);
+
+// VHM Boundary System Commands
+static FAutoConsoleCommand VHMShowBoundariesCommand(
+	TEXT("wg.VHM.ShowBoundaries"),
+	TEXT("Display boundary information for a tile. Usage: wg.VHM.ShowBoundaries <TileX> <TileY>"),
+	FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+	{
+		if (Args.Num() < 2)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Usage: wg.VHM.ShowBoundaries <TileX> <TileY>"));
+			return;
+		}
+
+		int32 TileX = FCString::Atoi(*Args[0]);
+		int32 TileY = FCString::Atoi(*Args[1]);
+		FTileCoord TileCoord(TileX, TileY);
+
+		// Get world gen settings
+		UWorldGenSettings* Settings = UWorldGenSettings::GetWorldGenSettings();
+		if (!Settings)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Failed to get WorldGen settings"));
+			return;
+		}
+
+		// Find WorldGenManager in the world
+		UWorld* World = GEngine->GetWorldFromContextObject(Settings, EGetWorldErrorMode::LogAndReturnNull);
+		if (!World)
+		{
+			UE_LOG(LogTemp, Error, TEXT("No valid world context"));
+			return;
+		}
+
+		AWorldGenManager* WorldGenManager = nullptr;
+		for (TActorIterator<AWorldGenManager> ActorItr(World); ActorItr; ++ActorItr)
+		{
+			WorldGenManager = *ActorItr;
+			break;
+		}
+
+		if (!WorldGenManager)
+		{
+			UE_LOG(LogTemp, Error, TEXT("No WorldGenManager available"));
+			return;
+		}
+
+		UVHMTerrainRenderer* VHMRenderer = WorldGenManager->GetVHMTerrainRenderer();
+		if (!VHMRenderer)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("No VHM terrain renderer found"));
+			return;
+		}
+
+		// Get boundary manager
+		TScriptInterface<ITileBoundaryManager> BoundaryManagerInterface = VHMRenderer->GetTileBoundaryManager();
+		ITileBoundaryManager* BoundaryManager = BoundaryManagerInterface.GetInterface();
+		if (!BoundaryManager)
+		{
+			UE_LOG(LogTemp, Error, TEXT("No boundary manager available"));
+			return;
+		}
+
+		// Get boundary data
+		FTileBoundaryData BoundaryData;
+		if (BoundaryManager->GetTileBoundaryData(TileCoord, BoundaryData))
+		{
+			UE_LOG(LogTemp, Log, TEXT("=== Boundary Data for Tile (%d, %d) ==="), TileX, TileY);
+			UE_LOG(LogTemp, Log, TEXT("Valid: %s"), BoundaryData.bIsValid ? TEXT("Yes") : TEXT("No"));
+			UE_LOG(LogTemp, Log, TEXT("Last Update: %.2f seconds ago"), FPlatformTime::Seconds() - BoundaryData.LastUpdateTime);
+			
+			for (int32 EdgeIndex = 0; EdgeIndex < BoundaryData.BoundaryEdges.Num(); ++EdgeIndex)
+			{
+				const FTileBoundaryEdge& Edge = BoundaryData.BoundaryEdges[EdgeIndex];
+				FString EdgeName;
+				switch (EdgeIndex)
+				{
+				case 0: EdgeName = TEXT("North"); break;
+				case 1: EdgeName = TEXT("East"); break;
+				case 2: EdgeName = TEXT("South"); break;
+				case 3: EdgeName = TEXT("West"); break;
+				default: EdgeName = TEXT("Unknown"); break;
+				}
+				
+				UE_LOG(LogTemp, Log, TEXT("  %s Edge: %d height samples, %d normals, %d UVs"), 
+					   *EdgeName, Edge.EdgeHeights.Num(), Edge.EdgeNormals.Num(), Edge.EdgeUVs.Num());
+				UE_LOG(LogTemp, Log, TEXT("    Adjacent Tile: (%d, %d)"), Edge.AdjacentTile.X, Edge.AdjacentTile.Y);
+				
+				if (Edge.EdgeHeights.Num() > 0)
+				{
+					float MinHeight = *MinElement(Edge.EdgeHeights.GetData(), Edge.EdgeHeights.GetData() + Edge.EdgeHeights.Num());
+					float MaxHeight = *MaxElement(Edge.EdgeHeights.GetData(), Edge.EdgeHeights.GetData() + Edge.EdgeHeights.Num());
+					UE_LOG(LogTemp, Log, TEXT("    Height Range: %.2f to %.2f"), MinHeight, MaxHeight);
+				}
+			}
+		}
+		else
+		{
+			UE_LOG(LogTemp, Warning, TEXT("No boundary data found for tile (%d, %d)"), TileX, TileY);
+		}
+	})
+);
+
+static FAutoConsoleCommand VHMTestBoundaryStitchingCommand(
+	TEXT("wg.VHM.TestBoundaryStitching"),
+	TEXT("Test boundary stitching between two adjacent tiles. Usage: wg.VHM.TestBoundaryStitching <TileX1> <TileY1> <TileX2> <TileY2>"),
+	FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+	{
+		if (Args.Num() < 4)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Usage: wg.VHM.TestBoundaryStitching <TileX1> <TileY1> <TileX2> <TileY2>"));
+			return;
+		}
+
+		int32 TileX1 = FCString::Atoi(*Args[0]);
+		int32 TileY1 = FCString::Atoi(*Args[1]);
+		int32 TileX2 = FCString::Atoi(*Args[2]);
+		int32 TileY2 = FCString::Atoi(*Args[3]);
+		
+		FTileCoord TileCoord1(TileX1, TileY1);
+		FTileCoord TileCoord2(TileX2, TileY2);
+
+		// Get world gen settings
+		UWorldGenSettings* Settings = UWorldGenSettings::GetWorldGenSettings();
+		if (!Settings)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Failed to get WorldGen settings"));
+			return;
+		}
+
+		// Find WorldGenManager in the world
+		UWorld* World = GEngine->GetWorldFromContextObject(Settings, EGetWorldErrorMode::LogAndReturnNull);
+		if (!World)
+		{
+			UE_LOG(LogTemp, Error, TEXT("No valid world context"));
+			return;
+		}
+
+		AWorldGenManager* WorldGenManager = nullptr;
+		for (TActorIterator<AWorldGenManager> ActorItr(World); ActorItr; ++ActorItr)
+		{
+			WorldGenManager = *ActorItr;
+			break;
+		}
+
+		if (!WorldGenManager)
+		{
+			UE_LOG(LogTemp, Error, TEXT("No WorldGenManager available"));
+			return;
+		}
+
+		UVHMTerrainRenderer* VHMRenderer = WorldGenManager->GetVHMTerrainRenderer();
+		if (!VHMRenderer)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("No VHM terrain renderer found"));
+			return;
+		}
+
+		TScriptInterface<ITileBoundaryManager> BoundaryManagerInterface = VHMRenderer->GetTileBoundaryManager();
+		ITileBoundaryManager* BoundaryManager = BoundaryManagerInterface.GetInterface();
+		if (!BoundaryManager)
+		{
+			UE_LOG(LogTemp, Error, TEXT("No boundary manager available"));
+			return;
+		}
+
+		UE_LOG(LogTemp, Log, TEXT("=== Testing Boundary Stitching ==="));
+		UE_LOG(LogTemp, Log, TEXT("Tile 1: (%d, %d)"), TileX1, TileY1);
+		UE_LOG(LogTemp, Log, TEXT("Tile 2: (%d, %d)"), TileX2, TileY2);
+
+		// Check if tiles are adjacent
+		if (!BoundaryManager->AreTilesAdjacent(TileCoord1, TileCoord2))
+		{
+			UE_LOG(LogTemp, Error, TEXT("Tiles are not adjacent - cannot perform boundary stitching"));
+			return;
+		}
+
+		// Get edge direction
+		uint8 EdgeDirection = BoundaryManager->GetEdgeDirection(TileCoord1, TileCoord2);
+		FString EdgeName;
+		switch (EdgeDirection)
+		{
+		case 0: EdgeName = TEXT("North"); break;
+		case 1: EdgeName = TEXT("East"); break;
+		case 2: EdgeName = TEXT("South"); break;
+		case 3: EdgeName = TEXT("West"); break;
+		default: EdgeName = TEXT("Invalid"); break;
+		}
+		
+		UE_LOG(LogTemp, Log, TEXT("Edge Direction: %s (%d)"), *EdgeName, EdgeDirection);
+
+		// Test boundary stitching
+		TArray<float> StitchedHeightData;
+		bool bStitchSuccess = BoundaryManager->StitchTileBoundaries(TileCoord1, TileCoord2, StitchedHeightData, 64);
+		
+		if (bStitchSuccess)
+		{
+			UE_LOG(LogTemp, Log, TEXT("✓ Boundary stitching successful"));
+			UE_LOG(LogTemp, Log, TEXT("  Stitched height data size: %d"), StitchedHeightData.Num());
+			
+			if (StitchedHeightData.Num() > 0)
+			{
+				float MinHeight = *MinElement(StitchedHeightData.GetData(), StitchedHeightData.GetData() + StitchedHeightData.Num());
+				float MaxHeight = *MaxElement(StitchedHeightData.GetData(), StitchedHeightData.GetData() + StitchedHeightData.Num());
+				UE_LOG(LogTemp, Log, TEXT("  Height range: %.2f to %.2f"), MinHeight, MaxHeight);
+			}
+		}
+		else
+		{
+			UE_LOG(LogTemp, Error, TEXT("✗ Boundary stitching failed"));
+		}
+
+		// Test edge height sampling
+		TArray<float> EdgeHeights1, EdgeHeights2;
+		bool bSample1 = BoundaryManager->SampleTileEdgeHeights(TileCoord1, EdgeDirection, 64, EdgeHeights1);
+		bool bSample2 = BoundaryManager->SampleTileEdgeHeights(TileCoord2, (EdgeDirection + 2) % 4, 64, EdgeHeights2);
+		
+		UE_LOG(LogTemp, Log, TEXT("Edge sampling: Tile1=%s (%d samples), Tile2=%s (%d samples)"), 
+			   bSample1 ? TEXT("✓") : TEXT("✗"), EdgeHeights1.Num(),
+			   bSample2 ? TEXT("✓") : TEXT("✗"), EdgeHeights2.Num());
+
+		// Test normal calculation
+		TArray<FVector> BoundaryNormals;
+		bool bNormalsSuccess = BoundaryManager->CalculateBoundaryNormals(TileCoord1, TileCoord2, EdgeDirection, BoundaryNormals, 64);
+		UE_LOG(LogTemp, Log, TEXT("Normal calculation: %s (%d normals)"), 
+			   bNormalsSuccess ? TEXT("✓") : TEXT("✗"), BoundaryNormals.Num());
+
+		// Test UV mapping
+		TArray<FVector2D> BoundaryUVs;
+		bool bUVSuccess = BoundaryManager->CreateBoundaryUVMapping(TileCoord1, TileCoord2, EdgeDirection, BoundaryUVs, 64);
+		UE_LOG(LogTemp, Log, TEXT("UV mapping: %s (%d UVs)"), 
+			   bUVSuccess ? TEXT("✓") : TEXT("✗"), BoundaryUVs.Num());
+
+		UE_LOG(LogTemp, Log, TEXT("=== Boundary Stitching Test Complete ==="));
+	})
+);
+
+static FAutoConsoleCommand VHMBoundaryStatsCommand(
+	TEXT("wg.VHM.BoundaryStats"),
+	TEXT("Show boundary system statistics"),
+	FConsoleCommandDelegate::CreateLambda([]()
+	{
+		// Get world gen settings
+		UWorldGenSettings* Settings = UWorldGenSettings::GetWorldGenSettings();
+		if (!Settings)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Failed to get WorldGen settings"));
+			return;
+		}
+
+		// Find WorldGenManager in the world
+		UWorld* World = GEngine->GetWorldFromContextObject(Settings, EGetWorldErrorMode::LogAndReturnNull);
+		if (!World)
+		{
+			UE_LOG(LogTemp, Error, TEXT("No valid world context"));
+			return;
+		}
+
+		AWorldGenManager* WorldGenManager = nullptr;
+		for (TActorIterator<AWorldGenManager> ActorItr(World); ActorItr; ++ActorItr)
+		{
+			WorldGenManager = *ActorItr;
+			break;
+		}
+
+		if (!WorldGenManager)
+		{
+			UE_LOG(LogTemp, Error, TEXT("No WorldGenManager available"));
+			return;
+		}
+
+		UVHMTerrainRenderer* VHMRenderer = WorldGenManager->GetVHMTerrainRenderer();
+		if (!VHMRenderer)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("No VHM terrain renderer found"));
+			return;
+		}
+
+		// Get performance stats
+		FVHMPerformanceStats PerfStats = VHMRenderer->GetPerformanceStats();
+		
+		UE_LOG(LogTemp, Log, TEXT("=== VHM Boundary System Statistics ==="));
+		UE_LOG(LogTemp, Log, TEXT("Active VHM Components: %d"), PerfStats.ActiveVHMComponents);
+		UE_LOG(LogTemp, Log, TEXT("Boundary Stitching Operations: %d"), PerfStats.BoundaryStitchingOperations);
+		UE_LOG(LogTemp, Log, TEXT("Texture Memory Usage: %.2f MB"), PerfStats.TextureMemoryUsageMB);
+		UE_LOG(LogTemp, Log, TEXT("Average Mesh Generation Time: %.2f ms"), PerfStats.AverageMeshGenerationMs);
+		UE_LOG(LogTemp, Log, TEXT("LOD Transitions This Frame: %d"), PerfStats.LODTransitionsThisFrame);
+		UE_LOG(LogTemp, Log, TEXT("Current FPS: %.1f"), PerfStats.CurrentFPS);
+
+		// Get boundary manager stats
+		TScriptInterface<ITileBoundaryManager> BoundaryManagerInterface = VHMRenderer->GetTileBoundaryManager();
+		if (BoundaryManagerInterface.GetInterface())
+		{
+			if (UVHMTileBoundaryManager* ConcreteBoundaryManager = Cast<UVHMTileBoundaryManager>(BoundaryManagerInterface.GetObject()))
+			{
+				int32 BoundaryOperationCount = ConcreteBoundaryManager->GetBoundaryOperationCount();
+				UE_LOG(LogTemp, Log, TEXT("Total Boundary Operations: %d"), BoundaryOperationCount);
+			}
+		}
+		else
+		{
+			UE_LOG(LogTemp, Warning, TEXT("No boundary manager available"));
+		}
+	})
+);
+
+static FAutoConsoleCommand VHMClearBoundaryDataCommand(
+	TEXT("wg.VHM.ClearBoundaryData"),
+	TEXT("Clear boundary data for a specific tile or all tiles. Usage: wg.VHM.ClearBoundaryData [TileX] [TileY]"),
+	FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+	{
+		// Get world gen settings
+		UWorldGenSettings* Settings = UWorldGenSettings::GetWorldGenSettings();
+		if (!Settings)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Failed to get WorldGen settings"));
+			return;
+		}
+
+		// Find WorldGenManager in the world
+		UWorld* World = GEngine->GetWorldFromContextObject(Settings, EGetWorldErrorMode::LogAndReturnNull);
+		if (!World)
+		{
+			UE_LOG(LogTemp, Error, TEXT("No valid world context"));
+			return;
+		}
+
+		AWorldGenManager* WorldGenManager = nullptr;
+		for (TActorIterator<AWorldGenManager> ActorItr(World); ActorItr; ++ActorItr)
+		{
+			WorldGenManager = *ActorItr;
+			break;
+		}
+
+		if (!WorldGenManager)
+		{
+			UE_LOG(LogTemp, Error, TEXT("No WorldGenManager available"));
+			return;
+		}
+
+		UVHMTerrainRenderer* VHMRenderer = WorldGenManager->GetVHMTerrainRenderer();
+		if (!VHMRenderer)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("No VHM terrain renderer found"));
+			return;
+		}
+
+		TScriptInterface<ITileBoundaryManager> BoundaryManagerInterface = VHMRenderer->GetTileBoundaryManager();
+		ITileBoundaryManager* BoundaryManager = BoundaryManagerInterface.GetInterface();
+		if (!BoundaryManager)
+		{
+			UE_LOG(LogTemp, Error, TEXT("No boundary manager available"));
+			return;
+		}
+
+		if (Args.Num() >= 2)
+		{
+			// Clear specific tile
+			int32 TileX = FCString::Atoi(*Args[0]);
+			int32 TileY = FCString::Atoi(*Args[1]);
+			FTileCoord TileCoord(TileX, TileY);
+			
+			BoundaryManager->ClearTileBoundaryData(TileCoord);
+			UE_LOG(LogTemp, Log, TEXT("Cleared boundary data for tile (%d, %d)"), TileX, TileY);
+		}
+		else
+		{
+			// Clear all boundary data
+			BoundaryManager->ClearAllBoundaryData();
+			UE_LOG(LogTemp, Log, TEXT("Cleared all boundary data"));
+		}
+	})
+);
+
+// Console command to test RVT functionality
+static FAutoConsoleCommand VHMTestRVTCommand(
+    TEXT("wg.VHM.TestRVT"),
+    TEXT("Test RVT functionality for VHM terrain rendering"),
+    FConsoleCommandDelegate::CreateLambda([]()
+    {
+        UE_LOG(LogTemp, Log, TEXT("Testing VHM RVT functionality..."));
+
+        UWorld* World = GEngine->GetWorldFromContextObject(GEngine, EGetWorldErrorMode::LogAndReturnNull);
+        if (!World)
+        {
+            UE_LOG(LogTemp, Error, TEXT("No valid world found"));
+            return;
+        }
+
+        AWorldGenManager* WorldGenManager = nullptr;
+        for (TActorIterator<AWorldGenManager> ActorItr(World); ActorItr; ++ActorItr)
+        {
+            WorldGenManager = *ActorItr;
+            break;
+        }
+
+        if (!WorldGenManager)
+        {
+            UE_LOG(LogTemp, Error, TEXT("No WorldGenManager available"));
+            return;
+        }
+
+        UVHMTerrainRenderer* VHMRenderer = WorldGenManager->GetVHMTerrainRenderer();
+        if (!VHMRenderer)
+        {
+            UE_LOG(LogTemp, Error, TEXT("No VHM renderer available"));
+            return;
+        }
+
+        // Get terrain material system
+        TScriptInterface<ITerrainMaterialSystem> MaterialSystemInterface = VHMRenderer->GetTerrainMaterialSystem();
+        UVHMTerrainMaterialSystem* MaterialSystem = Cast<UVHMTerrainMaterialSystem>(MaterialSystemInterface.GetObject());
+        if (!MaterialSystem)
+        {
+            UE_LOG(LogTemp, Error, TEXT("No terrain material system available"));
+            return;
+        }
+
+        // Test RVT streaming statistics
+        int32 ActiveTextures = 0;
+        float MemoryUsageMB = 0.0f;
+        int32 StreamingRequests = 0;
+        MaterialSystem->GetRVTStreamingStats(ActiveTextures, MemoryUsageMB, StreamingRequests);
+
+        UE_LOG(LogTemp, Log, TEXT("RVT Statistics:"));
+        UE_LOG(LogTemp, Log, TEXT("  Active Textures: %d"), ActiveTextures);
+        UE_LOG(LogTemp, Log, TEXT("  Memory Usage: %.2f MB"), MemoryUsageMB);
+        UE_LOG(LogTemp, Log, TEXT("  Streaming Requests: %d"), StreamingRequests);
+        UE_LOG(LogTemp, Log, TEXT("  RVT Initialized: %s"), MaterialSystem->IsRVTInitialized() ? TEXT("Yes") : TEXT("No"));
+
+        // Test RVT performance optimization
+        MaterialSystem->OptimizeRVTPerformance();
+        UE_LOG(LogTemp, Log, TEXT("RVT performance optimization completed"));
+    })
+);
+
+// Console command to setup RVT texture streaming
+static FAutoConsoleCommand VHMSetupRVTStreamingCommand(
+    TEXT("wg.VHM.SetupRVTStreaming"),
+    TEXT("Setup RVT texture streaming for test tiles"),
+    FConsoleCommandDelegate::CreateLambda([]()
+    {
+        UE_LOG(LogTemp, Log, TEXT("Setting up RVT texture streaming..."));
+
+        UWorld* World = GEngine->GetWorldFromContextObject(GEngine, EGetWorldErrorMode::LogAndReturnNull);
+        if (!World)
+        {
+            UE_LOG(LogTemp, Error, TEXT("No valid world found"));
+            return;
+        }
+
+        AWorldGenManager* WorldGenManager = nullptr;
+        for (TActorIterator<AWorldGenManager> ActorItr(World); ActorItr; ++ActorItr)
+        {
+            WorldGenManager = *ActorItr;
+            break;
+        }
+
+        if (!WorldGenManager)
+        {
+            UE_LOG(LogTemp, Error, TEXT("No WorldGenManager available"));
+            return;
+        }
+
+        UVHMTerrainRenderer* VHMRenderer = WorldGenManager->GetVHMTerrainRenderer();
+        if (!VHMRenderer)
+        {
+            UE_LOG(LogTemp, Error, TEXT("No VHM renderer available"));
+            return;
+        }
+
+        // Get terrain material system
+        TScriptInterface<ITerrainMaterialSystem> MaterialSystemInterface = VHMRenderer->GetTerrainMaterialSystem();
+        UVHMTerrainMaterialSystem* MaterialSystem = Cast<UVHMTerrainMaterialSystem>(MaterialSystemInterface.GetObject());
+        if (!MaterialSystem)
+        {
+            UE_LOG(LogTemp, Error, TEXT("No terrain material system available"));
+            return;
+        }
+
+        // Setup streaming for test tiles
+        TArray<FTileCoord> TestTiles;
+        TestTiles.Add(FTileCoord(0, 0));
+        TestTiles.Add(FTileCoord(1, 0));
+        TestTiles.Add(FTileCoord(0, 1));
+        TestTiles.Add(FTileCoord(1, 1));
+
+        bool bSuccess = MaterialSystem->SetupRVTTextureStreaming(TestTiles);
+        if (bSuccess)
+        {
+            UE_LOG(LogTemp, Log, TEXT("RVT texture streaming setup successful for %d tiles"), TestTiles.Num());
+        }
+        else
+        {
+            UE_LOG(LogTemp, Error, TEXT("RVT texture streaming setup failed"));
+        }
+    })
+);
+
+// Console command to configure biome texture blending
+static FAutoConsoleCommand VHMConfigureBiomeBlendingCommand(
+    TEXT("wg.VHM.ConfigureBiomeBlending"),
+    TEXT("Configure biome texture blending for test tile"),
+    FConsoleCommandDelegate::CreateLambda([]()
+    {
+        UE_LOG(LogTemp, Log, TEXT("Configuring biome texture blending..."));
+
+        UWorld* World = GEngine->GetWorldFromContextObject(GEngine, EGetWorldErrorMode::LogAndReturnNull);
+        if (!World)
+        {
+            UE_LOG(LogTemp, Error, TEXT("No valid world found"));
+            return;
+        }
+
+        AWorldGenManager* WorldGenManager = nullptr;
+        for (TActorIterator<AWorldGenManager> ActorItr(World); ActorItr; ++ActorItr)
+        {
+            WorldGenManager = *ActorItr;
+            break;
+        }
+
+        if (!WorldGenManager)
+        {
+            UE_LOG(LogTemp, Error, TEXT("No WorldGenManager available"));
+            return;
+        }
+
+        UVHMTerrainRenderer* VHMRenderer = WorldGenManager->GetVHMTerrainRenderer();
+        if (!VHMRenderer)
+        {
+            UE_LOG(LogTemp, Error, TEXT("No VHM renderer available"));
+            return;
+        }
+
+        // Get terrain material system
+        TScriptInterface<ITerrainMaterialSystem> MaterialSystemInterface = VHMRenderer->GetTerrainMaterialSystem();
+        UVHMTerrainMaterialSystem* MaterialSystem = Cast<UVHMTerrainMaterialSystem>(MaterialSystemInterface.GetObject());
+        if (!MaterialSystem)
+        {
+            UE_LOG(LogTemp, Error, TEXT("No terrain material system available"));
+            return;
+        }
+
+        // Create test biome blends
+        TArray<FBiomeDefinition> BiomeBlends;
+        FBiomeDefinition TestBiome;
+        TestBiome.BiomeType = EBiomeType::Meadows;
+        TestBiome.BiomeName = TEXT("TestGrassland");
+        TestBiome.BiomeWeight = 0.7f;
+        TestBiome.RVTBlendColor = FLinearColor(0.2f, 0.8f, 0.3f, 1.0f);
+        BiomeBlends.Add(TestBiome);
+
+        FTileCoord TestTile(0, 0);
+        bool bSuccess = MaterialSystem->ConfigureBiomeTextureBlending(TestTile, BiomeBlends);
+        if (bSuccess)
+        {
+            UE_LOG(LogTemp, Log, TEXT("Biome texture blending configured successfully for tile (%d, %d)"), TestTile.X, TestTile.Y);
+        }
+        else
+        {
+            UE_LOG(LogTemp, Error, TEXT("Biome texture blending configuration failed"));
+        }
+    })
+);
+
+// Console command to setup texture detail layers
+static FAutoConsoleCommand VHMSetupTextureLayersCommand(
+    TEXT("wg.VHM.SetupTextureLayers"),
+    TEXT("Setup RVT texture detail layers (base, normal, roughness)"),
+    FConsoleCommandDelegate::CreateLambda([]()
+    {
+        UE_LOG(LogTemp, Log, TEXT("Setting up RVT texture detail layers..."));
+
+        UWorld* World = GEngine->GetWorldFromContextObject(GEngine, EGetWorldErrorMode::LogAndReturnNull);
+        if (!World)
+        {
+            UE_LOG(LogTemp, Error, TEXT("No valid world found"));
+            return;
+        }
+
+        AWorldGenManager* WorldGenManager = nullptr;
+        for (TActorIterator<AWorldGenManager> ActorItr(World); ActorItr; ++ActorItr)
+        {
+            WorldGenManager = *ActorItr;
+            break;
+        }
+
+        if (!WorldGenManager)
+        {
+            UE_LOG(LogTemp, Error, TEXT("No WorldGenManager available"));
+            return;
+        }
+
+        UVHMTerrainRenderer* VHMRenderer = WorldGenManager->GetVHMTerrainRenderer();
+        if (!VHMRenderer)
+        {
+            UE_LOG(LogTemp, Error, TEXT("No VHM renderer available"));
+            return;
+        }
+
+        // Get terrain material system
+        TScriptInterface<ITerrainMaterialSystem> MaterialSystemInterface = VHMRenderer->GetTerrainMaterialSystem();
+        UVHMTerrainMaterialSystem* MaterialSystem = Cast<UVHMTerrainMaterialSystem>(MaterialSystemInterface.GetObject());
+        if (!MaterialSystem)
+        {
+            UE_LOG(LogTemp, Error, TEXT("No terrain material system available"));
+            return;
+        }
+
+        // Create texture detail layers
+        TArray<FRVTTextureLayer> DetailLayers;
+        
+        // Base color layer
+        FRVTTextureLayer BaseColorLayer;
+        BaseColorLayer.LayerName = TEXT("BaseColor");
+        BaseColorLayer.PixelFormat = PF_B8G8R8A8;
+        BaseColorLayer.bEnableCompression = true;
+        BaseColorLayer.StreamingPriority = 3;
+        DetailLayers.Add(BaseColorLayer);
+        
+        // Normal map layer
+        FRVTTextureLayer NormalLayer;
+        NormalLayer.LayerName = TEXT("Normal");
+        NormalLayer.PixelFormat = PF_B8G8R8A8;
+        NormalLayer.bEnableCompression = true;
+        NormalLayer.StreamingPriority = 2;
+        DetailLayers.Add(NormalLayer);
+        
+        // Roughness layer
+        FRVTTextureLayer RoughnessLayer;
+        RoughnessLayer.LayerName = TEXT("Roughness");
+        RoughnessLayer.PixelFormat = PF_G8;
+        RoughnessLayer.bEnableCompression = true;
+        RoughnessLayer.StreamingPriority = 1;
+        DetailLayers.Add(RoughnessLayer);
+
+        bool bSuccess = MaterialSystem->SetupTextureDetailLayers(DetailLayers);
+        if (bSuccess)
+        {
+            UE_LOG(LogTemp, Log, TEXT("Texture detail layers setup successful (%d layers)"), DetailLayers.Num());
+        }
+        else
+        {
+            UE_LOG(LogTemp, Error, TEXT("Texture detail layers setup failed"));
+        }
+    })
 );

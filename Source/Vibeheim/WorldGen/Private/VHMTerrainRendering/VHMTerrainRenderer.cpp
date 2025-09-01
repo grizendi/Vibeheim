@@ -2,6 +2,7 @@
 #include "VHMTerrainRendering/HeightfieldTextureManager.h"
 #include "VHMTerrainRendering/TerrainMaterialSystem.h"
 #include "VHMTerrainRendering/TerrainLODManager.h"
+#include "VHMTerrainRendering/TileBoundaryManager.h"
 #include "Services/HeightfieldService.h"
 #include "Services/TileStreamingService.h"
 #include "Services/BiomeService.h"
@@ -30,6 +31,7 @@ UVHMTerrainRenderer::UVHMTerrainRenderer()
     HeightfieldTextureManager.SetInterface(nullptr);
     TerrainMaterialSystem.SetInterface(nullptr);
     TerrainLODManager.SetInterface(nullptr);
+    TileBoundaryManager.SetInterface(nullptr);
     CachedWorld = nullptr;
 
     // Initialize performance tracking
@@ -77,6 +79,13 @@ bool UVHMTerrainRenderer::Initialize(UWorldGenSettings* Settings,
     if (!InitializeTerrainLODManager())
     {
         UE_LOG(LogVHMTerrainRenderer, Error, TEXT("VHMTerrainRenderer::Initialize - Failed to initialize TerrainLODManager"));
+        return false;
+    }
+
+    // Initialize tile boundary manager
+    if (!InitializeTileBoundaryManager())
+    {
+        UE_LOG(LogVHMTerrainRenderer, Error, TEXT("VHMTerrainRenderer::Initialize - Failed to initialize TileBoundaryManager"));
         return false;
     }
 
@@ -140,9 +149,28 @@ bool UVHMTerrainRenderer::CreateTerrainMeshForTile(const FTileCoord& TileCoord)
         return false;
     }
 
-    // Create height texture
+    // Apply boundary stitching to height data for seamless transitions
+    TArray<float> ProcessedHeightData = HeightfieldData.HeightData;
+    if (VHMSettings.bEnableBoundaryStitching && TileBoundaryManager.GetInterface())
+    {
+        // Extract boundary data for this tile
+        ITileBoundaryManager* BoundaryManagerInterface = Cast<ITileBoundaryManager>(TileBoundaryManager.GetObject());
+        if (BoundaryManagerInterface)
+        {
+            FTileBoundaryData BoundaryData;
+            if (BoundaryManagerInterface->ExtractTileBoundaryData(TileCoord, HeightfieldData.HeightData, VHMSettings.HeightTextureResolution, BoundaryData))
+            {
+                UE_LOG(LogVHMTerrainRenderer, Verbose, TEXT("Extracted boundary data for tile (%d, %d)"), TileCoord.X, TileCoord.Y);
+            }
+
+            // Apply boundary stitching with adjacent tiles
+            ApplyBoundaryStitching(TileCoord, ProcessedHeightData);
+        }
+    }
+
+    // Create height texture with processed (potentially stitched) height data
     IHeightfieldTextureManager* TextureManagerInterface = Cast<IHeightfieldTextureManager>(HeightfieldTextureManager.GetObject());
-    UTexture2D* HeightTexture = TextureManagerInterface ? TextureManagerInterface->CreateHeightTexture(TileCoord, HeightfieldData.HeightData) : nullptr;
+    UTexture2D* HeightTexture = TextureManagerInterface ? TextureManagerInterface->CreateHeightTexture(TileCoord, ProcessedHeightData) : nullptr;
     if (!HeightTexture)
     {
         UE_LOG(LogVHMTerrainRenderer, Error, TEXT("CreateTerrainMeshForTile - Failed to create height texture for tile: (%d, %d)"), TileCoord.X, TileCoord.Y);
@@ -238,6 +266,12 @@ bool UVHMTerrainRenderer::CreateTerrainMeshForTile(const FTileCoord& TileCoord)
     float GenerationTime = (FPlatformTime::Seconds() - StartTime) * 1000.0f; // Convert to milliseconds
     UpdatePerformanceStats(GenerationTime);
     RecordMeshGenerationTime(GenerationTime);
+
+    // Update boundary stitching stats if boundary stitching was applied
+    if (VHMSettings.bEnableBoundaryStitching && TileBoundaryManager.GetInterface())
+    {
+        PerformanceStats.BoundaryStitchingOperations++;
+    }
 
     UE_LOG(LogVHMTerrainRenderer, Log, TEXT("Created terrain mesh for tile (%d, %d) in %.2fms"), TileCoord.X, TileCoord.Y, GenerationTime);
     return true;
@@ -921,4 +955,164 @@ bool UVHMTerrainRenderer::InitializeTerrainMaterialSystem()
 
     UE_LOG(LogVHMTerrainRenderer, Log, TEXT("TerrainMaterialSystem initialized successfully"));
     return true;
+}
+
+bool UVHMTerrainRenderer::InitializeTileBoundaryManager()
+{
+    UVHMTileBoundaryManager* BoundaryManager = NewObject<UVHMTileBoundaryManager>(this);
+    if (!BoundaryManager)
+    {
+        UE_LOG(LogVHMTerrainRenderer, Error, TEXT("InitializeTileBoundaryManager - Failed to create TileBoundaryManager"));
+        return false;
+    }
+
+    TileBoundaryManager.SetObject(BoundaryManager);
+
+    // Initialize boundary manager with heightfield service and VHM settings
+    if (!BoundaryManager->Initialize(HeightfieldService, VHMSettings))
+    {
+        UE_LOG(LogVHMTerrainRenderer, Error, TEXT("InitializeTileBoundaryManager - Failed to initialize TileBoundaryManager"));
+        return false;
+    }
+
+    UE_LOG(LogVHMTerrainRenderer, Log, TEXT("TileBoundaryManager initialized successfully"));
+    return true;
+}
+
+bool UVHMTerrainRenderer::UpdateTerrainMeshWithBoundaryStitching(const FTileCoord& TileCoord, 
+                                                               const TArray<FHeightfieldModification>& Modifications,
+                                                               bool bStitchBoundaries)
+{
+    // First update the terrain mesh normally
+    if (!UpdateTerrainMesh(TileCoord, Modifications))
+    {
+        return false;
+    }
+
+    // Apply boundary stitching if requested and enabled
+    if (bStitchBoundaries && VHMSettings.bEnableBoundaryStitching && TileBoundaryManager.GetInterface())
+    {
+        // Update boundary data for the modified tile
+        ITileBoundaryManager* BoundaryManagerInterface = Cast<ITileBoundaryManager>(TileBoundaryManager.GetObject());
+        if (BoundaryManagerInterface)
+        {
+            BoundaryManagerInterface->UpdateTileBoundaryData(TileCoord, Modifications, VHMSettings.HeightTextureResolution);
+            
+            // Update adjacent tile boundaries
+            UpdateAdjacentTileBoundaries(TileCoord);
+        }
+    }
+
+    return true;
+}
+
+TScriptInterface<ITileBoundaryManager> UVHMTerrainRenderer::GetTileBoundaryManager() const
+{
+    return TileBoundaryManager;
+}
+
+TScriptInterface<ITerrainMaterialSystem> UVHMTerrainRenderer::GetTerrainMaterialSystem() const
+{
+    return TerrainMaterialSystem;
+}
+
+bool UVHMTerrainRenderer::ApplyBoundaryStitching(const FTileCoord& TileCoord, TArray<float>& InOutHeightData)
+{
+    if (!TileBoundaryManager.GetInterface())
+    {
+        return false; // No boundary manager available
+    }
+
+    ITileBoundaryManager* BoundaryManagerInterface = Cast<ITileBoundaryManager>(TileBoundaryManager.GetObject());
+    if (!BoundaryManagerInterface)
+    {
+        return false;
+    }
+
+    // Get adjacent tiles
+    TArray<FTileCoord> AdjacentTiles;
+    BoundaryManagerInterface->GetAdjacentTiles(TileCoord, AdjacentTiles);
+
+    bool bAnyStitchingApplied = false;
+
+    // Apply stitching with each adjacent tile that exists
+    for (const FTileCoord& AdjacentTile : AdjacentTiles)
+    {
+        // Check if adjacent tile has mesh data (is loaded)
+        if (TerrainMeshes.Contains(AdjacentTile))
+        {
+            TArray<float> StitchedHeightData;
+            if (BoundaryManagerInterface->StitchTileBoundaries(TileCoord, AdjacentTile, StitchedHeightData, VHMSettings.HeightTextureResolution))
+            {
+                InOutHeightData = MoveTemp(StitchedHeightData);
+                bAnyStitchingApplied = true;
+                
+                UE_LOG(LogVHMTerrainRenderer, Verbose, TEXT("Applied boundary stitching between tiles (%d, %d) and (%d, %d)"), 
+                       TileCoord.X, TileCoord.Y, AdjacentTile.X, AdjacentTile.Y);
+            }
+        }
+    }
+
+    return bAnyStitchingApplied;
+}
+
+void UVHMTerrainRenderer::UpdateAdjacentTileBoundaries(const FTileCoord& ModifiedTileCoord)
+{
+    if (!TileBoundaryManager.GetInterface())
+    {
+        return;
+    }
+
+    ITileBoundaryManager* BoundaryManagerInterface = Cast<ITileBoundaryManager>(TileBoundaryManager.GetObject());
+    if (!BoundaryManagerInterface)
+    {
+        return;
+    }
+
+    // Get adjacent tiles
+    TArray<FTileCoord> AdjacentTiles;
+    BoundaryManagerInterface->GetAdjacentTiles(ModifiedTileCoord, AdjacentTiles);
+
+    // Notify boundary manager about the modification
+    TArray<FTileCoord> ModifiedTiles;
+    ModifiedTiles.Add(ModifiedTileCoord);
+    BoundaryManagerInterface->NotifyAdjacentTilesModified(ModifiedTiles);
+
+    // Update texture data for adjacent tiles that are loaded
+    for (const FTileCoord& AdjacentTile : AdjacentTiles)
+    {
+        if (FTerrainMeshData* AdjacentMeshData = TerrainMeshes.Find(AdjacentTile))
+        {
+            // Get current height data for adjacent tile
+            FHeightfieldData AdjacentHeightfieldData;
+            if (HeightfieldService && HeightfieldService->GetCachedHeightfield(AdjacentTile, AdjacentHeightfieldData))
+            {
+                // Apply boundary stitching to adjacent tile
+                TArray<float> StitchedHeightData = AdjacentHeightfieldData.HeightData;
+                if (ApplyBoundaryStitching(AdjacentTile, StitchedHeightData))
+                {
+                    // Update height texture for adjacent tile
+                    IHeightfieldTextureManager* TextureManagerInterface = Cast<IHeightfieldTextureManager>(HeightfieldTextureManager.GetObject());
+                    if (TextureManagerInterface)
+                    {
+                        // Create new height texture with stitched data
+                        UTexture2D* NewHeightTexture = TextureManagerInterface->CreateHeightTexture(AdjacentTile, StitchedHeightData);
+                        if (NewHeightTexture)
+                        {
+                            AdjacentMeshData->HeightTexture = NewHeightTexture;
+                            
+                            // Update VHM component with new texture
+                            if (AdjacentMeshData->VHMComponent)
+                            {
+                                GenerateMeshFromHeightfield(AdjacentMeshData->VHMComponent, AdjacentTile, NewHeightTexture);
+                            }
+                            
+                            UE_LOG(LogVHMTerrainRenderer, Verbose, TEXT("Updated adjacent tile (%d, %d) with boundary stitching"), 
+                                   AdjacentTile.X, AdjacentTile.Y);
+                        }
+                    }
+                }
+            }
+        }
+    }
 }

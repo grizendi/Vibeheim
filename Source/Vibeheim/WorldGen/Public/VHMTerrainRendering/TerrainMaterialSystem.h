@@ -12,9 +12,8 @@
 // Forward declarations
 class UBiomeService;
 class UMaterialInterface;
-class UVirtualTexture2D;
-class URuntimeVirtualTexture;
-class URuntimeVirtualTextureComponent;
+class UTexture2D;
+class UTextureRenderTarget2D;
 
 /**
  * Material blend data for tile boundaries
@@ -34,6 +33,48 @@ struct VIBEHEIM_API FTileMaterialBlendData
 
     // Last update time for cache management
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Blend")
+    double LastUpdateTime = 0.0;
+};
+
+/**
+ * RVT texture layer configuration
+ */
+USTRUCT(BlueprintType)
+struct VIBEHEIM_API FRVTTextureLayer
+{
+    GENERATED_BODY()
+
+    // Layer name for identification
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layer")
+    FString LayerName = TEXT("BaseColor");
+
+    // Texture format for this layer
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layer")
+    TEnumAsByte<EPixelFormat> PixelFormat = PF_B8G8R8A8;
+
+    // Enable compression for this layer
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layer")
+    bool bEnableCompression = true;
+
+    // Layer priority for streaming
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layer")
+    int32 StreamingPriority = 1;
+};
+
+/**
+ * Wrapper struct for biome blend configurations to work with TMap
+ */
+USTRUCT(BlueprintType)
+struct VIBEHEIM_API FTileBiomeBlendConfig
+{
+    GENERATED_BODY()
+
+    // Biome definitions for blending
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Biome")
+    TArray<FBiomeDefinition> BiomeBlends;
+
+    // Last update time
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Biome")
     double LastUpdateTime = 0.0;
 };
 
@@ -60,6 +101,22 @@ struct VIBEHEIM_API FTerrainRVTConfig
     // RVT memory budget in MB
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RVT")
     float RVTMemoryBudgetMB = 512.0f;
+
+    // Texture detail layers (base, normal, roughness)
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RVT")
+    TArray<FRVTTextureLayer> TextureLayers;
+
+    // Enable biome-based texture blending
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RVT")
+    bool bEnableBiomeBlending = true;
+
+    // Streaming distance for texture loading
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RVT")
+    float StreamingDistance = 2000.0f;
+
+    // Performance optimization level (0-3)
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RVT")
+    int32 OptimizationLevel = 2;
 };
 
 /**
@@ -129,6 +186,36 @@ public:
     UFUNCTION(BlueprintCallable, Category = "TerrainMaterial")
     float GetMaterialMemoryUsageMB() const;
 
+    /**
+     * Create RVT texture streaming for large terrain areas
+     */
+    UFUNCTION(BlueprintCallable, Category = "RVT")
+    bool SetupRVTTextureStreaming(const TArray<FTileCoord>& InStreamingTiles);
+
+    /**
+     * Add biome-based texture blending through RVT system
+     */
+    UFUNCTION(BlueprintCallable, Category = "RVT")
+    bool ConfigureBiomeTextureBlending(const FTileCoord& TileCoord, const TArray<FBiomeDefinition>& BiomeBlends);
+
+    /**
+     * Implement texture detail layers (base, normal, roughness) for terrain materials
+     */
+    UFUNCTION(BlueprintCallable, Category = "RVT")
+    bool SetupTextureDetailLayers(const TArray<FRVTTextureLayer>& DetailLayers);
+
+    /**
+     * Create RVT performance optimization and memory management
+     */
+    UFUNCTION(BlueprintCallable, Category = "RVT")
+    void OptimizeRVTPerformance();
+
+    /**
+     * Get RVT streaming statistics
+     */
+    UFUNCTION(BlueprintCallable, Category = "RVT")
+    void GetRVTStreamingStats(int32& OutActiveTextures, float& OutMemoryUsageMB, int32& OutStreamingRequests) const;
+
 protected:
     // Service references
     UPROPERTY()
@@ -146,9 +233,9 @@ protected:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Materials")
     TObjectPtr<UMaterialInterface> BaseMaterial;
 
-    // Runtime Virtual Texture for terrain
+    // Runtime Virtual Texture for terrain (using UObject for UE5.6 compatibility)
     UPROPERTY()
-    TObjectPtr<URuntimeVirtualTexture> TerrainRVT;
+    TObjectPtr<UObject> TerrainRVT;
 
     // Material instances per tile
     UPROPERTY()
@@ -160,6 +247,27 @@ protected:
 
     // RVT initialization state
     bool bRVTInitialized = false;
+
+    // RVT streaming tiles
+    UPROPERTY()
+    TArray<FTileCoord> StreamingTiles;
+
+    // RVT texture layers
+    UPROPERTY()
+    TMap<FString, TObjectPtr<UTexture2D>> RVTTextureLayers;
+
+    // RVT render targets for dynamic content
+    UPROPERTY()
+    TMap<FString, TObjectPtr<UTextureRenderTarget2D>> RVTRenderTargets;
+
+    // Biome blend configurations per tile
+    UPROPERTY()
+    TMap<FTileCoord, FTileBiomeBlendConfig> TileBiomeBlends;
+
+    // RVT streaming statistics
+    mutable int32 ActiveRVTTextures = 0;
+    mutable float RVTMemoryUsage = 0.0f;
+    mutable int32 StreamingRequests = 0;
 
 private:
     /**
@@ -185,17 +293,17 @@ private:
     /**
      * Create RVT texture for terrain
      */
-    URuntimeVirtualTexture* CreateTerrainRVT();
+    UObject* CreateTerrainRVT();
 
     /**
      * Configure RVT parameters
      */
-    void ConfigureRVTParameters(URuntimeVirtualTexture* RVT);
+    void ConfigureRVTParameters(UObject* RVT);
 
     /**
      * Create RVT component for advanced RVT setup (UE5.6 compatible)
      */
-    URuntimeVirtualTextureComponent* CreateRVTComponent();
+    UObject* CreateRVTComponent();
 
     /**
      * Get default material if base material is not set
@@ -221,4 +329,49 @@ private:
      * Cleanup material resources
      */
     void CleanupMaterialResources();
+
+    /**
+     * Create RVT texture layer
+     */
+    UTexture2D* CreateRVTTextureLayer(const FRVTTextureLayer& LayerConfig);
+
+    /**
+     * Create RVT render target for dynamic content
+     */
+    UTextureRenderTarget2D* CreateRVTRenderTarget(const FString& LayerName, int32 Resolution);
+
+    /**
+     * Update RVT texture streaming based on viewer position
+     */
+    void UpdateRVTTextureStreaming(const FVector& ViewerPosition);
+
+    /**
+     * Apply biome blending to RVT textures
+     */
+    void ApplyBiomeBlendingToRVT(const FTileCoord& TileCoord, const TArray<FBiomeDefinition>& BiomeBlends);
+
+    /**
+     * Generate texture detail layers for terrain
+     */
+    void GenerateTextureDetailLayers(const FTileCoord& TileCoord, const FBiomeDefinition& BiomeData);
+
+    /**
+     * Optimize RVT memory usage
+     */
+    void OptimizeRVTMemoryUsage();
+
+    /**
+     * Update RVT streaming statistics
+     */
+    void UpdateRVTStreamingStats() const;
+
+    /**
+     * Validate RVT configuration
+     */
+    bool ValidateRVTConfiguration() const;
+
+    /**
+     * Initialize default texture layers
+     */
+    void InitializeDefaultTextureLayers();
 };

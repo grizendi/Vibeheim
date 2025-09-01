@@ -6,6 +6,7 @@
 #include "VHMTerrainRendering/IHeightfieldTextureManager.h"
 #include "VHMTerrainRendering/ITerrainMaterialSystem.h"
 #include "VHMTerrainRendering/ITerrainLODManager.h"
+#include "VHMTerrainRendering/ITileBoundaryManager.h"
 #include "VHMTerrainRendering/VHMTypes.h"
 #include "Data/WorldGenTypes.h"
 #include "VHMTerrainRenderer.generated.h"
@@ -18,6 +19,7 @@ class UHeightfieldTextureManager;
 class UBiomeService;
 class UVHMTerrainMaterialSystem;
 class UVHMTerrainLODManager;
+class UVHMTileBoundaryManager;
 class UVirtualHeightfieldMeshComponent;
 class UWorld;
 class AActor;
@@ -84,6 +86,30 @@ public:
     UFUNCTION(BlueprintCallable, Category = "VHM")
     TArray<FTileCoord> GetActiveMeshTiles() const;
 
+    /**
+     * Update terrain mesh with seamless boundary stitching
+     * @param TileCoord Tile coordinate to update
+     * @param Modifications Array of modifications to apply
+     * @param bStitchBoundaries Whether to stitch boundaries with adjacent tiles
+     * @return True if update succeeded
+     */
+    UFUNCTION(BlueprintCallable, Category = "VHM")
+    bool UpdateTerrainMeshWithBoundaryStitching(const FTileCoord& TileCoord, 
+                                              const TArray<FHeightfieldModification>& Modifications,
+                                              bool bStitchBoundaries = true);
+
+    /**
+     * Get tile boundary manager for direct access
+     */
+    UFUNCTION(BlueprintCallable, Category = "VHM")
+    TScriptInterface<ITileBoundaryManager> GetTileBoundaryManager() const;
+
+    /**
+     * Get terrain material system for direct access
+     */
+    UFUNCTION(BlueprintCallable, Category = "VHM")
+    TScriptInterface<ITerrainMaterialSystem> GetTerrainMaterialSystem() const;
+
 protected:
     // VHM system configuration
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VHM")
@@ -110,6 +136,9 @@ protected:
 
     UPROPERTY()
     TScriptInterface<ITerrainLODManager> TerrainLODManager;
+
+    UPROPERTY()
+    TScriptInterface<ITileBoundaryManager> TileBoundaryManager;
 
     // Terrain mesh management
     UPROPERTY()
@@ -209,4 +238,19 @@ private:
      * Initialize terrain material system
      */
     bool InitializeTerrainMaterialSystem();
+
+    /**
+     * Initialize tile boundary manager
+     */
+    bool InitializeTileBoundaryManager();
+
+    /**
+     * Apply boundary stitching to height data
+     */
+    bool ApplyBoundaryStitching(const FTileCoord& TileCoord, TArray<float>& InOutHeightData);
+
+    /**
+     * Update adjacent tile boundaries when a tile is modified
+     */
+    void UpdateAdjacentTileBoundaries(const FTileCoord& ModifiedTileCoord);
 };

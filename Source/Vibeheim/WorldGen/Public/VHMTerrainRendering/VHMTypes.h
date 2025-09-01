@@ -46,6 +46,18 @@ struct VIBEHEIM_API FVHMSettings
     // Texture format for height data (R16F or R32F)
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VHM")
     bool bUseHighPrecisionHeightTextures = false;
+
+    // Enable seamless boundary stitching between tiles
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Boundary")
+    bool bEnableBoundaryStitching = true;
+
+    // Blend factor for boundary stitching (0.0 = primary tile, 1.0 = adjacent tile)
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Boundary")
+    float BoundaryBlendFactor = 0.5f;
+
+    // Radius of tiles to update when boundary changes occur
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Boundary")
+    int32 BoundaryUpdateRadius = 1;
 };
 
 /**
@@ -87,6 +99,72 @@ struct VIBEHEIM_API FTerrainMeshData
     // Whether this mesh is currently visible
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Mesh")
     bool bIsVisible = false;
+};
+
+/**
+ * Tile boundary edge information for seamless stitching
+ */
+USTRUCT(BlueprintType)
+struct VIBEHEIM_API FTileBoundaryEdge
+{
+    GENERATED_BODY()
+
+    // Edge direction (North, South, East, West)
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Boundary")
+    uint8 EdgeDirection = 0; // 0=North, 1=East, 2=South, 3=West
+
+    // Height values along the edge (from start to end)
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Boundary")
+    TArray<float> EdgeHeights;
+
+    // Normal vectors along the edge
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Boundary")
+    TArray<FVector> EdgeNormals;
+
+    // Texture coordinates along the edge
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Boundary")
+    TArray<FVector2D> EdgeUVs;
+
+    // Adjacent tile coordinate
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Boundary")
+    FTileCoord AdjacentTile = FTileCoord();
+
+    FTileBoundaryEdge()
+    {
+        EdgeHeights.Reserve(64); // Default resolution
+        EdgeNormals.Reserve(64);
+        EdgeUVs.Reserve(64);
+    }
+};
+
+/**
+ * Tile boundary data for seamless mesh transitions
+ */
+USTRUCT(BlueprintType)
+struct VIBEHEIM_API FTileBoundaryData
+{
+    GENERATED_BODY()
+
+    // Tile coordinate this boundary data represents
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Boundary")
+    FTileCoord TileCoord = FTileCoord();
+
+    // Boundary edges (North, East, South, West)
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Boundary")
+    TArray<FTileBoundaryEdge> BoundaryEdges;
+
+    // Last update timestamp
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Boundary")
+    double LastUpdateTime = 0.0;
+
+    // Whether boundary data is valid
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Boundary")
+    bool bIsValid = false;
+
+    FTileBoundaryData()
+    {
+        BoundaryEdges.SetNum(4); // North, East, South, West
+    }
 };
 
 /**
@@ -136,4 +214,8 @@ struct VIBEHEIM_API FVHMPerformanceStats
     // Total generation time in milliseconds
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Performance")
     float TotalGenerationTimeMs = 0.0f;
+
+    // Number of boundary stitching operations this frame
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Performance")
+    int32 BoundaryStitchingOperations = 0;
 };

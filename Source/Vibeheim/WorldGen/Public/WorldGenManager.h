@@ -61,6 +61,12 @@ public:
     UFUNCTION(BlueprintCallable, Category = "World Generation")
     void HandleWorldGenerationError(const FString& ErrorMessage);
 
+    /**
+     * Get VHM terrain renderer
+     */
+    UFUNCTION(BlueprintCallable, Category = "World Generation")
+    UVHMTerrainRenderer* GetVHMTerrainRenderer() const { return VHMTerrainRenderer; }
+
 protected:
     // World generation configuration
     UPROPERTY(BlueprintReadOnly, Category = "World Generation")

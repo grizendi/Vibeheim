@@ -29,6 +29,9 @@
     "EnableRealTimeEditing": true,
     "UseRuntimeVirtualTexturing": true,
     "MeshGenerationBudgetMs": 2.0,
-    "UseHighPrecisionHeightTextures": false
+    "UseHighPrecisionHeightTextures": false,
+    "EnableBoundaryStitching": true,
+    "BoundaryBlendFactor": 0.5,
+    "BoundaryUpdateRadius": 1
   }
 }
