@@ -1,6 +1,7 @@
 #include "VHMTerrainRendering/VHMTerrainRenderer.h"
 #include "VHMTerrainRendering/HeightfieldTextureManager.h"
 #include "VHMTerrainRendering/TerrainMaterialSystem.h"
+#include "VHMTerrainRendering/TerrainLODManager.h"
 #include "Services/HeightfieldService.h"
 #include "Services/TileStreamingService.h"
 #include "Services/BiomeService.h"
@@ -28,6 +29,7 @@ UVHMTerrainRenderer::UVHMTerrainRenderer()
     BiomeService = nullptr;
     HeightfieldTextureManager.SetInterface(nullptr);
     TerrainMaterialSystem.SetInterface(nullptr);
+    TerrainLODManager.SetInterface(nullptr);
     CachedWorld = nullptr;
 
     // Initialize performance tracking
@@ -69,6 +71,13 @@ bool UVHMTerrainRenderer::Initialize(UWorldGenSettings* Settings,
     if (Settings->VHMSettings.IsSet())
     {
         VHMSettings = Settings->VHMSettings.GetValue();
+    }
+
+    // Initialize terrain LOD manager
+    if (!InitializeTerrainLODManager())
+    {
+        UE_LOG(LogVHMTerrainRenderer, Error, TEXT("VHMTerrainRenderer::Initialize - Failed to initialize TerrainLODManager"));
+        return false;
     }
 
     UE_LOG(LogVHMTerrainRenderer, Log, TEXT("VHMTerrainRenderer initialized successfully"));
@@ -216,6 +225,15 @@ bool UVHMTerrainRenderer::CreateTerrainMeshForTile(const FTileCoord& TileCoord)
     // Store mesh data
     TerrainMeshes.Add(TileCoord, MeshData);
 
+    // Register tile with LOD manager
+    if (ITerrainLODManager* LODManagerInterface = Cast<ITerrainLODManager>(TerrainLODManager.GetObject()))
+    {
+        if (UVHMTerrainLODManager* ConcreteLODManager = Cast<UVHMTerrainLODManager>(TerrainLODManager.GetObject()))
+        {
+            ConcreteLODManager->RegisterTile(TileCoord);
+        }
+    }
+
     // Update performance stats
     float GenerationTime = (FPlatformTime::Seconds() - StartTime) * 1000.0f; // Convert to milliseconds
     UpdatePerformanceStats(GenerationTime);
@@ -303,6 +321,12 @@ void UVHMTerrainRenderer::RemoveTerrainMesh(const FTileCoord& TileCoord)
     // Remove from cache
     TerrainMeshes.Remove(TileCoord);
 
+    // Unregister tile from LOD manager
+    if (UVHMTerrainLODManager* ConcreteLODManager = Cast<UVHMTerrainLODManager>(TerrainLODManager.GetObject()))
+    {
+        ConcreteLODManager->UnregisterTile(TileCoord);
+    }
+
     // Remove texture from texture manager
     if (IHeightfieldTextureManager* TextureManagerInterface = Cast<IHeightfieldTextureManager>(HeightfieldTextureManager.GetObject()))
     {
@@ -329,27 +353,14 @@ UVirtualHeightfieldMeshComponent* UVHMTerrainRenderer::GetVHMComponent(const FTi
 
 void UVHMTerrainRenderer::UpdateLODLevels(const FVector& ViewerPosition)
 {
-    for (auto& MeshPair : TerrainMeshes)
-    {
-        const FTileCoord& TileCoord = MeshPair.Key;
-        FTerrainMeshData& MeshData = MeshPair.Value;
-
-        // Calculate new LOD level
-        int32 NewLODLevel = CalculateLODLevel(TileCoord, ViewerPosition);
-        
-        if (NewLODLevel != MeshData.CurrentLODLevel)
-        {
-            MeshData.CurrentLODLevel = NewLODLevel;
-            
-            // Update VHM component LOD if available
-            if (MeshData.VHMComponent)
-            {
-                // VHM components handle LOD internally based on distance
-                // We track it here for performance monitoring
-                PerformanceStats.LODTransitionsThisFrame++;
-            }
-        }
-    }
+    // Use TerrainLODManager for comprehensive LOD management
+    UpdateFrameBasedLOD(ViewerPosition);
+    
+    // Handle visibility culling for mesh creation/destruction
+    HandleVisibilityCulling(ViewerPosition);
+    
+    // Apply performance-based adaptive quality adjustment
+    ApplyAdaptiveQualityAdjustment();
 }
 
 FVHMPerformanceStats UVHMTerrainRenderer::GetPerformanceStats() const
@@ -376,8 +387,11 @@ FVHMPerformanceStats UVHMTerrainRenderer::GetPerformanceStats() const
         PerformanceStats.CurrentFPS = 1.0f / FApp::GetDeltaTime();
     }
 
-    // Reset frame-based counters
-    PerformanceStats.LODTransitionsThisFrame = 0;
+    // Get LOD transitions from LOD manager
+    if (ITerrainLODManager* LODManagerInterface = Cast<ITerrainLODManager>(TerrainLODManager.GetObject()))
+    {
+        PerformanceStats.LODTransitionsThisFrame = LODManagerInterface->GetLODTransitionsThisFrame();
+    }
 
     return PerformanceStats;
 }
@@ -386,10 +400,35 @@ void UVHMTerrainRenderer::OnTileStreamingEvent(const FTileCoord& TileCoord, bool
 {
     if (bTileLoaded)
     {
-        // Tile was loaded - create mesh if it doesn't exist
+        // Tile was loaded - check if it should be visible before creating mesh
         if (!TerrainMeshes.Contains(TileCoord))
         {
-            CreateTerrainMeshForTile(TileCoord);
+            // Use LOD manager to determine if tile should be created based on visibility
+            bool bShouldCreateMesh = true;
+            if (ITerrainLODManager* LODManagerInterface = Cast<ITerrainLODManager>(TerrainLODManager.GetObject()))
+            {
+                // Get current viewer position (use world origin if no camera available)
+                FVector ViewerPosition = FVector::ZeroVector;
+                if (CachedWorld && CachedWorld->GetFirstPlayerController())
+                {
+                    if (APawn* PlayerPawn = CachedWorld->GetFirstPlayerController()->GetPawn())
+                    {
+                        ViewerPosition = PlayerPawn->GetActorLocation();
+                    }
+                }
+                
+                bShouldCreateMesh = LODManagerInterface->IsTileVisible(TileCoord, ViewerPosition);
+            }
+            
+            if (bShouldCreateMesh)
+            {
+                CreateTerrainMeshForTile(TileCoord);
+            }
+            else
+            {
+                UE_LOG(LogVHMTerrainRenderer, VeryVerbose, TEXT("Skipping mesh creation for tile (%d, %d) - not visible"), 
+                       TileCoord.X, TileCoord.Y);
+            }
         }
     }
     else
@@ -426,6 +465,12 @@ void UVHMTerrainRenderer::Cleanup()
     if (TerrainMaterialSystem.GetInterface())
     {
         TerrainMaterialSystem.SetInterface(nullptr);
+    }
+
+    // Cleanup terrain LOD manager
+    if (TerrainLODManager.GetInterface())
+    {
+        TerrainLODManager.SetInterface(nullptr);
     }
 
     CachedWorld = nullptr;
@@ -608,17 +653,7 @@ FBox UVHMTerrainRenderer::CalculateTileWorldBounds(const FTileCoord& TileCoord) 
     return FBox(TileCenter - HalfExtent, TileCenter + HalfExtent);
 }
 
-int32 UVHMTerrainRenderer::CalculateLODLevel(const FTileCoord& TileCoord, const FVector& ViewerPosition) const
-{
-    FVector TileCenter = GetTileCenterWorldPosition(TileCoord);
-    float Distance = FVector::Dist(ViewerPosition, TileCenter);
-    
-    // Calculate LOD based on distance and settings
-    float LODDistance = Distance / VHMSettings.MaxViewDistance;
-    int32 LODLevel = FMath::Clamp(FMath::FloorToInt(LODDistance * VHMSettings.LODLevels), 0, VHMSettings.LODLevels - 1);
-    
-    return LODLevel;
-}
+
 
 void UVHMTerrainRenderer::UpdatePerformanceStats(float MeshGenerationTime) const
 {
@@ -696,6 +731,153 @@ void UVHMTerrainRenderer::CleanupMeshData(const FTileCoord& TileCoord)
         // Clear texture reference (texture manager handles cleanup)
         MeshData->HeightTexture = nullptr;
         MeshData->MaterialInstance = nullptr;
+    }
+}
+
+bool UVHMTerrainRenderer::InitializeTerrainLODManager()
+{
+    UVHMTerrainLODManager* LODManager = NewObject<UVHMTerrainLODManager>(this);
+    if (!LODManager)
+    {
+        UE_LOG(LogVHMTerrainRenderer, Error, TEXT("InitializeTerrainLODManager - Failed to create TerrainLODManager"));
+        return false;
+    }
+
+    TerrainLODManager.SetObject(LODManager);
+
+    // Initialize LOD manager with VHM settings
+    LODManager->Initialize(VHMSettings);
+
+    UE_LOG(LogVHMTerrainRenderer, Log, TEXT("TerrainLODManager initialized successfully"));
+    return true;
+}
+
+void UVHMTerrainRenderer::UpdateFrameBasedLOD(const FVector& ViewerPosition)
+{
+    if (!TerrainLODManager.GetInterface())
+    {
+        return;
+    }
+
+    ITerrainLODManager* LODManagerInterface = Cast<ITerrainLODManager>(TerrainLODManager.GetObject());
+    if (!LODManagerInterface)
+    {
+        return;
+    }
+
+    // Update LOD levels for all tiles through the LOD manager
+    LODManagerInterface->UpdateLODLevels(ViewerPosition);
+
+    // Update mesh data with new LOD levels from LOD manager
+    for (auto& MeshPair : TerrainMeshes)
+    {
+        const FTileCoord& TileCoord = MeshPair.Key;
+        FTerrainMeshData& MeshData = MeshPair.Value;
+
+        int32 NewLODLevel = LODManagerInterface->GetCurrentLODLevel(TileCoord);
+        if (NewLODLevel >= 0 && NewLODLevel != MeshData.CurrentLODLevel)
+        {
+            MeshData.CurrentLODLevel = NewLODLevel;
+            
+            // Update VHM component LOD if available
+            if (MeshData.VHMComponent)
+            {
+                // VHM components handle LOD internally based on distance
+                // We track the level here for performance monitoring
+                UE_LOG(LogVHMTerrainRenderer, VeryVerbose, TEXT("Updated LOD for tile (%d, %d) to level %d"), 
+                       TileCoord.X, TileCoord.Y, NewLODLevel);
+            }
+        }
+    }
+
+    // Reset frame stats for next frame
+    LODManagerInterface->ResetFrameStats();
+}
+
+void UVHMTerrainRenderer::HandleVisibilityCulling(const FVector& ViewerPosition)
+{
+    if (!TerrainLODManager.GetInterface())
+    {
+        return;
+    }
+
+    ITerrainLODManager* LODManagerInterface = Cast<ITerrainLODManager>(TerrainLODManager.GetObject());
+    if (!LODManagerInterface)
+    {
+        return;
+    }
+
+    // Check visibility for existing meshes and update visibility state
+    TArray<FTileCoord> TilesToRemove;
+    for (auto& MeshPair : TerrainMeshes)
+    {
+        const FTileCoord& TileCoord = MeshPair.Key;
+        FTerrainMeshData& MeshData = MeshPair.Value;
+
+        bool bShouldBeVisible = LODManagerInterface->IsTileVisible(TileCoord, ViewerPosition);
+        
+        if (MeshData.bIsVisible != bShouldBeVisible)
+        {
+            MeshData.bIsVisible = bShouldBeVisible;
+            
+            if (MeshData.VHMComponent)
+            {
+                // Update component visibility
+                MeshData.VHMComponent->SetVisibility(bShouldBeVisible);
+                MeshData.VHMComponent->SetHiddenInGame(!bShouldBeVisible);
+                
+                UE_LOG(LogVHMTerrainRenderer, VeryVerbose, TEXT("Updated visibility for tile (%d, %d): %s"), 
+                       TileCoord.X, TileCoord.Y, bShouldBeVisible ? TEXT("Visible") : TEXT("Hidden"));
+            }
+        }
+
+        // Mark tiles for removal if they've been invisible for too long
+        if (!bShouldBeVisible)
+        {
+            // Could add time-based culling here if needed
+            // For now, we keep invisible meshes in memory for quick re-activation
+        }
+    }
+
+    // Remove tiles that are no longer needed
+    for (const FTileCoord& TileCoord : TilesToRemove)
+    {
+        RemoveTerrainMesh(TileCoord);
+    }
+}
+
+void UVHMTerrainRenderer::ApplyAdaptiveQualityAdjustment()
+{
+    if (!TerrainLODManager.GetInterface())
+    {
+        return;
+    }
+
+    ITerrainLODManager* LODManagerInterface = Cast<ITerrainLODManager>(TerrainLODManager.GetObject());
+    if (!LODManagerInterface)
+    {
+        return;
+    }
+
+    // Get current frame time
+    float CurrentFrameTime = FApp::GetDeltaTime() * 1000.0f; // Convert to milliseconds
+    
+    // Update performance stats in LOD manager
+    if (UVHMTerrainLODManager* ConcreteLODManager = Cast<UVHMTerrainLODManager>(TerrainLODManager.GetObject()))
+    {
+        ConcreteLODManager->UpdatePerformanceStats(CurrentFrameTime);
+    }
+
+    // Apply adaptive quality based on target frame time
+    float TargetFrameTime = 1000.0f / 60.0f; // 60 FPS target
+    LODManagerInterface->OptimizeMeshDetail(TargetFrameTime);
+
+    // Log performance adjustments if significant changes occur
+    int32 LODTransitions = LODManagerInterface->GetLODTransitionsThisFrame();
+    if (LODTransitions > 5) // Threshold for logging
+    {
+        UE_LOG(LogVHMTerrainRenderer, Verbose, TEXT("Adaptive quality adjustment: %d LOD transitions, Frame time: %.2fms"), 
+               LODTransitions, CurrentFrameTime);
     }
 }
 

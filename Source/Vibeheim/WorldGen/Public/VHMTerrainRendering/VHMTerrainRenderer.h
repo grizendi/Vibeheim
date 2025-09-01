@@ -5,6 +5,7 @@
 #include "VHMTerrainRendering/IVHMTerrainRenderer.h"
 #include "VHMTerrainRendering/IHeightfieldTextureManager.h"
 #include "VHMTerrainRendering/ITerrainMaterialSystem.h"
+#include "VHMTerrainRendering/ITerrainLODManager.h"
 #include "VHMTerrainRendering/VHMTypes.h"
 #include "Data/WorldGenTypes.h"
 #include "VHMTerrainRenderer.generated.h"
@@ -16,6 +17,7 @@ class UTileStreamingService;
 class UHeightfieldTextureManager;
 class UBiomeService;
 class UVHMTerrainMaterialSystem;
+class UVHMTerrainLODManager;
 class UVirtualHeightfieldMeshComponent;
 class UWorld;
 class AActor;
@@ -106,6 +108,9 @@ protected:
     UPROPERTY()
     TScriptInterface<ITerrainMaterialSystem> TerrainMaterialSystem;
 
+    UPROPERTY()
+    TScriptInterface<ITerrainLODManager> TerrainLODManager;
+
     // Terrain mesh management
     UPROPERTY()
     TMap<FTileCoord, FTerrainMeshData> TerrainMeshes;
@@ -146,9 +151,24 @@ private:
     FBox CalculateTileWorldBounds(const FTileCoord& TileCoord) const;
 
     /**
-     * Calculate LOD level based on distance from viewer
+     * Initialize terrain LOD manager
      */
-    int32 CalculateLODLevel(const FTileCoord& TileCoord, const FVector& ViewerPosition) const;
+    bool InitializeTerrainLODManager();
+
+    /**
+     * Update frame-based LOD coordination
+     */
+    void UpdateFrameBasedLOD(const FVector& ViewerPosition);
+
+    /**
+     * Handle visibility culling for mesh creation/destruction
+     */
+    void HandleVisibilityCulling(const FVector& ViewerPosition);
+
+    /**
+     * Apply performance-based adaptive quality adjustment
+     */
+    void ApplyAdaptiveQualityAdjustment();
 
     /**
      * Update performance statistics
