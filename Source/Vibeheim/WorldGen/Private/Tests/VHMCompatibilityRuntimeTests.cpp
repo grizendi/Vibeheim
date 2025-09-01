@@ -264,8 +264,8 @@ bool FVHMCompatibilityRuntimeTests::TestVHMTerrainRenderer()
             return false;
         }
         
-        // Create test objects
-        UVHMTerrainRenderer* TerrainRenderer = NewObject<UVHMTerrainRenderer>();
+        // Create test objects with world context
+        UVHMTerrainRenderer* TerrainRenderer = NewObject<UVHMTerrainRenderer>(TestWorld);
         TestObjects.Add(TerrainRenderer);
         
         UWorldGenSettings* Settings = UWorldGenSettings::GetWorldGenSettings();

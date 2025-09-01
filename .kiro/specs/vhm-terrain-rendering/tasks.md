@@ -1,11 +1,6 @@
 # Implementation Plan
 
 - [x] 1. Set up VHM module structure and dependencies
-
-
-
-
-
   - Create VHMTerrainRendering directory under Source/Vibeheim/WorldGen/
   - Update Vibeheim.Build.cs to include VirtualHeightfieldMesh and RenderCore dependencies
   - Create base interfaces and data structures for VHM system
@@ -13,11 +8,6 @@
   - _Requirements: 3.1, 3.4_
 
 - [x] 2. Implement HeightfieldTextureManager for texture conversion
-
-
-
-
-
   - Create HeightfieldTextureManager.h/.cpp with texture creation methods
   - Implement CreateHeightTexture() to convert float arrays to UTexture2D
   - Add texture format optimization for GPU performance (R16F or R32F)
@@ -26,11 +16,6 @@
   - _Requirements: 1.1, 2.2, 4.3_
 
 - [x] 3. Create core VHMTerrainRenderer service
-
-
-
-
-
   - Implement VHMTerrainRenderer.h/.cpp as main coordination class
   - Create Initialize() method to integrate with existing world generation services
   - Implement CreateTerrainMeshForTile() using UVirtualHeightfieldMeshComponent
@@ -39,11 +24,6 @@
   - _Requirements: 1.1, 3.1, 3.2_
 
 - [x] 4. Implement basic VirtualHeightfieldMeshComponent integration
-
-
-
-
-
   - Create VHM component instances for each terrain tile
   - Configure VHM component properties (bounds, resolution, materials)
   - Implement height texture binding to VHM components
@@ -52,9 +32,6 @@
   - _Requirements: 1.1, 1.3, 3.1_
 
 - [x] 5. Add real-time terrain modification support
-
-
-
   - Implement UpdateTerrainMesh() for handling heightfield modifications
   - Create texture update pipeline for terrain brush operations
   - Add batched mesh updates to prevent frame rate spikes
@@ -63,11 +40,6 @@
   - _Requirements: 2.1, 2.2, 2.3_
 
 - [x] 6. Create TerrainMaterialSystem for biome-based rendering
-
-
-
-
-
   - Implement TerrainMaterialSystem.h/.cpp concrete class implementing ITerrainMaterialSystem
   - Create biome-specific material instances and parameter binding
   - Implement CreateTileMaterial() using biome data from BiomeService
@@ -91,15 +63,7 @@
   - Implement wg.VHM.Stats command to display VHM performance statistics
   - _Requirements: 4.2, 4.4_
 
-- [ ] 9. Integrate TerrainMaterialSystem with VHMTerrainRenderer
-  - Add TerrainMaterialSystem as a dependency in VHMTerrainRenderer
-  - Integrate material creation during CreateTerrainMeshForTile()
-  - Apply materials to VHM components after mesh generation
-  - Update materials when biome data changes during tile updates
-  - Handle material cleanup when tiles are removed
-  - _Requirements: 5.1, 5.2, 5.3_
-
-- [ ] 10. Integrate TerrainLODManager with VHMTerrainRenderer
+- [ ] 9. Integrate TerrainLODManager with VHMTerrainRenderer
   - Add TerrainLODManager as a dependency in VHMTerrainRenderer
   - Replace basic LOD calculation with TerrainLODManager implementation
   - Integrate visibility culling with mesh creation/destruction
@@ -107,7 +71,7 @@
   - Implement frame-based LOD update coordination
   - _Requirements: 4.1, 4.2, 4.4_
 
-- [ ] 11. Implement seamless tile boundary handling
+- [ ] 10. Implement seamless tile boundary handling
   - Create mesh stitching system for adjacent tile boundaries
   - Implement height data sampling at tile edges for seamless transitions
   - Add normal vector calculation across tile boundaries
@@ -115,7 +79,7 @@
   - Implement boundary update system when adjacent tiles are modified
   - _Requirements: 1.3, 5.2_
 
-- [ ] 12. Add Runtime Virtual Texturing integration
+- [ ] 11. Add Runtime Virtual Texturing integration
   - Implement RVT setup and configuration in TerrainMaterialSystem
   - Create RVT texture streaming for large terrain areas
   - Add biome-based texture blending through RVT system
@@ -123,7 +87,7 @@
   - Create RVT performance optimization and memory management
   - _Requirements: 5.1, 5.4_
 
-- [ ] 13. Create VHM debugging and visualization tools
+- [ ] 12. Create VHM debugging and visualization tools
   - Add visual debugging for VHM component bounds and LOD levels
   - Create texture export functionality for height and material textures
   - Implement performance profiling tools for mesh generation timing
@@ -131,7 +95,7 @@
   - Create debug draw functions for tile boundaries and mesh data
   - _Requirements: 4.2, 4.4_
 
-- [ ] 14. Implement comprehensive VHM testing suite
+- [ ] 13. Implement comprehensive VHM testing suite
   - Create VHMIntegrationTest.cpp with automated VHM system validation
   - Add mesh generation correctness tests comparing heightfield data to rendered geometry
   - Implement performance regression tests for mesh creation and update times

@@ -202,8 +202,8 @@ void FVHMStressTests::RunVHMComponentStressTest(int32 NumComponents)
     
     try
     {
-        // Create terrain renderer
-        UVHMTerrainRenderer* TerrainRenderer = NewObject<UVHMTerrainRenderer>();
+        // Create terrain renderer with world context
+        UVHMTerrainRenderer* TerrainRenderer = NewObject<UVHMTerrainRenderer>(World);
         
         UWorldGenSettings* Settings = UWorldGenSettings::GetWorldGenSettings();
         if (!Settings)

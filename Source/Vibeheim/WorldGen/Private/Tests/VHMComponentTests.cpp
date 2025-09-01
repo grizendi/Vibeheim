@@ -138,8 +138,8 @@ void FVHMComponentTests::TestVHMComponentCreation()
             return;
         }
         
-        // Create VHM terrain renderer
-        UVHMTerrainRenderer* TerrainRenderer = NewObject<UVHMTerrainRenderer>();
+        // Create VHM terrain renderer with world context
+        UVHMTerrainRenderer* TerrainRenderer = NewObject<UVHMTerrainRenderer>(World);
         
         UWorldGenSettings* Settings = UWorldGenSettings::GetWorldGenSettings();
         if (!Settings)
@@ -494,8 +494,8 @@ void FVHMComponentTests::TestPerformanceMetrics()
             return;
         }
         
-        // Create terrain renderer
-        UVHMTerrainRenderer* TerrainRenderer = NewObject<UVHMTerrainRenderer>();
+        // Create terrain renderer with world context
+        UVHMTerrainRenderer* TerrainRenderer = NewObject<UVHMTerrainRenderer>(World);
         
         UWorldGenSettings* Settings = UWorldGenSettings::GetWorldGenSettings();
         if (!Settings)
