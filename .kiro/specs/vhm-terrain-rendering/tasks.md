@@ -60,7 +60,13 @@
   - Implement performance monitoring and adaptive quality adjustment
   - _Requirements: 4.1, 4.2, 4.4_
 
-- [ ] 8. Add VHM console commands for debugging and testing
+- [x] 8. Add VHM console commands for debugging and testing
+
+
+
+
+
+
   - Implement wg.VHM.ShowMeshes command to display VHM component information
   - Add wg.VHM.ShowTextures command to display texture memory usage
   - Create wg.VHM.CreateMesh command to manually create mesh for specific tile

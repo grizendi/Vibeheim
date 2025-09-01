@@ -1,6 +1,8 @@
 #include "CoreMinimal.h"
 #include "Engine/Engine.h"
 #include "HAL/IConsoleManager.h"
+#include "Misc/App.h"
+#include "HAL/PlatformTime.h"
 #include "WorldGenSettings.h"
 #include "Services/NoiseSystem.h"
 #include "Services/ClimateSystem.h"
@@ -13,6 +15,7 @@
 #include "VHMTerrainRendering/VHMTerrainRenderer.h"
 #include "VHMTerrainRendering/TerrainMaterialSystem.h"
 #include "VHMTerrainRendering/TerrainLODManager.h"
+#include "VHMTerrainRendering/HeightfieldTextureManager.h"
 #include "GameFramework/Actor.h"
 #include "VirtualHeightfieldMeshComponent.h"
 
@@ -2843,5 +2846,117 @@ static FAutoConsoleCommand VHMTestLODManagerCommand(
 		UE_LOG(LogTemp, Log, TEXT("Running TerrainLODManager validation test..."));
 		UVHMTerrainLODManager::RunBasicValidationTest();
 		UE_LOG(LogTemp, Log, TEXT("TerrainLODManager validation test completed"));
+	})
+);
+
+// Additional VHM Console Command for terrain modifications
+static FAutoConsoleCommand VHMUpdateMeshCommand(
+	TEXT("wg.VHM.UpdateMesh"),
+	TEXT("Test real-time terrain modifications on VHM mesh. Usage: wg.VHM.UpdateMesh <TileX> <TileY> [TestPattern]"),
+	FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+	{
+		if (Args.Num() < 2)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Usage: wg.VHM.UpdateMesh <TileX> <TileY> [TestPattern]"));
+			UE_LOG(LogTemp, Log, TEXT("TestPatterns: 0=Hill, 1=Valley, 2=Crater, 3=Ridge"));
+			return;
+		}
+
+		int32 TileX = FCString::Atoi(*Args[0]);
+		int32 TileY = FCString::Atoi(*Args[1]);
+		int32 TestPattern = Args.Num() > 2 ? FCString::Atoi(*Args[2]) : 0;
+		FTileCoord TileCoord(TileX, TileY);
+
+		UWorldGenSettings* Settings = UWorldGenSettings::GetWorldGenSettings();
+		if (!Settings)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Failed to get WorldGen settings instance"));
+			return;
+		}
+
+		if (!Settings->VHMTerrainRenderer)
+		{
+			UE_LOG(LogTemp, Error, TEXT("VHM terrain renderer is not available. Please ensure VHMTerrainRenderer is properly initialized in WorldGenSettings."));
+			return;
+		}
+
+		UVHMTerrainRenderer* VHMRenderer = Settings->VHMTerrainRenderer;
+
+		UE_LOG(LogTemp, Log, TEXT("=== VHM Mesh Update Test ==="));
+		UE_LOG(LogTemp, Log, TEXT("Target Tile: (%d, %d)"), TileX, TileY);
+		UE_LOG(LogTemp, Log, TEXT("Test Pattern: %d"), TestPattern);
+
+		// Create test modifications based on pattern
+		TArray<FHeightfieldModification> TestModifications;
+		
+		// Generate test modification in center of tile
+		FHeightfieldModification TestMod;
+		TestMod.ModificationId = FGuid::NewGuid();
+		TestMod.AffectedTile = TileCoord;
+		TestMod.Center = FVector2D(32.0f, 32.0f); // Center of 64x64 tile
+		TestMod.Radius = 10.0f;
+		TestMod.Strength = 5.0f;
+		TestMod.Operation = EHeightfieldOperation::Add;
+		
+		switch (TestPattern)
+		{
+			case 0: // Hill
+				TestMod.Strength = 10.0f;
+				TestMod.Operation = EHeightfieldOperation::Add;
+				UE_LOG(LogTemp, Log, TEXT("Test Pattern: Creating hill (+10m height)"));
+				break;
+			case 1: // Valley
+				TestMod.Strength = -8.0f;
+				TestMod.Operation = EHeightfieldOperation::Add;
+				UE_LOG(LogTemp, Log, TEXT("Test Pattern: Creating valley (-8m height)"));
+				break;
+			case 2: // Crater
+				TestMod.Strength = -5.0f;
+				TestMod.Radius = 15.0f;
+				TestMod.Operation = EHeightfieldOperation::Add;
+				UE_LOG(LogTemp, Log, TEXT("Test Pattern: Creating crater (-5m height, 15m radius)"));
+				break;
+			case 3: // Ridge
+				TestMod.Strength = 8.0f;
+				TestMod.Radius = 5.0f;
+				TestMod.Operation = EHeightfieldOperation::Add;
+				UE_LOG(LogTemp, Log, TEXT("Test Pattern: Creating ridge (+8m height, 5m radius)"));
+				break;
+			default:
+				UE_LOG(LogTemp, Warning, TEXT("Unknown test pattern, using default hill"));
+				break;
+		}
+		
+		TestModifications.Add(TestMod);
+
+		UE_LOG(LogTemp, Log, TEXT("Modification Details:"));
+		UE_LOG(LogTemp, Log, TEXT("  Position: (%.1f, %.1f)"), TestMod.Center.X, TestMod.Center.Y);
+		UE_LOG(LogTemp, Log, TEXT("  Radius: %.1fm"), TestMod.Radius);
+		UE_LOG(LogTemp, Log, TEXT("  Strength: %.1fm"), TestMod.Strength);
+
+		// Measure update time
+		double StartTime = FPlatformTime::Seconds();
+		
+		// Apply the terrain modification
+		bool bSuccess = VHMRenderer->UpdateTerrainMesh(TileCoord, TestModifications);
+		
+		double EndTime = FPlatformTime::Seconds();
+		float UpdateTimeMs = (EndTime - StartTime) * 1000.0f;
+
+		if (bSuccess)
+		{
+			UE_LOG(LogTemp, Log, TEXT("✓ Terrain mesh update successful"));
+			UE_LOG(LogTemp, Log, TEXT("Update time: %.2fms"), UpdateTimeMs);
+		}
+		else
+		{
+			UE_LOG(LogTemp, Error, TEXT("✗ Terrain mesh update failed"));
+		}
+
+		// Display performance impact
+		FVHMPerformanceStats PerfStats = VHMRenderer->GetPerformanceStats();
+		UE_LOG(LogTemp, Log, TEXT("Performance Impact:"));
+		UE_LOG(LogTemp, Log, TEXT("  Last mesh generation: %.2fms"), PerfStats.LastMeshGenerationMs);
+		UE_LOG(LogTemp, Log, TEXT("  Average generation time: %.2fms"), PerfStats.AverageGenerationTimeMs);
 	})
 );
