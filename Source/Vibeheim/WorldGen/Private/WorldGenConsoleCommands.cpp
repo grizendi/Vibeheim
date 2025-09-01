@@ -12,6 +12,7 @@
 #include "Tests/WorldGenIntegrationTest.h"
 #include "VHMTerrainRendering/VHMTerrainRenderer.h"
 #include "VHMTerrainRendering/TerrainMaterialSystem.h"
+#include "VHMTerrainRendering/TerrainLODManager.h"
 #include "GameFramework/Actor.h"
 #include "VirtualHeightfieldMeshComponent.h"
 
@@ -2662,5 +2663,185 @@ static FAutoConsoleCommand WorldGenVHMStatsCommand(
 			}
 		}
 		UE_LOG(LogTemp, Log, TEXT("Estimated Texture Memory Usage: ~%dMB"), EstimatedMemoryMB);
+	})
+);
+
+// TerrainLODManager Console Commands
+static FAutoConsoleCommand VHMLODStatsCommand(
+	TEXT("wg.VHM.LODStats"),
+	TEXT("Display TerrainLODManager performance statistics and LOD information"),
+	FConsoleCommandDelegate::CreateLambda([]()
+	{
+		UWorldGenSettings* Settings = UWorldGenSettings::GetWorldGenSettings();
+		if (!Settings)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Failed to get WorldGen settings instance"));
+			return;
+		}
+
+		if (!Settings->VHMTerrainRenderer)
+		{
+			UE_LOG(LogTemp, Error, TEXT("VHM terrain renderer is not available"));
+			return;
+		}
+
+		// Note: This command will be fully functional once TerrainLODManager is integrated with VHMTerrainRenderer in task 9
+		UE_LOG(LogTemp, Log, TEXT("=== TerrainLODManager Statistics ==="));
+		UE_LOG(LogTemp, Warning, TEXT("TerrainLODManager integration pending - see task 9"));
+		UE_LOG(LogTemp, Log, TEXT("Current VHM Settings:"));
+		UE_LOG(LogTemp, Log, TEXT("  Max LOD Levels: %d"), Settings->Settings.VHMLODLevels);
+		UE_LOG(LogTemp, Log, TEXT("  Max View Distance: %.1fm"), Settings->Settings.VHMMaxViewDistance);
+		
+		// Show basic VHM stats for now
+		TArray<FTileCoord> ActiveTiles = Settings->VHMTerrainRenderer->GetActiveMeshTiles();
+		UE_LOG(LogTemp, Log, TEXT("  Active Tiles: %d"), ActiveTiles.Num());
+	})
+);
+
+static FAutoConsoleCommand VHMShowLODDistancesCommand(
+	TEXT("wg.VHM.ShowLODDistances"),
+	TEXT("Display LOD distance thresholds for terrain rendering"),
+	FConsoleCommandDelegate::CreateLambda([]()
+	{
+		UWorldGenSettings* Settings = UWorldGenSettings::GetWorldGenSettings();
+		if (!Settings)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Failed to get WorldGen settings instance"));
+			return;
+		}
+
+		UE_LOG(LogTemp, Log, TEXT("=== VHM LOD Distance Configuration ==="));
+		UE_LOG(LogTemp, Log, TEXT("Max LOD Levels: %d"), Settings->Settings.VHMLODLevels);
+		UE_LOG(LogTemp, Log, TEXT("Max View Distance: %.1fm"), Settings->Settings.VHMMaxViewDistance);
+		
+		// Calculate and display LOD distances (same algorithm as TerrainLODManager)
+		int32 MaxLODLevels = Settings->Settings.VHMLODLevels;
+		float MaxViewDistance = Settings->Settings.VHMMaxViewDistance;
+		
+		UE_LOG(LogTemp, Log, TEXT("LOD Distance Thresholds:"));
+		for (int32 LODLevel = 0; LODLevel < MaxLODLevels; ++LODLevel)
+		{
+			float NormalizedLevel = static_cast<float>(LODLevel) / static_cast<float>(MaxLODLevels - 1);
+			float Distance = FMath::Pow(NormalizedLevel, 1.5f) * MaxViewDistance;
+			UE_LOG(LogTemp, Log, TEXT("  LOD %d: 0 - %.1fm"), LODLevel, Distance);
+		}
+	})
+);
+
+static FAutoConsoleCommand VHMTestLODCalculationCommand(
+	TEXT("wg.VHM.TestLOD"),
+	TEXT("Test LOD calculation for a specific tile and viewer position. Usage: wg.VHM.TestLOD <TileX> <TileY> [ViewerX] [ViewerY] [ViewerZ]"),
+	FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+	{
+		if (Args.Num() < 2)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Usage: wg.VHM.TestLOD <TileX> <TileY> [ViewerX] [ViewerY] [ViewerZ]"));
+			return;
+		}
+
+		int32 TileX = FCString::Atoi(*Args[0]);
+		int32 TileY = FCString::Atoi(*Args[1]);
+		FTileCoord TileCoord(TileX, TileY);
+
+		// Get viewer position (default to origin or use provided coordinates)
+		FVector ViewerPosition = FVector::ZeroVector;
+		if (Args.Num() >= 5)
+		{
+			ViewerPosition.X = FCString::Atof(*Args[2]);
+			ViewerPosition.Y = FCString::Atof(*Args[3]);
+			ViewerPosition.Z = FCString::Atof(*Args[4]);
+		}
+		else
+		{
+			// Try to get player position
+			if (UWorld* World = GEngine->GetWorldFromContextObject(UWorldGenSettings::GetWorldGenSettings(), EGetWorldErrorMode::LogAndReturnNull))
+			{
+				if (APlayerController* PC = World->GetFirstPlayerController())
+				{
+					if (APawn* Pawn = PC->GetPawn())
+					{
+						ViewerPosition = Pawn->GetActorLocation();
+					}
+				}
+			}
+		}
+
+		// Calculate distance and LOD level using same algorithm as TerrainLODManager
+		FVector TileCenter = TileCoord.ToWorldPosition(64.0f); // Fixed tile size
+		TileCenter.Z = ViewerPosition.Z; // Use viewer height for distance calculation
+		float Distance = FVector::Dist(ViewerPosition, TileCenter);
+
+		UWorldGenSettings* Settings = UWorldGenSettings::GetWorldGenSettings();
+		int32 MaxLODLevels = Settings ? Settings->Settings.VHMLODLevels : 4;
+		float MaxViewDistance = Settings ? Settings->Settings.VHMMaxViewDistance : 2000.0f;
+
+		// Calculate LOD level
+		int32 LODLevel = MaxLODLevels - 1; // Default to lowest quality
+		for (int32 Level = 0; Level < MaxLODLevels; ++Level)
+		{
+			float NormalizedLevel = static_cast<float>(Level) / static_cast<float>(MaxLODLevels - 1);
+			float LODDistance = FMath::Pow(NormalizedLevel, 1.5f) * MaxViewDistance;
+			if (Distance <= LODDistance)
+			{
+				LODLevel = Level;
+				break;
+			}
+		}
+
+		bool bVisible = Distance <= MaxViewDistance;
+
+		UE_LOG(LogTemp, Log, TEXT("=== LOD Test Results ==="));
+		UE_LOG(LogTemp, Log, TEXT("Tile: (%d, %d)"), TileX, TileY);
+		UE_LOG(LogTemp, Log, TEXT("Tile Center: (%.1f, %.1f, %.1f)"), TileCenter.X, TileCenter.Y, TileCenter.Z);
+		UE_LOG(LogTemp, Log, TEXT("Viewer Position: (%.1f, %.1f, %.1f)"), ViewerPosition.X, ViewerPosition.Y, ViewerPosition.Z);
+		UE_LOG(LogTemp, Log, TEXT("Distance: %.1fm"), Distance);
+		UE_LOG(LogTemp, Log, TEXT("LOD Level: %d (0=highest quality, %d=lowest quality)"), LODLevel, MaxLODLevels - 1);
+		UE_LOG(LogTemp, Log, TEXT("Visible: %s"), bVisible ? TEXT("Yes") : TEXT("No"));
+	})
+);
+
+static FAutoConsoleCommand VHMOptimizeLODCommand(
+	TEXT("wg.VHM.OptimizeLOD"),
+	TEXT("Test LOD optimization with target frame time. Usage: wg.VHM.OptimizeLOD [TargetFrameTimeMs]"),
+	FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+	{
+		float TargetFrameTime = 16.67f; // Default 60 FPS
+		if (Args.Num() > 0)
+		{
+			TargetFrameTime = FCString::Atof(*Args[0]);
+		}
+
+		float CurrentFrameTime = FApp::GetDeltaTime() * 1000.0f; // Convert to milliseconds
+
+		UE_LOG(LogTemp, Log, TEXT("=== LOD Optimization Test ==="));
+		UE_LOG(LogTemp, Log, TEXT("Target Frame Time: %.2fms"), TargetFrameTime);
+		UE_LOG(LogTemp, Log, TEXT("Current Frame Time: %.2fms"), CurrentFrameTime);
+		
+		float FrameTimeDelta = CurrentFrameTime - TargetFrameTime;
+		if (FMath::Abs(FrameTimeDelta) < 2.0f)
+		{
+			UE_LOG(LogTemp, Log, TEXT("Performance Status: Within tolerance (±2ms)"));
+		}
+		else if (FrameTimeDelta > 0.0f)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("Performance Status: Running slow by %.2fms - would reduce quality"), FrameTimeDelta);
+		}
+		else
+		{
+			UE_LOG(LogTemp, Log, TEXT("Performance Status: Running fast by %.2fms - could increase quality"), FMath::Abs(FrameTimeDelta));
+		}
+
+		UE_LOG(LogTemp, Log, TEXT("Note: Full optimization requires TerrainLODManager integration (task 9)"));
+	})
+);
+
+static FAutoConsoleCommand VHMTestLODManagerCommand(
+	TEXT("wg.VHM.TestLODManager"),
+	TEXT("Run basic validation test for TerrainLODManager implementation"),
+	FConsoleCommandDelegate::CreateLambda([]()
+	{
+		UE_LOG(LogTemp, Log, TEXT("Running TerrainLODManager validation test..."));
+		UVHMTerrainLODManager::RunBasicValidationTest();
+		UE_LOG(LogTemp, Log, TEXT("TerrainLODManager validation test completed"));
 	})
 );
