@@ -3610,3 +3610,56 @@ static FAutoConsoleCommand VHMSetupTextureLayersCommand(
         }
     })
 );
+
+// ============================================================================
+// VHM (Virtual Heightfield Mesh) Console Commands
+// ============================================================================
+
+/**
+ * Helper function to get VHMTerrainRenderer from WorldGenManager
+ */
+static UVHMTerrainRenderer* GetVHMTerrainRenderer()
+{
+	// Find WorldGenManager in the world
+	if (UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(GEngine, EGetWorldErrorMode::LogAndReturnNull) : nullptr)
+	{
+		for (TActorIterator<AWorldGenManager> ActorItr(World); ActorItr; ++ActorItr)
+		{
+			AWorldGenManager* WorldGenManager = *ActorItr;
+			if (WorldGenManager && IsValid(WorldGenManager))
+			{
+				return WorldGenManager->GetVHMTerrainRenderer();
+			}
+		}
+	}
+	return nullptr;
+}
+
+// VHM Debug Console Variables
+static TAutoConsoleVariable<bool> CVarVHMShowTextureDebug(
+	TEXT("wg.VHM.ShowTextureDebug"),
+	false,
+	TEXT("Show VHM height texture debug visualization"),
+	ECVF_Default
+);
+
+static TAutoConsoleVariable<bool> CVarVHMShowBoundaries(
+	TEXT("wg.VHM.ShowBoundaries"),
+	false,
+	TEXT("Show VHM tile boundary stitching visualization"),
+	ECVF_Default
+);
+
+static TAutoConsoleVariable<int32> CVarVHMDebugTileX(
+	TEXT("wg.VHM.DebugTileX"),
+	0,
+	TEXT("X coordinate of tile to debug (used with other debug visualizations)"),
+	ECVF_Default
+);
+
+static TAutoConsoleVariable<int32> CVarVHMDebugTileY(
+	TEXT("wg.VHM.DebugTileY"),
+	0,
+	TEXT("Y coordinate of tile to debug (used with other debug visualizations)"),
+	ECVF_Default
+);

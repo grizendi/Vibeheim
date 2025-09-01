@@ -67,6 +67,11 @@
 
 
 
+
+
+
+
+
   - Implement wg.VHM.ShowMeshes command to display VHM component information
   - Add wg.VHM.ShowTextures command to display texture memory usage
   - Create wg.VHM.CreateMesh command to manually create mesh for specific tile
@@ -101,6 +106,7 @@
   - _Requirements: 1.3, 5.2_
 
 - [ ] 11. Add Runtime Virtual Texturing integration
+
 
 
   - Implement RVT setup and configuration in TerrainMaterialSystem
