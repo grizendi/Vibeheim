@@ -30,8 +30,12 @@ UWorldGenSettings* UWorldGenSettings::GetWorldGenSettings()
 		Instance = NewObject<UWorldGenSettings>();
 		Instance->AddToRoot(); // Prevent garbage collection
 		
-		// Try to load settings from default location
-		Instance->LoadFromJSON();
+		// Only load settings if we're not in early engine startup
+		if (GEngine && IsInGameThread())
+		{
+			// Try to load settings from default location
+			Instance->LoadFromJSON();
+		}
 	}
 	return Instance;
 }

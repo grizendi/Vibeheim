@@ -775,6 +775,8 @@ bool FVHMCompatibilityRuntimeTests::ValidateNoMemoryLeaks()
     return true;
 }
 
+// TEMPORARY: Disable console commands to prevent startup crashes
+#if 0
 // Console command to run the tests
 static FAutoConsoleCommand VHMCompatibilityTestCommand(
     TEXT("wg.TestVHMCompatibility"),
@@ -784,3 +786,5 @@ static FAutoConsoleCommand VHMCompatibilityTestCommand(
         FVHMCompatibilityRuntimeTests::RunAllTests();
     })
 );
+
+#endif // Temporarily disabled

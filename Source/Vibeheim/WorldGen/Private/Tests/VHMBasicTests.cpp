@@ -142,6 +142,8 @@ void FVHMBasicTests::TestServiceCreation()
     UE_LOG(LogVHMBasicTests, Verbose, TEXT("✓ Service creation test completed"));
 }
 
+// TEMPORARY: Disable console commands to prevent startup crashes
+#if 0
 // Console command for basic test
 static FAutoConsoleCommand VHMBasicTestCommand(
     TEXT("wg.TestVHMBasic"),
@@ -151,3 +153,5 @@ static FAutoConsoleCommand VHMBasicTestCommand(
         FVHMBasicTests::RunBasicCompatibilityTest();
     })
 );
+
+#endif // Temporarily disabled

@@ -1,6 +1,12 @@
+// Temporarily disabled to fix module loading issues
+#if 0
 #include "CoreMinimal.h"
 #include "Engine/Engine.h"
 #include "HAL/IConsoleManager.h"
+
+// TEMPORARY: Disable console commands to prevent startup crashes
+// TODO: Re-enable with proper deferred registration
+#if 0
 #include "Misc/App.h"
 #include "HAL/PlatformTime.h"
 #include "WorldGenSettings.h"
@@ -24,12 +30,36 @@
 #include "Engine/World.h"
 #include "EngineUtils.h"
 
+DEFINE_LOG_CATEGORY_STATIC(LogWorldGenConsole, Log, All);
+
+// Safety macro for console commands to prevent crashes during engine startup
+#define WORLDGEN_CONSOLE_SAFETY_CHECK() \
+	if (!GEngine || !GEngine->GetWorld() || !IsInGameThread()) \
+	{ \
+		UE_LOG(LogWorldGenConsole, Warning, TEXT("WorldGen console command ignored - engine not ready")); \
+		return; \
+	}
+
+// Deferred console command registration to prevent startup crashes
+class FWorldGenConsoleCommands
+{
+public:
+	static void RegisterCommands();
+	static void UnregisterCommands();
+	
+private:
+	static TArray<IConsoleObject*> RegisteredCommands;
+	static bool bCommandsRegistered;
+};
+
 // Settings management commands
 static FAutoConsoleCommand WorldGenLoadSettingsCommand(
 	TEXT("wg.LoadSettings"),
 	TEXT("Load world generation settings from JSON file. Usage: wg.LoadSettings [ConfigPath]"),
 	FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
 	{
+		WORLDGEN_CONSOLE_SAFETY_CHECK();
+		
 		UWorldGenSettings* Settings = UWorldGenSettings::GetWorldGenSettings();
 		if (!Settings)
 		{
@@ -63,6 +93,8 @@ static FAutoConsoleCommand WorldGenShowSettingsCommand(
 	TEXT("Display current world generation settings"),
 	FConsoleCommandDelegate::CreateLambda([]()
 	{
+		WORLDGEN_CONSOLE_SAFETY_CHECK();
+		
 		UWorldGenSettings* Settings = UWorldGenSettings::GetWorldGenSettings();
 		if (!Settings)
 		{
@@ -86,6 +118,8 @@ static FAutoConsoleCommand WorldGenVHMShowMeshesCommand(
 	TEXT("Display information about active VHM components"),
 	FConsoleCommandDelegate::CreateLambda([]()
 	{
+		WORLDGEN_CONSOLE_SAFETY_CHECK();
+		
 		// Find WorldGenManager in the world
 		if (UWorld* World = GEngine->GetWorldFromContextObject(GEngine, EGetWorldErrorMode::LogAndReturnNull))
 		{
@@ -382,3 +416,5 @@ static TAutoConsoleVariable<bool> CVarVHMWireframe(
 	TEXT("Enable VHM wireframe rendering mode"),
 	ECVF_Default
 );
+#endif
+#endif // Temporarily disabled

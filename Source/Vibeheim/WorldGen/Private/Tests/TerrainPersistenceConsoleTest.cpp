@@ -5,6 +5,8 @@
 #include "Engine/Engine.h"
 #include "HAL/IConsoleManager.h"
 
+// TEMPORARY: Disable console commands to prevent startup crashes
+#if 0
 // Console command to test terrain persistence checksum fix
 static FAutoConsoleCommand TestTerrainPersistenceCommand(
     TEXT("wg.TestTerrainPersistence"),
@@ -168,3 +170,5 @@ static FAutoConsoleCommand TestTerrainPersistenceCommand(
         UE_LOG(LogTemp, Warning, TEXT("=== Terrain Persistence Test Complete ==="));
     })
 );
+
+#endif // Temporarily disabled

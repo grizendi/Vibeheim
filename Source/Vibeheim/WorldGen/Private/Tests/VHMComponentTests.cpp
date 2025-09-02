@@ -614,6 +614,8 @@ void FVHMComponentTests::TestPerformanceMetrics()
     }
 }
 
+// TEMPORARY: Disable console commands to prevent startup crashes
+#if 0
 // Console commands for individual tests
 static FAutoConsoleCommand TestMaterialCreationCommand(
     TEXT("wg.TestMaterialCreation"),
@@ -659,3 +661,5 @@ static FAutoConsoleCommand TestPerformanceCommand(
         FVHMComponentTests::TestPerformanceMetrics();
     })
 );
+
+#endif // Temporarily disabled

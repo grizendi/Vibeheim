@@ -18,6 +18,8 @@ UVHMHeightfieldTextureManager::UVHMHeightfieldTextureManager()
     // Initialize with default settings
     VHMSettings = FVHMSettings();
     HeightTextureFormat = VHMSettings.bUseHighPrecisionHeightTextures ? PF_R32_FLOAT : PF_R16F;
+    
+    // Don't create any graphics resources in constructor - wait for explicit Initialize() call
 }
 
 bool UVHMHeightfieldTextureManager::Initialize(const FVHMSettings& Settings)
@@ -35,6 +37,13 @@ bool UVHMHeightfieldTextureManager::Initialize(const FVHMSettings& Settings)
 
 UTexture2D* UVHMHeightfieldTextureManager::CreateHeightTexture(const FTileCoord& TileCoord, const TArray<float>& HeightData)
 {
+    // Safety check: Don't create textures if rendering system isn't ready
+    if (!GEngine || !GEngine->GetWorld() || !IsInGameThread())
+    {
+        UE_LOG(LogHeightfieldTextureManager, Warning, TEXT("CreateHeightTexture: Rendering system not ready for tile (%d, %d)"), TileCoord.X, TileCoord.Y);
+        return nullptr;
+    }
+    
     if (HeightData.Num() == 0)
     {
         UE_LOG(LogHeightfieldTextureManager, Warning, TEXT("CreateHeightTexture: Empty height data for tile (%d, %d)"), TileCoord.X, TileCoord.Y);

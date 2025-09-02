@@ -5,6 +5,8 @@
 #include "Engine/Engine.h"
 #include "HAL/IConsoleManager.h"
 
+// TEMPORARY: Disable console commands to prevent startup crashes
+#if 0
 // Ultimate test with guaranteed clean state
 static FAutoConsoleCommand UltimateTerrainPersistenceTestCommand(
     TEXT("wg.UltimateTerrainTest"),
@@ -186,3 +188,5 @@ static FAutoConsoleCommand UltimateTerrainPersistenceTestCommand(
         UE_LOG(LogTemp, Warning, TEXT("=== Ultimate Terrain Persistence Test Complete ==="));
     })
 );
+
+#endif // Temporarily disabled

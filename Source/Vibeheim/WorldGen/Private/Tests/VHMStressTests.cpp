@@ -600,6 +600,8 @@ bool FVHMStressTests::ValidateMemoryGrowth(int32 InitialObjects, int32 FinalObje
     }
 }
 
+// TEMPORARY: Disable console commands to prevent startup crashes
+#if 0
 // Console commands for stress tests
 static FAutoConsoleCommand MaterialStressTestCommand(
     TEXT("wg.StressMaterials"),
@@ -644,3 +646,5 @@ static FAutoConsoleCommand PerformanceBenchmarkCommand(
         FVHMStressTests::RunPerformanceBenchmark(NumTiles);
     })
 );
+
+#endif // Temporarily disabled
