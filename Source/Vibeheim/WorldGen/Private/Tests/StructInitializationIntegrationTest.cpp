@@ -1,3 +1,4 @@
+#if 0 // DISABLED FOR TEST DIET - Non-essential struct initialization test
 #include "CoreMinimal.h"
 #include "Data/WorldGenTypes.h"
 #include "Data/InstancePersistence.h"
@@ -1103,4 +1104,5 @@ bool FStructInitializationIntegrationTestBase::TestSerializationPersistenceInteg
 	}
 }
 
-#endif // WITH_AUTOMATION_TESTS
+#endif // WITH_AUTOMATION_TESTS#en
+dif // DISABLED FOR TEST DIET

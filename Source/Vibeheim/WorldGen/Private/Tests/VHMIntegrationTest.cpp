@@ -1,5 +1,4 @@
-// Temporarily disabled due to compilation issues
-#if 0
+// VHM Integration Test - Enabled for Test Diet
 #include "CoreMinimal.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
@@ -1132,4 +1131,4 @@ static FAutoConsoleCommand VHMIntegrationTestCommand(
 
 #endif // Temporarily disabled
 
-#endif // Entire file temporarily disabled
+// End of VHM Integration Test

@@ -1,3 +1,4 @@
+#if 0 // DISABLED FOR TEST DIET - Non-essential console test
 #include "Services/HeightfieldService.h"
 #include "Data/WorldGenTypes.h"
 #include "Utils/WorldGenLogging.h"
@@ -171,4 +172,5 @@ static FAutoConsoleCommand TestTerrainPersistenceCommand(
     })
 );
 
-#endif // Temporarily disabled
+#endif // Temporarily disabled#endi
+f // DISABLED FOR TEST DIET

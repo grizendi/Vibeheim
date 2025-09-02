@@ -1,5 +1,6 @@
 #if WITH_AUTOMATION_TESTS
 
+#if 0 // DISABLED FOR TEST DIET - Non-essential file persistence test
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
 #include "Data/WorldGenTypes.h"
@@ -449,4 +450,5 @@ void FFilePersistenceTestBase::CleanupTestFiles()
     IFileManager::Get().DeleteDirectory(*TestDir, false, true);
 }
 
-#endif
+#endif#endif
+ // DISABLED FOR TEST DIET

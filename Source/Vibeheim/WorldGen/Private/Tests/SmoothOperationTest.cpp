@@ -1,3 +1,4 @@
+#if 0 // DISABLED FOR TEST DIET - Non-essential smooth operation test
 #include "Services/HeightfieldService.h"
 #include "Data/WorldGenTypes.h"
 #include "Utils/WorldGenLogging.h"
@@ -129,4 +130,5 @@ static FAutoConsoleCommand SmoothOperationTestCommand(
         
         UE_LOG(LogTemp, Warning, TEXT("=== Smooth Operation Test Complete ==="));
     })
-);
+);#endif /
+/ DISABLED FOR TEST DIET

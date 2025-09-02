@@ -8,9 +8,9 @@
 #if WITH_AUTOMATION_TESTS
 #include "Misc/AutomationTest.h"
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDeterminismTest, "Vibeheim.WorldGen.Determinism.MultiRunConsistency", EAutomationTestFlags::ClientContext | EAutomationTestFlags::ProductFilter)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FWgDeterminismSmoke, "Vibeheim.WorldGen.Smoke.Determinism", EAutomationTestFlags::ClientContext | EAutomationTestFlags::ProductFilter)
 
-bool FDeterminismTest::RunTest(const FString& Parameters)
+bool FWgDeterminismSmoke::RunTest(const FString& Parameters)
 {
 	// Test 1: Multi-run determinism with fixed seeds
 	//TestTrue("Multi-run determinism test", FDeterminismTest::TestMultiRunDeterminism());
@@ -352,10 +352,10 @@ bool FDeterminismTest::RunTest(const FString& Parameters)
 //	return true;
 //}
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHashUtilsTest, "Vibeheim.WorldGen.Determinism.HashUtils", 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHashUtilsSmoke, "Vibeheim.WorldGen.Smoke.HashUtils", 
 	EAutomationTestFlags::ClientContext | EAutomationTestFlags::ProductFilter)
 
-bool FHashUtilsTest::RunTest(const FString& Parameters)
+bool FHashUtilsSmoke::RunTest(const FString& Parameters)
 {
 	// Test xxHash64 consistency
 	TArray<uint8> TestData = {'T', 'e', 's', 't', 'D', 'a', 't', 'a'};

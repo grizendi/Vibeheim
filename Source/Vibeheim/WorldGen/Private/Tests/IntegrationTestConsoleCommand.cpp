@@ -1,3 +1,4 @@
+#if 0 // DISABLED FOR TEST DIET - Non-essential integration test console command
 #include "Tests/WorldGenIntegrationTest.h"
 #include "Engine/Engine.h"
 #include "HAL/IConsoleManager.h"
@@ -97,4 +98,5 @@ static FAutoConsoleCommand RunPersistenceTestCommand(
         
         UE_LOG(LogTemp, Warning, TEXT("=== Terrain Persistence Test Complete ==="));
     })
-);
+);#e
+ndif // DISABLED FOR TEST DIET

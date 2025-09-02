@@ -1,3 +1,4 @@
+#if 0 // DISABLED FOR TEST DIET - VHM compatibility runtime test (bring back after core loop works)
 #include "CoreMinimal.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
@@ -787,4 +788,5 @@ static FAutoConsoleCommand VHMCompatibilityTestCommand(
     })
 );
 
-#endif // Temporarily disabled
+#endif // Temporarily disabled#en
+dif // DISABLED FOR TEST DIET

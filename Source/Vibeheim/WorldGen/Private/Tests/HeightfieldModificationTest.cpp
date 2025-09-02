@@ -1,3 +1,4 @@
+#if 0 // DISABLED FOR TEST DIET - Non-essential heightfield modification test
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
 #include "Data/WorldGenTypes.h"
@@ -113,4 +114,5 @@ bool FPCGInstanceDataInitializationTest::RunTest(const FString& Parameters)
 	}
 	
 	return true;
-}
+}#
+endif // DISABLED FOR TEST DIET

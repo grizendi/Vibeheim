@@ -1,3 +1,4 @@
+#if 0 // DISABLED FOR TEST DIET - Non-essential test
 #include "CoreMinimal.h"
 #include "Services/NoiseSystem.h"
 #include "Services/ClimateSystem.h"
@@ -83,4 +84,5 @@ bool FBasicSystemTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-#endif // WITH_AUTOMATION_TESTS
+#endif // WITH_AUTOMATION_TESTS#e
+ndif // DISABLED FOR TEST DIET

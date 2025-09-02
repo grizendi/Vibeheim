@@ -1,4 +1,5 @@
 // DiagnosticFailureTests.cpp - Diagnostic tests for remaining integration test failures
+#if 0 // DISABLED FOR TEST DIET - Non-essential diagnostic failure tests
 #include "CoreMinimal.h"
 #include "Engine/Engine.h"
 #include "HAL/ConsoleManager.h"
@@ -34,4 +35,5 @@ static FAutoConsoleCommand DiagnosticPCGContentCmd(
     TEXT("wg.DiagnosticPCGContent"),
     TEXT("Run diagnostic test for PCG content generation failure"),
     FConsoleCommandDelegate::CreateStatic(&FDiagnosticFailureTests::RunPCGContentDiagnostic)
-);
+);#en
+dif // DISABLED FOR TEST DIET

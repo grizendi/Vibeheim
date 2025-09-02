@@ -10,12 +10,12 @@ DEFINE_LOG_CATEGORY_STATIC(LogInstancePersistenceTest, Log, All);
 
 // Basic journal behavior
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
-	FInstancePersistenceBasicTest,
-	"Vibeheim.WorldGen.InstancePersistence.Basic",
+	FWgPersistenceSmoke,
+	"Vibeheim.WorldGen.Smoke.Persistence",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter
 )
 
-bool FInstancePersistenceBasicTest::RunTest(const FString& Parameters)
+bool FWgPersistenceSmoke::RunTest(const FString& Parameters)
 {
 	// Test basic journal operations
 	FTileCoord TestTileCoord(0, 0);

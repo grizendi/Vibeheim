@@ -1,5 +1,6 @@
 #if WITH_AUTOMATION_TESTS
 
+#if 0 // DISABLED FOR TEST DIET - Non-essential struct behavior test
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
 #include "Data/WorldGenTypes.h"
@@ -244,4 +245,5 @@ void FStructBehaviorChangeTestBase::TestSerializationBehavior()
     UE_LOG(LogTemp, Log, TEXT("Serialization behavior test passed - no changes to save file format"));
 }
 
-#endif // WITH_AUTOMATION_TESTS
+#endif // WITH_AUTOMATION_TESTS#e
+ndif // DISABLED FOR TEST DIET

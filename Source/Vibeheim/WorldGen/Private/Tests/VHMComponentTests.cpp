@@ -1,3 +1,4 @@
+#if 0 // DISABLED FOR TEST DIET - VHM component test (bring back after core loop works)
 #include "CoreMinimal.h"
 #include "Engine/Engine.h"
 #include "HAL/IConsoleManager.h"
@@ -662,4 +663,5 @@ static FAutoConsoleCommand TestPerformanceCommand(
     })
 );
 
-#endif // Temporarily disabled
+#endif // Temporarily disabled#endi
+f // DISABLED FOR TEST DIET

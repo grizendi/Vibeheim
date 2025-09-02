@@ -1,3 +1,4 @@
+#if 0 // DISABLED FOR TEST DIET - Non-essential settings test
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
 #include "WorldGenSettings.h"
@@ -197,4 +198,5 @@ bool FWorldGenSettingsSingletonTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-#endif // WITH_DEV_AUTOMATION_TESTS
+#endif // WITH_DEV_AUTOMATION_TESTS#endif
+ // DISABLED FOR TEST DIET

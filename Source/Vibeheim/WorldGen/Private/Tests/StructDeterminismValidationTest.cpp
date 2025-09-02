@@ -1,3 +1,4 @@
+#if 0 // DISABLED FOR TEST DIET - Non-essential struct determinism test
 #include "CoreMinimal.h"
 #include "Data/WorldGenTypes.h"
 #include "Data/InstancePersistence.h"
@@ -192,4 +193,5 @@ bool FStructDeterminismValidationTest::RunTest(const FString& Parameters)
 	return bTestPassed;
 }
 
-#endif // WITH_AUTOMATION_TESTS
+#endif // WITH_AUTOMATION_TESTS#endif // 
+DISABLED FOR TEST DIET

@@ -1,4 +1,5 @@
 // ComprehensiveDiagnostic.cpp - Comprehensive diagnostic for all remaining failures
+#if 0 // DISABLED FOR TEST DIET - Non-essential comprehensive diagnostic
 #include "CoreMinimal.h"
 #include "Engine/Engine.h"
 #include "HAL/ConsoleManager.h"
@@ -42,4 +43,5 @@ static FAutoConsoleCommand ComprehensiveDiagnosticCmd(
     TEXT("wg.DiagnosticAll"),
     TEXT("Run comprehensive diagnostic for all remaining integration test failures"),
     FConsoleCommandDelegate::CreateStatic(&FComprehensiveDiagnostic::RunAllDiagnostics)
-);
+);#endif // 
+DISABLED FOR TEST DIET

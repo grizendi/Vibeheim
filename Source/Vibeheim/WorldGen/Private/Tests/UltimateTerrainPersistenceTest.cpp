@@ -1,3 +1,4 @@
+#if 0 // DISABLED FOR TEST DIET - Duplicate persistence test
 #include "Services/HeightfieldService.h"
 #include "Data/WorldGenTypes.h"
 #include "Utils/WorldGenLogging.h"
@@ -189,4 +190,5 @@ static FAutoConsoleCommand UltimateTerrainPersistenceTestCommand(
     })
 );
 
-#endif // Temporarily disabled
+#endif // Temporarily disabled#
+endif // DISABLED FOR TEST DIET

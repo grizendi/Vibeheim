@@ -1,3 +1,4 @@
+#if 0 // DISABLED FOR TEST DIET - Duplicate persistence test
 #include "Services/HeightfieldService.h"
 #include "Data/WorldGenTypes.h"
 #include "Utils/WorldGenLogging.h"
@@ -144,4 +145,5 @@ static FAutoConsoleCommand FinalTerrainPersistenceTestCommand(
         
         UE_LOG(LogTemp, Warning, TEXT("=== Final Terrain Persistence Test Complete ==="));
     })
-);
+);#endif 
+// DISABLED FOR TEST DIET

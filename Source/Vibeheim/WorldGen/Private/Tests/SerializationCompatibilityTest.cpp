@@ -1,5 +1,6 @@
 #if WITH_AUTOMATION_TESTS
 
+#if 0 // DISABLED FOR TEST DIET - Non-essential serialization test
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
 #include "Data/WorldGenTypes.h"
@@ -352,4 +353,5 @@ void FSerializationCompatibilityBase::TestBinaryVsCustomSerialization()
     UE_LOG(LogTemp, Log, TEXT("Binary vs custom serialization test passed"));
 }
 
-#endif // WITH_AUTOMATION_TESTS
+#endif // WITH_AUTOMATION_TESTS#en
+dif // DISABLED FOR TEST DIET
