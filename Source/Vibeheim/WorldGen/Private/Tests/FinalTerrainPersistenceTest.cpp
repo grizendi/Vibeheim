@@ -145,5 +145,6 @@ static FAutoConsoleCommand FinalTerrainPersistenceTestCommand(
         
         UE_LOG(LogTemp, Warning, TEXT("=== Final Terrain Persistence Test Complete ==="));
     })
-);#endif 
-// DISABLED FOR TEST DIET
+);
+
+#endif // DISABLED FOR TEST DIET

@@ -84,5 +84,5 @@ bool FBasicSystemTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-#endif // WITH_AUTOMATION_TESTS#e
-ndif // DISABLED FOR TEST DIET
+#endif // WITH_AUTOMATION_TESTS
+#endif // DISABLED FOR TEST DIET

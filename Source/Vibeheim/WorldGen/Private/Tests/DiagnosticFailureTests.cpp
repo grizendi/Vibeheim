@@ -35,5 +35,6 @@ static FAutoConsoleCommand DiagnosticPCGContentCmd(
     TEXT("wg.DiagnosticPCGContent"),
     TEXT("Run diagnostic test for PCG content generation failure"),
     FConsoleCommandDelegate::CreateStatic(&FDiagnosticFailureTests::RunPCGContentDiagnostic)
-);#en
-dif // DISABLED FOR TEST DIET
+);
+
+#endif // DISABLED FOR TEST DIET

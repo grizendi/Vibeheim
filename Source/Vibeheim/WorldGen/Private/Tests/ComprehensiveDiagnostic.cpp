@@ -43,5 +43,6 @@ static FAutoConsoleCommand ComprehensiveDiagnosticCmd(
     TEXT("wg.DiagnosticAll"),
     TEXT("Run comprehensive diagnostic for all remaining integration test failures"),
     FConsoleCommandDelegate::CreateStatic(&FComprehensiveDiagnostic::RunAllDiagnostics)
-);#endif // 
-DISABLED FOR TEST DIET
+);
+
+#endif // DISABLED FOR TEST DIET

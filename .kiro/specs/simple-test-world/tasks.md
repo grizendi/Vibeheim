@@ -13,7 +13,12 @@
 
 ---
 
-- [ ] 1. Subsystem + Core Commands
+- [x] 1. Subsystem + Core Commands
+
+
+
+
+
   - Create UWorldGenTestSubsystem with runtime console command registration inside Initialize() (no statics)
   - Establish one authoritative seed source (UGameInstanceSubsystem or config asset) that all systems read from
   - Add wg.launch, wg.seed <n>, wg.radii <gen> <load> <active>, wg.reset commands with WITH_EDITOR guards

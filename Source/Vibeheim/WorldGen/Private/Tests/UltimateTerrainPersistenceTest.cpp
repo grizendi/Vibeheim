@@ -190,5 +190,5 @@ static FAutoConsoleCommand UltimateTerrainPersistenceTestCommand(
     })
 );
 
-#endif // Temporarily disabled#
-endif // DISABLED FOR TEST DIET
+#endif // Temporarily disabled
+#endif // DISABLED FOR TEST DIET

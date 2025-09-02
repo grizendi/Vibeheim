@@ -130,5 +130,6 @@ static FAutoConsoleCommand SmoothOperationTestCommand(
         
         UE_LOG(LogTemp, Warning, TEXT("=== Smooth Operation Test Complete ==="));
     })
-);#endif /
-/ DISABLED FOR TEST DIET
+);
+
+#endif // DISABLED FOR TEST DIET

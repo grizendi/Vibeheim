@@ -114,5 +114,6 @@ bool FPCGInstanceDataInitializationTest::RunTest(const FString& Parameters)
 	}
 	
 	return true;
-}#
-endif // DISABLED FOR TEST DIET
+}
+
+#endif // DISABLED FOR TEST DIET

@@ -1104,5 +1104,5 @@ bool FStructInitializationIntegrationTestBase::TestSerializationPersistenceInteg
 	}
 }
 
-#endif // WITH_AUTOMATION_TESTS#en
-dif // DISABLED FOR TEST DIET
+#endif // WITH_AUTOMATION_TESTS
+#endif // DISABLED FOR TEST DIET

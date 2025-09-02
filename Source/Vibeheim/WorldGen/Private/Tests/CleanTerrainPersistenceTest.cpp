@@ -166,5 +166,6 @@ static FAutoConsoleCommand CleanTerrainPersistenceTestCommand(
         
         UE_LOG(LogTemp, Warning, TEXT("=== Clean Terrain Persistence Test Complete ==="));
     })
-);#endif /
-/ DISABLED FOR TEST DIET
+);
+
+#endif // DISABLED FOR TEST DIET

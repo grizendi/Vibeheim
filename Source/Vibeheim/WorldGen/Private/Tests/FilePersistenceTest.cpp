@@ -450,5 +450,5 @@ void FFilePersistenceTestBase::CleanupTestFiles()
     IFileManager::Get().DeleteDirectory(*TestDir, false, true);
 }
 
-#endif#endif
- // DISABLED FOR TEST DIET
+#endif
+#endif // DISABLED FOR TEST DIET

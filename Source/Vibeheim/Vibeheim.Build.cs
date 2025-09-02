@@ -7,7 +7,7 @@ public class Vibeheim : ModuleRules
     {
         PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
-        bUseUnity = false;
+        bUseUnity = true;
 
         // Add these two lines so �WorldGen/Public� and �WorldGen/Private� become include roots
         PublicIncludePaths.Add(Path.Combine(ModuleDirectory, "WorldGen", "Public"));

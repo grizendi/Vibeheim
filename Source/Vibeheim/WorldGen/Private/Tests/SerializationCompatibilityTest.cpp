@@ -353,5 +353,5 @@ void FSerializationCompatibilityBase::TestBinaryVsCustomSerialization()
     UE_LOG(LogTemp, Log, TEXT("Binary vs custom serialization test passed"));
 }
 
-#endif // WITH_AUTOMATION_TESTS#en
-dif // DISABLED FOR TEST DIET
+#endif // WITH_AUTOMATION_TESTS
+#endif // DISABLED FOR TEST DIET

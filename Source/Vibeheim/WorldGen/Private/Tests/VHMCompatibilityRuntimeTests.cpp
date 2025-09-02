@@ -788,5 +788,5 @@ static FAutoConsoleCommand VHMCompatibilityTestCommand(
     })
 );
 
-#endif // Temporarily disabled#en
-dif // DISABLED FOR TEST DIET
+#endif // Temporarily disabled
+#endif // DISABLED FOR TEST DIET

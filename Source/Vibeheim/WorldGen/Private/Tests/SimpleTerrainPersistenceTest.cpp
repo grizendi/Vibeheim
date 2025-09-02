@@ -128,5 +128,6 @@ static FAutoConsoleCommand SimpleTerrainPersistenceTestCommand(
         
         UE_LOG(LogTemp, Warning, TEXT("=== Simple Terrain Persistence Test Complete ==="));
     })
-);#endif // 
-DISABLED FOR TEST DIET
+);
+
+#endif // DISABLED FOR TEST DIET

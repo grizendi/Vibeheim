@@ -648,5 +648,5 @@ static FAutoConsoleCommand PerformanceBenchmarkCommand(
     })
 );
 
-#endif // Temporarily disabled#en
-dif // DISABLED FOR TEST DIET
+#endif // Temporarily disabled
+#endif // DISABLED FOR TEST DIET

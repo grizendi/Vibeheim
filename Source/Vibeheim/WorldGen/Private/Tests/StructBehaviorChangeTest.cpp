@@ -245,5 +245,5 @@ void FStructBehaviorChangeTestBase::TestSerializationBehavior()
     UE_LOG(LogTemp, Log, TEXT("Serialization behavior test passed - no changes to save file format"));
 }
 
-#endif // WITH_AUTOMATION_TESTS#e
-ndif // DISABLED FOR TEST DIET
+#endif // WITH_AUTOMATION_TESTS
+#endif // DISABLED FOR TEST DIET

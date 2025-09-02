@@ -193,5 +193,5 @@ bool FStructDeterminismValidationTest::RunTest(const FString& Parameters)
 	return bTestPassed;
 }
 
-#endif // WITH_AUTOMATION_TESTS#endif // 
-DISABLED FOR TEST DIET
+#endif // WITH_AUTOMATION_TESTS
+#endif // DISABLED FOR TEST DIET
