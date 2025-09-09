@@ -451,7 +451,7 @@ UObject* UVHMTerrainMaterialSystem::CreateTerrainRVT()
 {
     // For UE5.6 compatibility, we'll create a placeholder object
     // Real RVT functionality would require proper RVT module integration
-    UObject* RVT = NewObject<UObject>(this);
+    UVHMRVTPlaceholder* RVT = NewObject<UVHMRVTPlaceholder>(this);
     if (!RVT)
     {
         UE_LOG(LogTerrainMaterialSystem, Error, TEXT("CreateTerrainRVT: Failed to create RVT placeholder object"));
@@ -492,7 +492,7 @@ UObject* UVHMTerrainMaterialSystem::CreateRVTComponent()
     // Create RVT component placeholder for UE5.6 compatibility
     // This provides a placeholder when RVT modules are not available
     
-    UObject* RVTComponent = NewObject<UObject>(this);
+    UVHMRVTPlaceholder* RVTComponent = NewObject<UVHMRVTPlaceholder>(this);
     if (!RVTComponent)
     {
         UE_LOG(LogTerrainMaterialSystem, Warning, TEXT("CreateRVTComponent: Failed to create RVT component placeholder"));

@@ -10,6 +10,7 @@
 class UHeightfieldService;
 class UBiomeService;
 class UPCGWorldService;
+class UVHMTerrainRenderer;
 
 /**
  * Tile state enumeration for streaming system
@@ -172,6 +173,12 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Tile Streaming")
 	bool IsTileActive(const FTileCoord& TileCoord, const FTileCoord& PlayerTileCoord) const;
 
+	/**
+	 * Set VHM terrain renderer for tile streaming notifications
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Tile Streaming")
+	void SetVHMTerrainRenderer(UVHMTerrainRenderer* InVHMTerrainRenderer);
+
 private:
 	UPROPERTY()
 	FWorldGenConfig WorldGenSettings;
@@ -185,6 +192,9 @@ private:
 
 	UPROPERTY()
 	UPCGWorldService* PCGWorldService;
+
+	UPROPERTY()
+	UVHMTerrainRenderer* VHMTerrainRenderer;
 
 	// Tile cache and LRU management
 	UPROPERTY()
@@ -271,4 +281,9 @@ private:
 	 * Check if tile is within specified radius
 	 */
 	bool IsTileInRadius(const FTileCoord& TileCoord, const FTileCoord& CenterTile, int32 Radius) const;
+
+	/**
+	 * Notify VHM renderer about tile streaming events
+	 */
+	void NotifyVHMRenderer(const TArray<FTileCoord>& ActiveTiles, const TArray<FTileCoord>& LoadTiles);
 };

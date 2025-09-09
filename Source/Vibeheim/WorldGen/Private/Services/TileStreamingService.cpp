@@ -2,6 +2,7 @@
 #include "Services/HeightfieldService.h"
 #include "Services/BiomeService.h"
 #include "Services/PCGWorldService.h"
+#include "VHMTerrainRendering/VHMTerrainRenderer.h"
 #include "Data/WorldGenTypes.h"
 #include "Utils/WorldGenLogging.h"
 #include "Engine/Engine.h"
@@ -15,6 +16,7 @@ UTileStreamingService::UTileStreamingService()
 	HeightfieldService = nullptr;
 	BiomeService = nullptr;
 	PCGWorldService = nullptr;
+	VHMTerrainRenderer = nullptr;
 	MaxCacheSize = 81; // 9x9 grid as per task requirements (Generate=9, so max 81 tiles)
 	CurrentTime = 0.0f;
 	LastPlayerTileCoord = FTileCoord(INT32_MAX, INT32_MAX); // Initialize to invalid coord
@@ -99,6 +101,9 @@ void UTileStreamingService::UpdateStreaming(const FTileCoord& PlayerTileCoord)
 
 	// Evict distant tiles
 	EvictDistantTiles(PlayerTileCoord);
+
+	// Notify VHM renderer about tile streaming events
+	NotifyVHMRenderer(ActiveTiles, LoadTiles);
 
 	// Update performance metrics
 	UpdatePerformanceMetrics();
@@ -237,11 +242,17 @@ void UTileStreamingService::EvictDistantTiles(const FTileCoord& PlayerTileCoord)
 {
 	TArray<FTileCoord> TilesToEvict;
 
-	// Find tiles outside LoadRadius
+	// Implement hysteresis: keep tiles alive 1 ring beyond Active radius
+	int32 HysteresisRadius = WorldGenSettings.ActiveRadius + 1; // Keep tiles alive 1 ring beyond Active
+	
+	// Find tiles outside hysteresis radius (not just LoadRadius)
 	for (const auto& TilePair : TileCache)
 	{
 		FTileCoord TileCoord = TilePair.Key;
-		if (!IsTileInRadius(TileCoord, PlayerTileCoord, WorldGenSettings.LoadRadius))
+		int32 DistanceFromPlayer = CalculateTileDistance(TileCoord, PlayerTileCoord);
+		
+		// Only evict tiles beyond hysteresis radius to prevent ping-pong
+		if (DistanceFromPlayer > HysteresisRadius)
 		{
 			TilesToEvict.Add(TileCoord);
 		}
@@ -261,8 +272,9 @@ void UTileStreamingService::EvictDistantTiles(const FTileCoord& PlayerTileCoord)
 			FTileCoord TileCoord = LRUList[i].TileCoord;
 			if (!TilesToEvict.Contains(TileCoord))
 			{
-				// Only evict if not within LoadRadius
-				if (!IsTileInRadius(TileCoord, PlayerTileCoord, WorldGenSettings.LoadRadius))
+				// Only evict if beyond hysteresis radius to prevent thrashing
+				int32 DistanceFromPlayer = CalculateTileDistance(TileCoord, PlayerTileCoord);
+				if (DistanceFromPlayer > HysteresisRadius)
 				{
 					TilesToEvict.Add(TileCoord);
 				}
@@ -276,7 +288,8 @@ void UTileStreamingService::EvictDistantTiles(const FTileCoord& PlayerTileCoord)
 		RemoveTileFromCache(TileCoord);
 		PerformanceMetrics.TilesEvicted++;
 		
-		UE_LOG(LogTileStreaming, Verbose, TEXT("Evicted tile (%d, %d)"), TileCoord.X, TileCoord.Y);
+		UE_LOG(LogTileStreaming, Verbose, TEXT("Evicted tile (%d, %d) beyond hysteresis radius %d"), 
+			TileCoord.X, TileCoord.Y, HysteresisRadius);
 	}
 }
 
@@ -538,4 +551,40 @@ void UTileStreamingService::ClearTileCache()
 	RecentGenerationTimes.Empty();
 	
 	UE_LOG(LogTileStreaming, Log, TEXT("Tile cache cleared"));
+}
+
+void UTileStreamingService::SetVHMTerrainRenderer(UVHMTerrainRenderer* InVHMTerrainRenderer)
+{
+	VHMTerrainRenderer = InVHMTerrainRenderer;
+	UE_LOG(LogTileStreaming, Log, TEXT("VHM Terrain Renderer connected to tile streaming service"));
+}
+
+void UTileStreamingService::NotifyVHMRenderer(const TArray<FTileCoord>& ActiveTiles, const TArray<FTileCoord>& LoadTiles)
+{
+	if (!VHMTerrainRenderer)
+	{
+		return;
+	}
+
+	// Notify VHM renderer about tiles that should have VHM components (within Active radius)
+	for (const FTileCoord& TileCoord : ActiveTiles)
+	{
+		FTileStreamingData* TileData = TileCache.Find(TileCoord);
+		if (TileData && TileData->State == ETileState::Active)
+		{
+			// Notify VHM renderer that this tile is active and should have a mesh
+			VHMTerrainRenderer->OnTileStreamingEvent(TileCoord, true);
+		}
+	}
+
+	// Check for tiles that are no longer active and should be removed
+	TArray<FTileCoord> CurrentVHMTiles = VHMTerrainRenderer->GetActiveMeshTiles();
+	for (const FTileCoord& VHMTileCoord : CurrentVHMTiles)
+	{
+		// If VHM has a tile that's not in our active list, remove it
+		if (!ActiveTiles.Contains(VHMTileCoord))
+		{
+			VHMTerrainRenderer->OnTileStreamingEvent(VHMTileCoord, false);
+		}
+	}
 }

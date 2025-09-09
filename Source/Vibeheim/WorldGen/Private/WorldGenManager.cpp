@@ -87,6 +87,23 @@ bool AWorldGenManager::InitializeWorldGenSystems()
 		return false;
 	}
 
+	// Apply fixed streaming radii for test world (Generate=9, Load=5, Active=3)
+	WorldGenSettings->Settings.GenerateRadius = 9;
+	WorldGenSettings->Settings.LoadRadius = 5;
+	WorldGenSettings->Settings.ActiveRadius = 3;
+	UE_LOG(LogWorldGenManager, Log, TEXT("Applied fixed streaming radii: Generate=9, Load=5, Active=3"));
+
+	// Configure VHM settings for seam prevention
+	if (!WorldGenSettings->VHMSettings.IsSet())
+	{
+		WorldGenSettings->VHMSettings = FVHMSettings();
+	}
+	FVHMSettings& VHMConfig = WorldGenSettings->VHMSettings.GetValue();
+	VHMConfig.bEnableBoundaryStitching = true;
+	VHMConfig.BoundaryBlendFactor = 0.5f;
+	VHMConfig.BoundaryUpdateRadius = 1;
+	UE_LOG(LogWorldGenManager, Log, TEXT("Configured VHM settings for seam prevention"));
+
 	// Initialize Heightfield Service
 	HeightfieldService = NewObject<UHeightfieldService>(this);
 	if (!HeightfieldService || !HeightfieldService->Initialize(WorldGenSettings->Settings))
@@ -139,12 +156,21 @@ bool AWorldGenManager::InitializeWorldGenSystems()
 		return false;
 	}
 
-	// Initialize VHM Terrain Renderer
+	// Initialize VHM Terrain Renderer with biome service for material support
 	VHMTerrainRenderer = NewObject<UVHMTerrainRenderer>(this);
-	if (!VHMTerrainRenderer || !VHMTerrainRenderer->Initialize(WorldGenSettings, HeightfieldService, TileStreamingService))
+	if (!VHMTerrainRenderer || !VHMTerrainRenderer->InitializeWithBiomeService(WorldGenSettings, HeightfieldService, TileStreamingService, BiomeService))
 	{
 		UE_LOG(LogWorldGenManager, Error, TEXT("Failed to initialize VHM Terrain Renderer"));
-		return false;
+		// Fallback: try basic initialization without biome service
+		if (!VHMTerrainRenderer->Initialize(WorldGenSettings, HeightfieldService, TileStreamingService))
+		{
+			UE_LOG(LogWorldGenManager, Error, TEXT("VHM001: VHM Terrain Renderer initialization failed - using flat meadow fallback"));
+			HandleWorldGenerationError(TEXT("VHM terrain rendering unavailable"));
+		}
+		else
+		{
+			UE_LOG(LogWorldGenManager, Warning, TEXT("VHM Terrain Renderer initialized without biome service"));
+		}
 	}
 
 	// Initialize VHM Debug System
@@ -159,7 +185,13 @@ bool AWorldGenManager::InitializeWorldGenSystems()
 	HeightfieldService->SetClimateSystem(ClimateSystem);
 	POIService->SetBiomeService(BiomeService);
 	POIService->SetHeightfieldService(HeightfieldService);
-	// HeightfieldService->SetNoiseSystem(NoiseSystem); // TODO: Add when NoiseSystem is available
+	
+	// Connect VHM renderer to tile streaming events
+	if (VHMTerrainRenderer && TileStreamingService)
+	{
+		TileStreamingService->SetVHMTerrainRenderer(VHMTerrainRenderer);
+		UE_LOG(LogWorldGenManager, Log, TEXT("Connected VHM Terrain Renderer to tile streaming events"));
+	}
 
 	UE_LOG(LogWorldGenManager, Log, TEXT("All world generation systems initialized successfully"));
 	return true;
@@ -175,6 +207,33 @@ void AWorldGenManager::UpdateWorldStreaming()
 	// Get current player position and update streaming
 	FTileCoord CurrentPlayerTile = GetPlayerTileCoordinate();
 	TileStreamingService->UpdateStreaming(CurrentPlayerTile);
+
+	// Update VHM terrain renderer with current viewer position for LOD management
+	if (VHMTerrainRenderer)
+	{
+		FVector ViewerPosition = FVector::ZeroVector;
+		if (APlayerController* PlayerController = GetWorld()->GetFirstPlayerController())
+		{
+			if (APawn* PlayerPawn = PlayerController->GetPawn())
+			{
+				ViewerPosition = PlayerPawn->GetActorLocation();
+			}
+		}
+		VHMTerrainRenderer->UpdateLODLevels(ViewerPosition);
+		
+		// Limit the number of active VHM components to prevent crashes
+		TArray<FTileCoord> ActiveTiles = VHMTerrainRenderer->GetActiveMeshTiles();
+		const int32 MaxActiveTiles = 25; // Reasonable limit for testing
+		if (ActiveTiles.Num() > MaxActiveTiles)
+		{
+			UE_LOG(LogWorldGenManager, Warning, TEXT("Too many active VHM tiles (%d), cleaning up oldest tiles"), ActiveTiles.Num());
+			// Remove excess tiles (keep the first MaxActiveTiles)
+			for (int32 i = MaxActiveTiles; i < ActiveTiles.Num(); i++)
+			{
+				VHMTerrainRenderer->RemoveTerrainMesh(ActiveTiles[i]);
+			}
+		}
+	}
 
 	// Update performance tracking from streaming service
 	FTileStreamingMetrics StreamingMetrics = TileStreamingService->GetPerformanceMetrics();
@@ -199,8 +258,10 @@ FTileCoord AWorldGenManager::GetPlayerTileCoordinate() const
 		return FTileCoord(0, 0); // Default to origin if no player found
 	}
 
-	FVector PlayerLocation = PlayerController->GetPawn()->GetActorLocation();
-	return FTileCoord::FromWorldPosition(PlayerLocation, WorldGenSettings->Settings.TileSizeMeters);
+    FVector PlayerLocation = PlayerController->GetPawn()->GetActorLocation();
+    // Convert Unreal centimeters to meters before mapping to tile coords
+    FVector PlayerLocationMeters = PlayerLocation / 100.0f;
+    return FTileCoord::FromWorldPosition(PlayerLocationMeters, WorldGenSettings->Settings.TileSizeMeters);
 }
 
 TArray<FTileCoord> AWorldGenManager::CalculateTilesToGenerate(const FTileCoord& PlayerTileCoord)

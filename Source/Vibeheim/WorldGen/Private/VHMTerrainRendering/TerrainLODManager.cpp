@@ -8,8 +8,10 @@ DEFINE_LOG_CATEGORY_STATIC(LogTerrainLOD, Log, All);
 // FTileLODData implementation
 FTileLODData::FTileLODData(const FTileCoord& TileCoord, float TileSize)
 {
-    FVector TileCenter = TileCoord.ToWorldPosition(TileSize);
-    FVector HalfExtent(TileSize * 0.5f, TileSize * 0.5f, 1000.0f); // Assume max height for bounds
+    // Convert tile center from meters to centimeters for Unreal distances
+    const float TileSizeCm = TileSize * 100.0f;
+    FVector TileCenter = TileCoord.ToWorldPosition(TileSize) * 100.0f;
+    FVector HalfExtent(TileSizeCm * 0.5f, TileSizeCm * 0.5f, 12000.0f); // ~Max height 120m in cm
     WorldBounds = FBox(TileCenter - HalfExtent, TileCenter + HalfExtent);
 }
 
@@ -31,12 +33,13 @@ UVHMTerrainLODManager::UVHMTerrainLODManager()
 void UVHMTerrainLODManager::Initialize(const FVHMSettings& Settings)
 {
     MaxLODLevels = Settings.LODLevels;
-    MaxViewDistance = Settings.MaxViewDistance;
+    // Convert meters -> centimeters for Unreal distances
+    MaxViewDistance = Settings.MaxViewDistance * 100.0f;
     TileSize = 64.0f; // Fixed tile size from world gen config
     
     InitializeLODDistances();
     
-    UE_LOG(LogTerrainLOD, Log, TEXT("TerrainLODManager initialized: MaxLOD=%d, MaxDistance=%.1f, TileSize=%.1f"), 
+    UE_LOG(LogTerrainLOD, Log, TEXT("TerrainLODManager initialized: MaxLOD=%d, MaxDistance=%.1fcm, TileSize=%.1fm"), 
            MaxLODLevels, MaxViewDistance, TileSize);
 }
 
@@ -67,7 +70,7 @@ void UVHMTerrainLODManager::ValidateLODDistances()
     {
         if (LODDistances[i] <= LODDistances[i-1])
         {
-            LODDistances[i] = LODDistances[i-1] + 50.0f; // Minimum 50m between LOD levels
+            LODDistances[i] = LODDistances[i-1] + 5000.0f; // Minimum 50m (in cm) between LOD levels
         }
     }
 }
@@ -220,7 +223,8 @@ void UVHMTerrainLODManager::GetLODDistances(TArray<float>& OutLODDistances) cons
 
 float UVHMTerrainLODManager::CalculateDistanceToTile(const FTileCoord& TileCoord, const FVector& ViewerPosition) const
 {
-    FVector TileCenter = TileCoord.ToWorldPosition(TileSize);
+    // Convert tile center from meters to centimeters for Unreal distances
+    FVector TileCenter = TileCoord.ToWorldPosition(TileSize) * 100.0f;
     TileCenter.Z = ViewerPosition.Z; // Use viewer height for distance calculation
     
     return FVector::Dist(ViewerPosition, TileCenter);

@@ -38,11 +38,20 @@ bool UVHMHeightfieldTextureManager::Initialize(const FVHMSettings& Settings)
 UTexture2D* UVHMHeightfieldTextureManager::CreateHeightTexture(const FTileCoord& TileCoord, const TArray<float>& HeightData)
 {
     // Safety check: Don't create textures if rendering system isn't ready
-    if (!GEngine || !GEngine->GetWorld() || !IsInGameThread())
+    if (!GEngine)
     {
-        UE_LOG(LogHeightfieldTextureManager, Warning, TEXT("CreateHeightTexture: Rendering system not ready for tile (%d, %d)"), TileCoord.X, TileCoord.Y);
+        UE_LOG(LogHeightfieldTextureManager, Warning, TEXT("CreateHeightTexture: GEngine is null for tile (%d, %d)"), TileCoord.X, TileCoord.Y);
         return nullptr;
     }
+    
+    if (!IsInGameThread())
+    {
+        UE_LOG(LogHeightfieldTextureManager, Warning, TEXT("CreateHeightTexture: Not in game thread for tile (%d, %d)"), TileCoord.X, TileCoord.Y);
+        return nullptr;
+    }
+    
+    // Note: Don't check GEngine->GetWorld() as it might return null in PIE
+    // Instead, get world from the object context
     
     if (HeightData.Num() == 0)
     {

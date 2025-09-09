@@ -16,6 +16,16 @@ class UTexture2D;
 class UTextureRenderTarget2D;
 
 /**
+ * Simple concrete placeholder object for RVT-related placeholders.
+ * Used to avoid instantiating abstract UObject directly.
+ */
+UCLASS()
+class VIBEHEIM_API UVHMRVTPlaceholder : public UObject
+{
+    GENERATED_BODY()
+};
+
+/**
  * Material blend data for tile boundaries
  */
 USTRUCT(BlueprintType)

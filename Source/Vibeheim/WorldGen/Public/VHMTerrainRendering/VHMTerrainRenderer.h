@@ -180,11 +180,6 @@ private:
     FBox CalculateTileWorldBounds(const FTileCoord& TileCoord) const;
 
     /**
-     * Initialize terrain LOD manager
-     */
-    bool InitializeTerrainLODManager();
-
-    /**
      * Update frame-based LOD coordination
      */
     void UpdateFrameBasedLOD(const FVector& ViewerPosition);
@@ -235,6 +230,11 @@ private:
     bool InitializeHeightfieldTextureManager();
 
     /**
+     * Initialize terrain LOD manager
+     */
+    bool InitializeTerrainLODManager();
+
+    /**
      * Initialize terrain material system
      */
     bool InitializeTerrainMaterialSystem();
@@ -253,4 +253,11 @@ private:
      * Update adjacent tile boundaries when a tile is modified
      */
     void UpdateAdjacentTileBoundaries(const FTileCoord& ModifiedTileCoord);
+
+    /**
+     * Create flat meadow fallback when VHM creation fails
+     */
+    bool CreateFlatMeadowFallback(const FTileCoord& TileCoord);
+
+    
 };

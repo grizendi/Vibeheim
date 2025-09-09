@@ -23,7 +23,8 @@ public class Vibeheim : ModuleRules
             "EnhancedInput",
             "PCG",
             "VirtualHeightfieldMesh",
-            "RenderCore"
+            "RenderCore",
+            "ProceduralMeshComponent"
         });
 
         // Private-only usage

@@ -61,9 +61,22 @@ private:
 	void ExecuteSeedCommand(const TArray<FString>& Args);
 	void ExecuteRadiiCommand(const TArray<FString>& Args);
 	void ExecuteResetCommand(const TArray<FString>& Args);
+	void ExecuteValidateCommand(const TArray<FString>& Args);
+	void ExecuteGateACommand(const TArray<FString>& Args);
+	void ExecuteTestCommand(const TArray<FString>& Args);
+	void ExecuteDebugCommand(const TArray<FString>& Args);
+	void ExecuteTestTileCommand(const TArray<FString>& Args);
+	void ExecuteCleanupCommand(const TArray<FString>& Args);
 
 	// Get the seed subsystem
 	UWorldGenSeedSubsystem* GetSeedSubsystem() const;
+
+	// Validate VHM integration
+	bool ValidateVHMIntegration() const;
+
+	// Gate A validation - orbit seam test at two LOD thresholds
+	UFUNCTION(BlueprintCallable, CallInEditor)
+	bool ExecuteGateATest();
 
 	// Test map path constant
 	static const FString TestMapPath;

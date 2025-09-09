@@ -18,7 +18,12 @@
   - Gate check: No crashes, no stale pointers after hot reload, commands ignored with log line outside WG_TestMap
   - _Requirements: 1.1, 5.1, 5.3_
 
-- [ ] 2. Create Test Map + VHM Integration
+- [x] 2. Create Test Map + VHM Integration
+
+
+
+
+
   - Create /Game/Maps/WG_TestMap.umap with single AWorldGenManager (spawn if missing)
   - Integrate VHMTerrainRenderer with WorldGenManager initialization sequence
   - Implement fixed streaming ring (Generate=9, Load=5, Active=3) with tiny hysteresis (keep tiles alive 1 ring beyond Active)

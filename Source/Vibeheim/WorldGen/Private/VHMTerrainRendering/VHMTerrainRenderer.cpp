@@ -15,6 +15,8 @@
 
 // Include VHM component - try the most common UE5 path first
 #include "VirtualHeightfieldMeshComponent.h"
+// Fallback procedural mesh for visualization when VHM is not fully wired
+#include "ProceduralMeshComponent.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogVHMTerrainRenderer, Log, All);
 
@@ -145,8 +147,8 @@ bool UVHMTerrainRenderer::CreateTerrainMeshForTile(const FTileCoord& TileCoord)
     FHeightfieldData HeightfieldData;
     if (!HeightfieldService->GetCachedHeightfield(TileCoord, HeightfieldData))
     {
-        UE_LOG(LogVHMTerrainRenderer, Warning, TEXT("CreateTerrainMeshForTile - No heightfield data available for tile: (%d, %d)"), TileCoord.X, TileCoord.Y);
-        return false;
+        UE_LOG(LogVHMTerrainRenderer, Warning, TEXT("CreateTerrainMeshForTile - No heightfield data available for tile (%d, %d), using fallback"), TileCoord.X, TileCoord.Y);
+        return CreateFlatMeadowFallback(TileCoord);
     }
 
     // Apply boundary stitching to height data for seamless transitions
@@ -173,16 +175,16 @@ bool UVHMTerrainRenderer::CreateTerrainMeshForTile(const FTileCoord& TileCoord)
     UTexture2D* HeightTexture = TextureManagerInterface ? TextureManagerInterface->CreateHeightTexture(TileCoord, ProcessedHeightData) : nullptr;
     if (!HeightTexture)
     {
-        UE_LOG(LogVHMTerrainRenderer, Error, TEXT("CreateTerrainMeshForTile - Failed to create height texture for tile: (%d, %d)"), TileCoord.X, TileCoord.Y);
-        return false;
+        UE_LOG(LogVHMTerrainRenderer, Error, TEXT("VHM001: Failed to create height texture for tile (%d, %d) - using flat meadow fallback"), TileCoord.X, TileCoord.Y);
+        return CreateFlatMeadowFallback(TileCoord);
     }
 
     // Create VHM component (placeholder implementation)
     UVirtualHeightfieldMeshComponent* VHMComponent = CreateVHMComponent(TileCoord);
     if (!VHMComponent)
     {
-        UE_LOG(LogVHMTerrainRenderer, Error, TEXT("CreateTerrainMeshForTile - Failed to create VHM component for tile: (%d, %d)"), TileCoord.X, TileCoord.Y);
-        return false;
+        UE_LOG(LogVHMTerrainRenderer, Error, TEXT("VHM001: Failed to create VHM component for tile (%d, %d) - using flat meadow fallback"), TileCoord.X, TileCoord.Y);
+        return CreateFlatMeadowFallback(TileCoord);
     }
 
     // Configure VHM component
@@ -234,6 +236,21 @@ bool UVHMTerrainRenderer::CreateTerrainMeshForTile(const FTileCoord& TileCoord)
                 {
                     UE_LOG(LogVHMTerrainRenderer, Warning, TEXT("Failed to apply material for biome %s to tile (%d, %d) - material verification failed"), 
                            *BiomeDefinition.BiomeName, TileCoord.X, TileCoord.Y);
+                }
+
+                // Also apply to any procedural mesh fallback under the same actor
+                if (AActor* Owner = VHMComponent->GetOwner())
+                {
+                    // Use templated GetComponents which exists across UE versions
+                    TArray<UProceduralMeshComponent*> ProcMeshes;
+                    Owner->GetComponents<UProceduralMeshComponent>(ProcMeshes);
+                    for (UProceduralMeshComponent* PMC : ProcMeshes)
+                    {
+                        if (PMC)
+                        {
+                            PMC->SetMaterial(0, TileMaterial);
+                        }
+                    }
                 }
             }
         }
@@ -552,11 +569,17 @@ UVirtualHeightfieldMeshComponent* UVHMTerrainRenderer::CreateVHMComponent(const 
         return nullptr;
     }
 
+    // Check if we already have a mesh for this tile
+    if (TerrainMeshes.Contains(TileCoord))
+    {
+        UE_LOG(LogVHMTerrainRenderer, Warning, TEXT("CreateVHMComponent - Tile (%d, %d) already has a mesh, cleaning up first"), TileCoord.X, TileCoord.Y);
+        CleanupMeshData(TileCoord);
+        TerrainMeshes.Remove(TileCoord);
+    }
 
-
-    // Create an actor to hold the VHM component
+    // Create an actor to hold the VHM component with unique naming
     FActorSpawnParameters SpawnParams;
-    SpawnParams.Name = FName(*FString::Printf(TEXT("VHMTerrain_%d_%d"), TileCoord.X, TileCoord.Y));
+    SpawnParams.Name = NAME_None; // Let UE generate unique name automatically
     SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
     
     AActor* VHMActor = CachedWorld->SpawnActor<AActor>(AActor::StaticClass(), SpawnParams);
@@ -578,7 +601,7 @@ UVirtualHeightfieldMeshComponent* UVHMTerrainRenderer::CreateVHMComponent(const 
     // Set as root component
     VHMActor->SetRootComponent(VHMComponent);
     
-    // Position the actor at the tile corner (VHM components use corner as origin)
+    // Position the actor at the tile corner (Unreal world units are cm)
     FVector TileWorldPosition = GetTileCornerWorldPosition(TileCoord);
     VHMActor->SetActorLocation(TileWorldPosition);
 
@@ -624,20 +647,104 @@ bool UVHMTerrainRenderer::GenerateMeshFromHeightfield(UVirtualHeightfieldMeshCom
         return false;
     }
 
-    // Configure VHM component with height texture
-    // Note: VHM-specific API methods will be added once the correct API is determined
-    UE_LOG(LogVHMTerrainRenderer, Log, TEXT("Height texture bound to VHM component for tile (%d, %d)"), TileCoord.X, TileCoord.Y);
+    // Attempt to fetch the cached heightfield so we can build a simple procedural mesh fallback
+    FHeightfieldData CachedHF;
+    if (!HeightfieldService || !HeightfieldService->GetCachedHeightfield(TileCoord, CachedHF))
+    {
+        UE_LOG(LogVHMTerrainRenderer, Warning, TEXT("GenerateMeshFromHeightfield - Cached heightfield not found for tile (%d, %d)"), TileCoord.X, TileCoord.Y);
+        return false;
+    }
 
-    // Force the component to rebuild its mesh
-    VHMComponent->MarkRenderStateDirty();
-    
-    // Ensure the component is registered and visible
+    // Create a procedural mesh component as a fallback visualization
+    AActor* Owner = VHMComponent->GetOwner();
+    if (!Owner)
+    {
+        UE_LOG(LogVHMTerrainRenderer, Error, TEXT("GenerateMeshFromHeightfield - VHM component has no owner for tile (%d, %d)"), TileCoord.X, TileCoord.Y);
+        return false;
+    }
+
+    UProceduralMeshComponent* Proc = NewObject<UProceduralMeshComponent>(Owner);
+    if (!Proc)
+    {
+        UE_LOG(LogVHMTerrainRenderer, Error, TEXT("GenerateMeshFromHeightfield - Failed to create ProceduralMeshComponent for tile (%d, %d)"), TileCoord.X, TileCoord.Y);
+        return false;
+    }
+
+    Proc->SetupAttachment(VHMComponent); // attach under the VHM component/actor
+    Proc->RegisterComponent();
+    Proc->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    Proc->bUseAsyncCooking = true;
+
+    const int32 Resolution = CachedHF.Resolution; // expected 64
+    if (Resolution <= 1)
+    {
+        UE_LOG(LogVHMTerrainRenderer, Error, TEXT("GenerateMeshFromHeightfield - Invalid resolution %d for tile (%d, %d)"), Resolution, TileCoord.X, TileCoord.Y);
+        return false;
+    }
+
+    const FWorldGenConfig& Config = WorldGenSettings->GetWorldGenConfig();
+    const float TileSizeCm = Config.TileSizeMeters * 100.0f; // meters -> centimeters
+    const float HeightScale = Config.HeightfieldScale;       // meters -> centimeters (default 100)
+
+    // Build vertex data
+    TArray<FVector> Vertices;
+    TArray<int32> Indices;
+    TArray<FVector> Normals;
+    TArray<FVector2D> UV0;
+    TArray<FLinearColor> Colors;
+    TArray<FProcMeshTangent> Tangents;
+
+    Vertices.Reserve(Resolution * Resolution);
+    Normals.Reserve(Resolution * Resolution);
+    UV0.Reserve(Resolution * Resolution);
+    Colors.Reserve(Resolution * Resolution);
+
+    // Height scale: convert meters to centimeters
+    for (int32 y = 0; y < Resolution; ++y)
+    {
+        for (int32 x = 0; x < Resolution; ++x)
+        {
+            const int32 idx = y * Resolution + x;
+            const float fx = (float)x / (Resolution - 1);
+            const float fy = (float)y / (Resolution - 1);
+            const float height = CachedHF.HeightData.IsValidIndex(idx) ? CachedHF.HeightData[idx] : 0.0f;
+
+            Vertices.Add(FVector(fx * TileSizeCm, fy * TileSizeCm, height * HeightScale));
+            Normals.Add(FVector(0, 0, 1)); // simple up normals as a placeholder
+            UV0.Add(FVector2D(fx, fy));
+            Colors.Add(FLinearColor::White);
+            Tangents.Add(FProcMeshTangent(1, 0, 0));
+        }
+    }
+
+    // Build index buffer (two triangles per quad)
+    Indices.Reserve((Resolution - 1) * (Resolution - 1) * 6);
+    for (int32 y = 0; y < Resolution - 1; ++y)
+    {
+        for (int32 x = 0; x < Resolution - 1; ++x)
+        {
+            const int32 v00 = y * Resolution + x;
+            const int32 v10 = v00 + 1;
+            const int32 v01 = v00 + Resolution;
+            const int32 v11 = v01 + 1;
+
+            // Winding order (counter-clockwise)
+            Indices.Add(v00); Indices.Add(v11); Indices.Add(v10);
+            Indices.Add(v00); Indices.Add(v01); Indices.Add(v11);
+        }
+    }
+
+    Proc->CreateMeshSection_LinearColor(0, Vertices, Indices, Normals, UV0, Colors, Tangents, /*bCreateCollision*/ false);
+    Proc->SetMaterial(0, VHMComponent->UPrimitiveComponent::GetMaterial(0)); // apply whatever material was set on VHM comp later
+
+    // Keep VHM component alive and registered for consistency/debug flows
     if (!VHMComponent->IsRegistered())
     {
         VHMComponent->RegisterComponent();
     }
+    VHMComponent->SetHiddenInGame(true); // hide placeholder VHM component to avoid confusion
 
-    UE_LOG(LogVHMTerrainRenderer, Log, TEXT("Generated mesh from heightfield for tile (%d, %d)"), TileCoord.X, TileCoord.Y);
+    UE_LOG(LogVHMTerrainRenderer, Log, TEXT("Procedural terrain mesh created for tile (%d, %d) with %d verts (TileSize=%.0fcm, HeightScale=%.1f)"), TileCoord.X, TileCoord.Y, Vertices.Num(), TileSizeCm, HeightScale);
     return true;
 }
 
@@ -679,10 +786,11 @@ FBox UVHMTerrainRenderer::CalculateTileWorldBounds(const FTileCoord& TileCoord) 
     }
 
     const FWorldGenConfig& Config = WorldGenSettings->GetWorldGenConfig();
-    float TileSize = Config.TileSizeMeters;
+    const float TileSizeCm = Config.TileSizeMeters * 100.0f;
+    const float HalfZ = Config.MaxTerrainHeight * Config.HeightfieldScale; // approx top extent in cm
     
     FVector TileCenter = GetTileCenterWorldPosition(TileCoord);
-    FVector HalfExtent(TileSize * 0.5f, TileSize * 0.5f, 1000.0f); // Assume max height of 1000 units
+    FVector HalfExtent(TileSizeCm * 0.5f, TileSizeCm * 0.5f, HalfZ);
     
     return FBox(TileCenter - HalfExtent, TileCenter + HalfExtent);
 }
@@ -713,11 +821,11 @@ FVector UVHMTerrainRenderer::GetTileCenterWorldPosition(const FTileCoord& TileCo
     }
 
     const FWorldGenConfig& Config = WorldGenSettings->GetWorldGenConfig();
-    float TileSize = Config.TileSizeMeters;
+    float TileSizeCm = Config.TileSizeMeters * 100.0f;
     
     return FVector(
-        TileCoord.X * TileSize + TileSize * 0.5f,
-        TileCoord.Y * TileSize + TileSize * 0.5f,
+        TileCoord.X * TileSizeCm + TileSizeCm * 0.5f,
+        TileCoord.Y * TileSizeCm + TileSizeCm * 0.5f,
         0.0f
     );
 }
@@ -730,11 +838,11 @@ FVector UVHMTerrainRenderer::GetTileCornerWorldPosition(const FTileCoord& TileCo
     }
 
     const FWorldGenConfig& Config = WorldGenSettings->GetWorldGenConfig();
-    float TileSize = Config.TileSizeMeters;
+    float TileSizeCm = Config.TileSizeMeters * 100.0f;
     
     return FVector(
-        TileCoord.X * TileSize,
-        TileCoord.Y * TileSize,
+        TileCoord.X * TileSizeCm,
+        TileCoord.Y * TileSizeCm,
         0.0f
     );
 }
@@ -1115,4 +1223,59 @@ void UVHMTerrainRenderer::UpdateAdjacentTileBoundaries(const FTileCoord& Modifie
             }
         }
     }
+}
+bool UVHMTerrainRenderer::CreateFlatMeadowFallback(const FTileCoord& TileCoord)
+{
+    UE_LOG(LogVHMTerrainRenderer, Warning, TEXT("Creating flat meadow fallback for tile (%d, %d)"), TileCoord.X, TileCoord.Y);
+
+    // Create a simple flat heightfield with meadow biome
+    TArray<float> FlatHeightData;
+    int32 Resolution = VHMSettings.HeightTextureResolution;
+    FlatHeightData.SetNumZeroed(Resolution * Resolution);
+    
+    // Fill with flat height at sea level
+    float FlatHeight = WorldGenSettings ? WorldGenSettings->Settings.SeaLevel : 0.0f;
+    for (int32 i = 0; i < FlatHeightData.Num(); i++)
+    {
+        FlatHeightData[i] = FlatHeight;
+    }
+
+    // Try to create height texture for flat terrain
+    IHeightfieldTextureManager* TextureManagerInterface = Cast<IHeightfieldTextureManager>(HeightfieldTextureManager.GetObject());
+    UTexture2D* FallbackHeightTexture = TextureManagerInterface ? TextureManagerInterface->CreateHeightTexture(TileCoord, FlatHeightData) : nullptr;
+    
+    if (!FallbackHeightTexture)
+    {
+        UE_LOG(LogVHMTerrainRenderer, Warning, TEXT("Could not create fallback height texture for tile (%d, %d) - creating minimal fallback"), TileCoord.X, TileCoord.Y);
+        // Continue anyway - we'll create a fallback without texture
+    }
+
+    // Create fallback terrain mesh data without VHM component
+    FTerrainMeshData FallbackMeshData;
+    FallbackMeshData.TileCoord = TileCoord;
+    FallbackMeshData.VHMComponent = nullptr; // No VHM component for fallback
+    FallbackMeshData.HeightTexture = FallbackHeightTexture;
+    FallbackMeshData.MaterialInstance = nullptr; // Will be set below if material system available
+    FallbackMeshData.CurrentLODLevel = 0;
+    FallbackMeshData.LastUpdateTime = FPlatformTime::Seconds();
+    FallbackMeshData.WorldBounds = CalculateTileWorldBounds(TileCoord);
+    FallbackMeshData.bIsVisible = true;
+
+    // Create meadow material if material system is available
+    if (BiomeService && TerrainMaterialSystem.GetInterface())
+    {
+        FBiomeDefinition MeadowBiome;
+        if (BiomeService->GetBiomeDefinition(EBiomeType::Meadows, MeadowBiome))
+        {
+            UMaterialInstanceDynamic* FallbackMaterial = TerrainMaterialSystem.GetInterface()->CreateTileMaterial(TileCoord, MeadowBiome);
+            FallbackMeshData.MaterialInstance = FallbackMaterial;
+            UE_LOG(LogVHMTerrainRenderer, Log, TEXT("Applied meadow material to fallback tile (%d, %d)"), TileCoord.X, TileCoord.Y);
+        }
+    }
+
+    // Store fallback mesh data
+    TerrainMeshes.Add(TileCoord, FallbackMeshData);
+
+    UE_LOG(LogVHMTerrainRenderer, Log, TEXT("Created flat meadow fallback for tile (%d, %d)"), TileCoord.X, TileCoord.Y);
+    return true;
 }
