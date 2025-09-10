@@ -1,0 +1,200 @@
+	UE_LOG(LogWorldGenTest, Log, TEXT("VHMTerrainRenderer: %s"), VHMRenderer ? TEXT("OK") : TEXT("MISSING"));
+
+	UVHMDebugSystem* VHMDebug = WorldGenManager->GetVHMDebugSystem();
+	UE_LOG(LogWorldGenTest, Log, TEXT("VHMDebugSystem: %s"), VHMDebug ? TEXT("OK") : TEXT("MISSING"));
+
+	// Try to get service references through reflection
+	UObject* HeightfieldService = nullptr;
+	UObject* BiomeService = nullptr;
+	UObject* PCGWorldService = nullptr;
+	UObject* TileStreamingService = nullptr;
+	UObject* ClimateSystem = nullptr;
+	UObject* POIService = nullptr;
+
+	// Use reflection to get private members
+	if (UClass* ManagerClass = WorldGenManager->GetClass())
+	{
+		if (FObjectProperty* HeightfieldProp = FindFProperty<FObjectProperty>(ManagerClass, TEXT("HeightfieldService")))
+		{
+			HeightfieldService = HeightfieldProp->GetObjectPropertyValue_InContainer(WorldGenManager);
+		}
+		if (FObjectProperty* BiomeProp = FindFProperty<FObjectProperty>(ManagerClass, TEXT("BiomeService")))
+		{
+			BiomeService = BiomeProp->GetObjectPropertyValue_InContainer(WorldGenManager);
+		}
+		if (FObjectProperty* PCGProp = FindFProperty<FObjectProperty>(ManagerClass, TEXT("PCGWorldService")))
+		{
+			PCGWorldService = PCGProp->GetObjectPropertyValue_InContainer(WorldGenManager);
+		}
+		if (FObjectProperty* StreamingProp = FindFProperty<FObjectProperty>(ManagerClass, TEXT("TileStreamingService")))
+		{
+			TileStreamingService = StreamingProp->GetObjectPropertyValue_InContainer(WorldGenManager);
+		}
+		if (FObjectProperty* ClimateProp = FindFProperty<FObjectProperty>(ManagerClass, TEXT("ClimateSystem")))
+		{
+			ClimateSystem = ClimateProp->GetObjectPropertyValue_InContainer(WorldGenManager);
+		}
+		if (FObjectProperty* POIProp = FindFProperty<FObjectProperty>(ManagerClass, TEXT("POIService")))
+		{
+			POIService = POIProp->GetObjectPropertyValue_InContainer(WorldGenManager);
+		}
+	}
+
+	UE_LOG(LogWorldGenTest, Log, TEXT("Service Status:"));
+	UE_LOG(LogWorldGenTest, Log, TEXT("  HeightfieldService: %s"), HeightfieldService ? TEXT("OK") : TEXT("MISSING"));
+	UE_LOG(LogWorldGenTest, Log, TEXT("  BiomeService: %s"), BiomeService ? TEXT("OK") : TEXT("MISSING"));
+	UE_LOG(LogWorldGenTest, Log, TEXT("  PCGWorldService: %s"), PCGWorldService ? TEXT("OK") : TEXT("MISSING"));
+	UE_LOG(LogWorldGenTest, Log, TEXT("  TileStreamingService: %s"), TileStreamingService ? TEXT("OK") : TEXT("MISSING"));
+	UE_LOG(LogWorldGenTest, Log, TEXT("  ClimateSystem: %s"), ClimateSystem ? TEXT("OK") : TEXT("MISSING"));
+	UE_LOG(LogWorldGenTest, Log, TEXT("  POIService: %s"), POIService ? TEXT("OK") : TEXT("MISSING"));
+
+	UE_LOG(LogWorldGenTest, Log, TEXT("=== Debug Complete ==="));
+}
+
+void UWorldGenTestSubsystem::ExecuteTestTileCommand(const TArray<FString>& Args)
+{
+	if (!IsValidTestMap())
+	{
+		LogMapError(TEXT("wg.testtile"));
+		return;
+	}
+
+	// Parse tile coordinates (default to origin)
+	int32 TileX = 0;
+	int32 TileY = 0;
+	if (Args.Num() >= 2)
+	{
+		TileX = FCString::Atoi(*Args[0]);
+		TileY = FCString::Atoi(*Args[1]);
+	}
+
+	FTileCoord TestTile(TileX, TileY);
+	UE_LOG(LogWorldGenTest, Log, TEXT("=== Testing Tile Generation (%d, %d) ==="), TileX, TileY);
+
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		UE_LOG(LogWorldGenTest, Error, TEXT("No world found"));
+		return;
+	}
+
+	// Find WorldGenManager
+	AWorldGenManager* WorldGenManager = nullptr;
+	for (TActorIterator<AWorldGenManager> ActorItr(World); ActorItr; ++ActorItr)
+	{
+		WorldGenManager = *ActorItr;
+		break;
+	}
+
+	if (!WorldGenManager)
+	{
+		UE_LOG(LogWorldGenTest, Error, TEXT("No WorldGenManager found"));
+		return;
+	}
+
+	UVHMTerrainRenderer* VHMRenderer = WorldGenManager->GetVHMTerrainRenderer();
+	if (!VHMRenderer)
+	{
+		UE_LOG(LogWorldGenTest, Error, TEXT("No VHM Terrain Renderer found"));
+		return;
+	}
+
+	// Try to create a single tile
+	UE_LOG(LogWorldGenTest, Log, TEXT("Attempting to create terrain mesh for tile (%d, %d)..."), TileX, TileY);
+	
+	bool bSuccess = VHMRenderer->CreateTerrainMeshForTile(TestTile);
+	
+	if (bSuccess)
+	{
+		UE_LOG(LogWorldGenTest, Log, TEXT("SUCCESS: Tile (%d, %d) created successfully"), TileX, TileY);
+		
+		// Check if VHM component was created
+		UVirtualHeightfieldMeshComponent* VHMComponent = VHMRenderer->GetVHMComponent(TestTile);
+		if (VHMComponent)
+		{
+			UE_LOG(LogWorldGenTest, Log, TEXT("VHM Component created: %s"), *VHMComponent->GetName());
+		}
+		else
+		{
+			UE_LOG(LogWorldGenTest, Log, TEXT("No VHM Component (using fallback)"));
+		}
+	}
+	else
+	{
+		UE_LOG(LogWorldGenTest, Error, TEXT("FAILED: Could not create tile (%d, %d)"), TileX, TileY);
+	}
+
+	// Get performance stats
+	FVHMPerformanceStats PerfStats = VHMRenderer->GetPerformanceStats();
+	UE_LOG(LogWorldGenTest, Log, TEXT("Performance Stats:"));
+	UE_LOG(LogWorldGenTest, Log, TEXT("  Active VHM Components: %d"), PerfStats.ActiveVHMComponents);
+	UE_LOG(LogWorldGenTest, Log, TEXT("  Last Generation Time: %.2fms"), PerfStats.LastMeshGenerationMs);
+	UE_LOG(LogWorldGenTest, Log, TEXT("  Average Generation Time: %.2fms"), PerfStats.AverageMeshGenerationMs);
+
+	UE_LOG(LogWorldGenTest, Log, TEXT("=== Tile Test Complete ==="));
+}
+void UWorldGenTestSubsystem::ExecuteCleanupCommand(const TArray<FString>& Args)
+{
+	UE_LOG(LogWorldGenTest, Log, TEXT("=== Cleaning up VHM terrain actors ==="));
+
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		UE_LOG(LogWorldGenTest, Error, TEXT("No world found"));
+		return;
+	}
+
+	// Find WorldGenManager
+	AWorldGenManager* WorldGenManager = nullptr;
+	for (TActorIterator<AWorldGenManager> ActorItr(World); ActorItr; ++ActorItr)
+	{
+		WorldGenManager = *ActorItr;
+		break;
+	}
+
+	if (WorldGenManager)
+	{
+		UVHMTerrainRenderer* VHMRenderer = WorldGenManager->GetVHMTerrainRenderer();
+		if (VHMRenderer)
+		{
+			// Get all active tiles and remove them
+			TArray<FTileCoord> ActiveTiles = VHMRenderer->GetActiveMeshTiles();
+			UE_LOG(LogWorldGenTest, Log, TEXT("Cleaning up %d active VHM tiles"), ActiveTiles.Num());
+			
+			for (const FTileCoord& TileCoord : ActiveTiles)
+			{
+				VHMRenderer->RemoveTerrainMesh(TileCoord);
+			}
+			
+			UE_LOG(LogWorldGenTest, Log, TEXT("Cleaned up %d VHM tiles"), ActiveTiles.Num());
+		}
+		else
+		{
+			UE_LOG(LogWorldGenTest, Warning, TEXT("No VHM Terrain Renderer found"));
+		}
+	}
+	else
+	{
+		UE_LOG(LogWorldGenTest, Warning, TEXT("No WorldGenManager found"));
+	}
+
+	// Also clean up any orphaned VHM actors by name pattern
+	int32 OrphanedActors = 0;
+	for (TActorIterator<AActor> ActorItr(World); ActorItr; ++ActorItr)
+	{
+		AActor* Actor = *ActorItr;
+		if (Actor && Actor->GetName().Contains(TEXT("VHMTerrain")))
+		{
+			UE_LOG(LogWorldGenTest, Verbose, TEXT("Destroying orphaned VHM actor: %s"), *Actor->GetName());
+			Actor->Destroy();
+			OrphanedActors++;
+		}
+	}
+
+	if (OrphanedActors > 0)
+	{
+		UE_LOG(LogWorldGenTest, Log, TEXT("Cleaned up %d orphaned VHM actors"), OrphanedActors);
+	}
+
+	UE_LOG(LogWorldGenTest, Log, TEXT("=== Cleanup Complete ==="));
+}

@@ -103,11 +103,12 @@ enum class EBiomeType : uint8
 UENUM(BlueprintType)
 enum class EHeightfieldOperation : uint8
 {
-	Add = 0,
-	Subtract = 1,
-	Flatten = 2,
-	Smooth = 3,
-	MAX UMETA(Hidden)
+    Add = 0,
+    Subtract = 1,
+    Flatten = 2,
+    Smooth = 3,
+    Noise = 4,
+    MAX UMETA(Hidden)
 };
 
 /**

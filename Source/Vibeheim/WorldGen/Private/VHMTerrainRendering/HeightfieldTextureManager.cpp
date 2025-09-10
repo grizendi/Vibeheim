@@ -442,18 +442,42 @@ bool UVHMHeightfieldTextureManager::ApplyModificationsToHeightData(const FTileCo
                         case EHeightfieldOperation::Add:
                             InOutHeightData[Index] += EffectiveStrength;
                             break;
-                            
+
                         case EHeightfieldOperation::Subtract:
                             InOutHeightData[Index] -= EffectiveStrength;
                             break;
-                            
+
                         case EHeightfieldOperation::Flatten:
                             {
                                 const float TargetHeight = Modification.bFlattenUsesTarget ? Modification.FlattenTargetZ : InOutHeightData[Index];
                                 InOutHeightData[Index] = FMath::Lerp(InOutHeightData[Index], TargetHeight, EffectiveStrength);
                             }
                             break;
-                            
+
+                        case EHeightfieldOperation::Noise:
+                            {
+                                // Simple deterministic noise based on pixel and mod id
+                                // Hash function (local) to avoid dependency on service class
+                                auto Hash2D = [](int32 X, int32 Y, uint32 Seed)->uint32
+                                {
+                                    uint32 h = static_cast<uint32>(X) * 374761393u + static_cast<uint32>(Y) * 668265263u;
+                                    h ^= Seed + 0x9e3779b9u + (h<<6) + (h>>2);
+                                    h ^= (h >> 16);
+                                    h *= 0x7feb352dU;
+                                    h ^= (h >> 15);
+                                    h *= 0x846ca68bU;
+                                    h ^= (h >> 16);
+                                    return h;
+                                };
+
+                                uint32 Seed32 = GetTypeHash(Modification.ModificationId);
+                                uint32 H = Hash2D(X, Y, Seed32);
+                                float Noise01 = static_cast<float>(H) / static_cast<float>(MAX_uint32);
+                                float NoiseSigned = Noise01 * 2.0f - 1.0f;
+                                InOutHeightData[Index] += NoiseSigned * EffectiveStrength;
+                            }
+                            break;
+
                         case EHeightfieldOperation::Smooth:
                             {
                                 // Simple smoothing - average with neighbors

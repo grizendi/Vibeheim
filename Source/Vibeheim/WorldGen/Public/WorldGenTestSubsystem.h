@@ -66,7 +66,16 @@ private:
 	void ExecuteTestCommand(const TArray<FString>& Args);
 	void ExecuteDebugCommand(const TArray<FString>& Args);
 	void ExecuteTestTileCommand(const TArray<FString>& Args);
-	void ExecuteCleanupCommand(const TArray<FString>& Args);
+    void ExecuteCleanupCommand(const TArray<FString>& Args);
+
+    // Terrain editing commands
+    void ExecuteEditRaiseCommand(const TArray<FString>& Args);
+    void ExecuteEditLowerCommand(const TArray<FString>& Args);
+    void ExecuteEditSmoothCommand(const TArray<FString>& Args);
+    void ExecuteEditNoiseCommand(const TArray<FString>& Args);
+
+    // Internal helper to apply an edit
+    void ApplyEdit(EHeightfieldOperation Op, const TArray<FString>& Args, const TCHAR* CmdName);
 
 	// Get the seed subsystem
 	UWorldGenSeedSubsystem* GetSeedSubsystem() const;

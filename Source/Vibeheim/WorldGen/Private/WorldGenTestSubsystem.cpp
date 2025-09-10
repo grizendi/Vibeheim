@@ -5,6 +5,9 @@
 #include "WorldGenManager.h"
 #include "WorldGenSettings.h"
 #include "WorldGenSeedSubsystem.h"
+#include "Services/HeightfieldService.h"
+#include "Services/PCGWorldService.h"
+#include "Services/TileStreamingService.h"
 #include "VHMTerrainRendering/VHMTerrainRenderer.h"
 #include "VHMTerrainRendering/VHMTypes.h"
 #include "EngineUtils.h"
@@ -130,6 +133,35 @@ void UWorldGenTestSubsystem::RegisterConsoleCommands()
 		TEXT("wg.cleanup"),
 		TEXT("Cleanup all VHM terrain actors to prevent naming conflicts"),
 		FConsoleCommandWithArgsDelegate::CreateUObject(this, &UWorldGenTestSubsystem::ExecuteCleanupCommand),
+		ECVF_Default
+	));
+
+	// Terrain editing commands
+	RegisteredCommands.Add(IConsoleManager::Get().RegisterConsoleCommand(
+		TEXT("wg.edit.raise"),
+		TEXT("Raise terrain. Usage: wg.edit.raise <x> <y> <radius> <strength>"),
+		FConsoleCommandWithArgsDelegate::CreateUObject(this, &UWorldGenTestSubsystem::ExecuteEditRaiseCommand),
+		ECVF_Default
+	));
+
+	RegisteredCommands.Add(IConsoleManager::Get().RegisterConsoleCommand(
+		TEXT("wg.edit.lower"),
+		TEXT("Lower terrain. Usage: wg.edit.lower <x> <y> <radius> <strength>"),
+		FConsoleCommandWithArgsDelegate::CreateUObject(this, &UWorldGenTestSubsystem::ExecuteEditLowerCommand),
+		ECVF_Default
+	));
+
+	RegisteredCommands.Add(IConsoleManager::Get().RegisterConsoleCommand(
+		TEXT("wg.edit.smooth"),
+		TEXT("Smooth terrain. Usage: wg.edit.smooth <x> <y> <radius> <strength>"),
+		FConsoleCommandWithArgsDelegate::CreateUObject(this, &UWorldGenTestSubsystem::ExecuteEditSmoothCommand),
+		ECVF_Default
+	));
+
+	RegisteredCommands.Add(IConsoleManager::Get().RegisterConsoleCommand(
+		TEXT("wg.edit.noise"),
+		TEXT("Apply noise to terrain. Usage: wg.edit.noise <x> <y> <radius> <strength>"),
+		FConsoleCommandWithArgsDelegate::CreateUObject(this, &UWorldGenTestSubsystem::ExecuteEditNoiseCommand),
 		ECVF_Default
 	));
 
@@ -956,4 +988,169 @@ void UWorldGenTestSubsystem::ExecuteCleanupCommand(const TArray<FString>& Args)
 	}
 
 	UE_LOG(LogWorldGenTest, Log, TEXT("=== Cleanup Complete ==="));
+}
+
+// --- Terrain Editing Commands ---
+namespace {
+static bool ParseEditArgs(const TArray<FString>& Args, float& OutX, float& OutY, float& OutRadius, float& OutStrength)
+{
+    if (Args.Num() < 4)
+    {
+        return false;
+    }
+    OutX = FCString::Atof(*Args[0]);
+    OutY = FCString::Atof(*Args[1]);
+    OutRadius = FCString::Atof(*Args[2]);
+    OutStrength = FCString::Atof(*Args[3]);
+    return true;
+}
+
+static TArray<FTileCoord> ComputeAffectedTiles(const FVector2D& Center, float Radius)
+{
+    TArray<FTileCoord> Result;
+    FTileCoord CenterTile = FTileCoord::FromWorldPosition(FVector(Center.X, Center.Y, 0.0f));
+    int32 TileRadius = FMath::CeilToInt(Radius / 64.0f);
+    const float TileDiagonal = 64.0f * FMath::Sqrt(2.0f);
+
+    for (int32 y = CenterTile.Y - TileRadius; y <= CenterTile.Y + TileRadius; ++y)
+    {
+        for (int32 x = CenterTile.X - TileRadius; x <= CenterTile.X + TileRadius; ++x)
+        {
+            FTileCoord T(x, y);
+            FVector TileWorldPos = T.ToWorldPosition(64.0f);
+            FVector2D TileCenter(TileWorldPos.X, TileWorldPos.Y);
+            float Dist = FVector2D::Distance(Center, TileCenter);
+            if (Dist <= Radius + TileDiagonal)
+            {
+                Result.Add(T);
+            }
+        }
+    }
+    return Result;
+}
+}
+
+void UWorldGenTestSubsystem::ApplyEdit(EHeightfieldOperation Op, const TArray<FString>& Args, const TCHAR* CmdName)
+{
+    if (!IsValidTestMap())
+    {
+        LogMapError(CmdName);
+        return;
+    }
+
+    float X=0, Y=0, Radius=0, Strength=0;
+    if (!ParseEditArgs(Args, X, Y, Radius, Strength))
+    {
+        UE_LOG(LogWorldGenTest, Error, TEXT("%s: Usage: %s <x> <y> <radius> <strength>"), CmdName, CmdName);
+        return;
+    }
+
+    UWorld* World = GetWorld();
+    if (!World)
+    {
+        UE_LOG(LogWorldGenTest, Error, TEXT("%s: No world"), CmdName);
+        return;
+    }
+
+    // Find manager
+    AWorldGenManager* Manager = nullptr;
+    for (TActorIterator<AWorldGenManager> It(World); It; ++It)
+    {
+        Manager = *It; break;
+    }
+    if (!Manager)
+    {
+        UE_LOG(LogWorldGenTest, Error, TEXT("%s: No WorldGenManager found"), CmdName);
+        return;
+    }
+
+    // Access services via reflection (private members)
+    UHeightfieldService* HF = nullptr;
+    UPCGWorldService* PCG = nullptr;
+    UTileStreamingService* Stream = nullptr;
+    if (UClass* Cls = Manager->GetClass())
+    {
+        if (FObjectProperty* P = FindFProperty<FObjectProperty>(Cls, TEXT("HeightfieldService")))
+            HF = Cast<UHeightfieldService>(P->GetObjectPropertyValue_InContainer(Manager));
+        if (FObjectProperty* P = FindFProperty<FObjectProperty>(Cls, TEXT("PCGWorldService")))
+            PCG = Cast<UPCGWorldService>(P->GetObjectPropertyValue_InContainer(Manager));
+        if (FObjectProperty* P = FindFProperty<FObjectProperty>(Cls, TEXT("TileStreamingService")))
+            Stream = Cast<UTileStreamingService>(P->GetObjectPropertyValue_InContainer(Manager));
+    }
+
+    UVHMTerrainRenderer* VHM = Manager->GetVHMTerrainRenderer();
+
+    if (!HF)
+    {
+        UE_LOG(LogWorldGenTest, Error, TEXT("%s: HeightfieldService missing"), CmdName);
+        return;
+    }
+
+    FVector Location(X, Y, 0.0f);
+    UE_LOG(LogWorldGenTest, Log, TEXT("%s: Applying op=%d at (%.1f, %.1f), R=%.1f, S=%.2f"), CmdName, (int32)Op, X, Y, Radius, Strength);
+
+    double Start = FPlatformTime::Seconds();
+    HF->ModifyHeightfield(Location, Radius, Strength, Op);
+    HF->SaveHeightfieldModifications();
+
+    // Clear PCG in slightly larger radius (1.25x)
+    if (PCG)
+    {
+        float Rclear = Radius * 1.25f;
+        FVector Min(X - Rclear, Y - Rclear, -100000.0f);
+        FVector Max(X + Rclear, Y + Rclear,  100000.0f);
+        FBox ClearArea(Min, Max);
+        bool bCleared = PCG->RemoveContentInArea(ClearArea);
+        UE_LOG(LogWorldGenTest, Log, TEXT("%s: PCG cleared in area: %s (%s)"), CmdName, *ClearArea.ToString(), bCleared ? TEXT("changed") : TEXT("no changes"));
+    }
+
+    // Update VHM for affected tiles
+    if (VHM)
+    {
+        FVector2D Center(X, Y);
+        TArray<FTileCoord> Tiles = ComputeAffectedTiles(Center, Radius);
+        int32 Updated = 0;
+        for (const FTileCoord& T : Tiles)
+        {
+            TArray<FHeightfieldModification> Mods = HF->GetTileModifications(T);
+            if (Mods.Num() == 0)
+            {
+                continue;
+            }
+            double T0 = FPlatformTime::Seconds();
+            bool bOK = VHM->UpdateTerrainMesh(T, Mods);
+            double Ms = (FPlatformTime::Seconds() - T0) * 1000.0;
+            if (bOK)
+            {
+                Updated++;
+                UE_LOG(LogWorldGenTest, Verbose, TEXT("%s: VHM tile (%d,%d) updated in %.1fms"), CmdName, T.X, T.Y, Ms);
+            }
+        }
+        double ElapsedMs = (FPlatformTime::Seconds() - Start) * 1000.0;
+        UE_LOG(LogWorldGenTest, Log, TEXT("%s: Applied edit. VHM updates=%d, total %.1fms"), CmdName, Updated, ElapsedMs);
+    }
+    else
+    {
+        UE_LOG(LogWorldGenTest, Warning, TEXT("%s: VHM renderer not available; visual update deferred"), CmdName);
+    }
+}
+
+void UWorldGenTestSubsystem::ExecuteEditRaiseCommand(const TArray<FString>& Args)
+{
+    ApplyEdit(EHeightfieldOperation::Add, Args, TEXT("wg.edit.raise"));
+}
+
+void UWorldGenTestSubsystem::ExecuteEditLowerCommand(const TArray<FString>& Args)
+{
+    ApplyEdit(EHeightfieldOperation::Subtract, Args, TEXT("wg.edit.lower"));
+}
+
+void UWorldGenTestSubsystem::ExecuteEditSmoothCommand(const TArray<FString>& Args)
+{
+    ApplyEdit(EHeightfieldOperation::Smooth, Args, TEXT("wg.edit.smooth"));
+}
+
+void UWorldGenTestSubsystem::ExecuteEditNoiseCommand(const TArray<FString>& Args)
+{
+    ApplyEdit(EHeightfieldOperation::Noise, Args, TEXT("wg.edit.noise"));
 }

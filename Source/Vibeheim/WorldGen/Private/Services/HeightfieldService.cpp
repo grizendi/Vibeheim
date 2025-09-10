@@ -886,6 +886,14 @@ void UHeightfieldService::ApplyModificationToCache(const FHeightfieldModificatio
 				CurrentHeight = FMath::Lerp(CurrentHeight, TargetHeight, Modification.Strength * Falloff);
 				break;
 			}
+			case EHeightfieldOperation::Noise:
+			{
+				uint32 Seed32 = GetTypeHash(Modification.ModificationId);
+				float Noise01 = static_cast<float>(HashPosition(SampleWorldPos, static_cast<int32>(Seed32))) / static_cast<float>(MAX_uint32);
+				float NoiseSigned = Noise01 * 2.0f - 1.0f; // [-1,1]
+				CurrentHeight += NoiseSigned * (Modification.Strength * Falloff);
+				break;
+			}
 			case EHeightfieldOperation::Smooth:
 			{
 				// Smooth by averaging with neighbors from the snapshot
@@ -1477,6 +1485,14 @@ void UHeightfieldService::ApplyModificationsToTile(FTileCoord TileCoord, TArray<
 					CurrentHeight = FMath::Lerp(CurrentHeight, TargetHeight, Modification.Strength * Falloff);
 				}
 				break;
+				case EHeightfieldOperation::Noise:
+				{
+					uint32 Seed32 = GetTypeHash(Modification.ModificationId);
+					float Noise01 = static_cast<float>(HashPosition(SampleWorldPos, static_cast<int32>(Seed32))) / static_cast<float>(MAX_uint32);
+					float NoiseSigned = Noise01 * 2.0f - 1.0f;
+					CurrentHeight += NoiseSigned * (Modification.Strength * Falloff);
+				}
+				break;
 				case EHeightfieldOperation::Smooth:
 				{
 					// Smooth by averaging with neighbors from the snapshot
@@ -1592,6 +1608,14 @@ void UHeightfieldService::ApplyModificationToHeightfield(FHeightfieldData& Heigh
 				// Use persisted FlattenTargetZ if available, otherwise fall back to sea level
 				float TargetHeight = (Modification.bFlattenUsesTarget) ? Modification.FlattenTargetZ : 0.0f;
 				CurrentHeight = FMath::Lerp(CurrentHeight, TargetHeight, Modification.Strength * Falloff);
+				break;
+			}
+			case EHeightfieldOperation::Noise:
+			{
+				uint32 Seed32 = GetTypeHash(Modification.ModificationId);
+				float Noise01 = static_cast<float>(HashPosition(SampleWorldPos, static_cast<int32>(Seed32))) / static_cast<float>(MAX_uint32);
+				float NoiseSigned = Noise01 * 2.0f - 1.0f;
+				CurrentHeight += NoiseSigned * (Modification.Strength * Falloff);
 				break;
 			}
 			case EHeightfieldOperation::Smooth:
