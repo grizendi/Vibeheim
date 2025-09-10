@@ -589,6 +589,14 @@ UVirtualHeightfieldMeshComponent* UVHMTerrainRenderer::CreateVHMComponent(const 
         return nullptr;
     }
 
+    // Tag this actor so gameplay/blueprints can easily find terrain tiles
+    VHMActor->Tags.AddUnique(FName(TEXT("VHMTerrainTile")));
+    
+#if WITH_EDITOR
+    // Help identify in the editor outliner
+    VHMActor->SetActorLabel(FString::Printf(TEXT("VHMTerrain_Tile_%d_%d"), TileCoord.X, TileCoord.Y));
+#endif
+
     // Create and attach VHM component
     UVirtualHeightfieldMeshComponent* VHMComponent = NewObject<UVirtualHeightfieldMeshComponent>(VHMActor);
     if (!VHMComponent)
@@ -597,6 +605,9 @@ UVirtualHeightfieldMeshComponent* UVHMTerrainRenderer::CreateVHMComponent(const 
         VHMActor->Destroy();
         return nullptr;
     }
+
+    // Tag component for easy lookup
+    VHMComponent->ComponentTags.AddUnique(FName(TEXT("VHMRoot")));
 
     // Set as root component
     VHMActor->SetRootComponent(VHMComponent);
@@ -674,6 +685,7 @@ bool UVHMTerrainRenderer::GenerateMeshFromHeightfield(UVirtualHeightfieldMeshCom
     Proc->RegisterComponent();
     Proc->SetCollisionEnabled(ECollisionEnabled::NoCollision);
     Proc->bUseAsyncCooking = true;
+    Proc->ComponentTags.AddUnique(FName(TEXT("VHMProcMesh")));
 
     const int32 Resolution = CachedHF.Resolution; // expected 64
     if (Resolution <= 1)
