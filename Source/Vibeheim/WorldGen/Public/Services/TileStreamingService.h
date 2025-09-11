@@ -32,28 +32,48 @@ enum class ETileState : uint8
 USTRUCT()
 struct VIBEHEIM_API FTileStreamingData
 {
-	GENERATED_BODY()
+    GENERATED_BODY()
 
-	UPROPERTY()
-	FTileCoord TileCoord;
+    UPROPERTY()
+    FTileCoord TileCoord;
 
-	UPROPERTY()
-	ETileState State = ETileState::Unloaded;
+    UPROPERTY()
+    ETileState State = ETileState::Unloaded;
 
-	UPROPERTY()
-	FHeightfieldData HeightfieldData;
+    UPROPERTY()
+    FHeightfieldData HeightfieldData;
 
-	UPROPERTY()
-	EBiomeType BiomeType = EBiomeType::Meadows;
+    UPROPERTY()
+    EBiomeType BiomeType = EBiomeType::Meadows;
 
-	UPROPERTY()
-	float LastAccessTime = 0.0f;
+    UPROPERTY()
+    float LastAccessTime = 0.0f;
 
-	UPROPERTY()
-	float GenerationTimeMs = 0.0f;
+    UPROPERTY()
+    float GenerationTimeMs = 0.0f;
 
-	UPROPERTY()
-	bool bHasPCGContent = false;
+    // Time spent generating PCG content for this tile
+    UPROPERTY()
+    float PCGGenerationTimeMs = 0.0f;
+
+    // Time to stream tile visuals into the scene (e.g., VHM mesh creation)
+    UPROPERTY()
+    float StreamInTimeMs = 0.0f;
+
+    // Additional game thread overhead during activation beyond mesh creation
+    UPROPERTY()
+    float GTOverheadMs = 0.0f;
+
+    // Frame spike observed around activation relative to baseline
+    UPROPERTY()
+    float ThreadSpikesMs = 0.0f;
+
+    // Optional error code for failed tiles (used for CSV rows)
+    UPROPERTY()
+    FString ErrorCode;
+
+    UPROPERTY()
+    bool bHasPCGContent = false;
 
 	FTileStreamingData() = default;
 	FTileStreamingData(const FTileCoord& InTileCoord) : TileCoord(InTileCoord) {}
@@ -176,8 +196,14 @@ public:
 	/**
 	 * Set VHM terrain renderer for tile streaming notifications
 	 */
-	UFUNCTION(BlueprintCallable, Category = "Tile Streaming")
-	void SetVHMTerrainRenderer(UVHMTerrainRenderer* InVHMTerrainRenderer);
+    UFUNCTION(BlueprintCallable, Category = "Tile Streaming")
+    void SetVHMTerrainRenderer(UVHMTerrainRenderer* InVHMTerrainRenderer);
+
+    /**
+     * Export per-tile performance data to CSV under Saved/Vibeheim/WorldGen/Perf/
+     */
+    UFUNCTION(BlueprintCallable, Category = "Tile Streaming")
+    bool ExportPerformanceCSV(const FString& OptionalFileName = TEXT(""));
 
 private:
 	UPROPERTY()
@@ -209,8 +235,16 @@ private:
 
 	// Performance metrics
 	mutable FTileStreamingMetrics PerformanceMetrics;
-	TArray<float> RecentGenerationTimes;
-	static const int32 MaxRecentTimes = 100;
+    TArray<float> RecentGenerationTimes;
+    static const int32 MaxRecentTimes = 100;
+
+    // Recent frame time samples for spike detection (timestamp seconds, frame ms)
+    TArray<TPair<double, float>> FrameTimeSamples;
+    static const int32 MaxFrameSamples = 256;
+
+    // Collect errors for CSV output without polluting cache
+    struct FTileErrorEntry { FTileCoord Tile; FString Code; };
+    TArray<FTileErrorEntry> ErrorEntries;
 
 	/**
 	 * Calculate which tiles need to be in each state based on player position
@@ -285,5 +319,15 @@ private:
 	/**
 	 * Notify VHM renderer about tile streaming events
 	 */
-	void NotifyVHMRenderer(const TArray<FTileCoord>& ActiveTiles, const TArray<FTileCoord>& LoadTiles);
+    void NotifyVHMRenderer(const TArray<FTileCoord>& ActiveTiles, const TArray<FTileCoord>& LoadTiles);
+
+    /**
+     * Sample current frame time for baseline/spike stats
+     */
+    void SampleFrameTime();
+
+    /**
+     * Compute spike in last WindowSec seconds relative to baseline
+     */
+    float ComputeRecentSpikeMs(double NowSeconds, double WindowSec = 3.0) const;
 };

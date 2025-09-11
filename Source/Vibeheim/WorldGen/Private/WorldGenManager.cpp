@@ -226,7 +226,7 @@ void AWorldGenManager::UpdateWorldStreaming()
 		const int32 MaxActiveTiles = 25; // Reasonable limit for testing
 		if (ActiveTiles.Num() > MaxActiveTiles)
 		{
-			UE_LOG(LogWorldGenManager, Warning, TEXT("Too many active VHM tiles (%d), cleaning up oldest tiles"), ActiveTiles.Num());
+			UE_LOG(LogWorldGenManager, Log, TEXT("Too many active VHM tiles (%d), cleaning up oldest tiles"), ActiveTiles.Num());
 			// Remove excess tiles (keep the first MaxActiveTiles)
 			for (int32 i = MaxActiveTiles; i < ActiveTiles.Num(); i++)
 			{

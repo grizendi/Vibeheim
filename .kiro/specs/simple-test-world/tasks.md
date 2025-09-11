@@ -34,21 +34,21 @@
   - **Gate A**: Orbit seam at two LOD thresholds - no gaps, no lighting steps, no foliage popping at blend bands
   - _Requirements: 1.1, 1.2, 1.3, 1.6_
 
-- [ ] 3. Terrain Editing System
+- [x] 3. Terrain Editing System
   - Implement 4 terrain editing brushes: raise/lower/smooth/noise with radius & falloff parameters
   - Create console commands: wg.edit.raise <x> <y> <radius> <strength>, wg.edit.lower, wg.edit.smooth, wg.edit.noise
   - Ensure VHM visible + collision update ≤100ms on edited area (gate measurement to first collision update received)
   - Clear PCG by deleting/pooling HISM/HISMC instances within R = 1.25×brushRadius (no component leaks)
-  - Implement terrain edit persistence to Saved/Vibeheim/WorldGen/Mods/ with versioned journal
+  - Implement terrain edit persistence to Saved/WorldGen/TerrainDeltas/ with versioned journal
   - Verify terrain edits reload correctly after restart with version mismatch handling
   - **Gate B**: No orphaned HISM components after 20 edit cycles; reloaded session shows identical instance counts within brush region
   - _Requirements: 2.1, 2.2, 2.3, 2.4_
 
-- [ ] 4. Determinism Testing System
+- [x] 4. Determinism Testing System
   - Implement wg.test.determinism <seed> [tiles] [-writebaseline] command (default 10 tiles)
   - Compute checksums in spiral tile order from (0,0) for stable ordering
   - Create checksum calculation for heightfield + biome ID + climate data only (exclude timestamps, GUIDs, counters)
-  - Add optional -writebaseline flag to persist checksums to Saved/.../Determinism/ for comparison
+  - Add optional -writebaseline flag to persist checksums to Saved/Vibeheim/WorldGen/Determinism/ for comparison
   - Add logging that prints only first 3 diffs on mismatch (don't spam)
   - Implement tile data extraction and checksum generation utilities
   - **Gate C**: Two independent launches match 10/10 checksums

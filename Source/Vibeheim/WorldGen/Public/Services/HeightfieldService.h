@@ -109,7 +109,13 @@ public:
 	virtual bool GetCachedHeightfield(FTileCoord TileCoord, FHeightfieldData& OutHeightfieldData) override;
 	virtual void CacheHeightfield(const FHeightfieldData& HeightfieldData) override;
 	virtual void ClearHeightfieldCache() override;
-	virtual void GetPerformanceStats(float& OutAverageGenerationTimeMs, int32& OutCachedTiles) override;
+    virtual void GetPerformanceStats(float& OutAverageGenerationTimeMs, int32& OutCachedTiles) override;
+
+    /**
+     * Generate pristine heightfield data for determinism testing (ignores persisted terrain deltas)
+     */
+    UFUNCTION(BlueprintCallable, Category = "Heightfield")
+    FHeightfieldData GenerateHeightfieldPristine(int32 Seed, FTileCoord TileCoord);
 
 	/**
 	 * Update heightfield generation settings

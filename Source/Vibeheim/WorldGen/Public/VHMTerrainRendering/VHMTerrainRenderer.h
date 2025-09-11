@@ -149,6 +149,10 @@ protected:
     TArray<float> RecentMeshGenerationTimes;
     static const int32 MaxRecentTimes = 50;
 
+    // Per-tile mesh generation time (ms) from last creation
+    UPROPERTY()
+    TMap<FTileCoord, float> LastMeshGenTimePerTile;
+
     // World reference for component creation
     UPROPERTY()
     UWorld* CachedWorld;
@@ -203,6 +207,13 @@ private:
      * Record mesh generation time for performance tracking
      */
     void RecordMeshGenerationTime(float GenerationTime);
+
+public:
+    /**
+     * Get last mesh generation time in ms for a tile (0 if unknown)
+     */
+    UFUNCTION(BlueprintCallable, Category = "VHM")
+    float GetLastMeshGenerationTimeMs(const FTileCoord& TileCoord) const;
 
     /**
      * Get tile center position in world coordinates

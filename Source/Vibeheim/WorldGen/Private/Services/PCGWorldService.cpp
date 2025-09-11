@@ -93,7 +93,7 @@ FPCGGenerationData UPCGWorldService::GenerateBiomeContent(FTileCoord TileCoord, 
 	// Add logging during content test to verify rule count
 	if (const FBiomeDefinition* BiomeDef = BiomeDefinitions.Find(BiomeType))
 	{
-		UE_LOG(LogPCGWorldService, Warning, TEXT("Forest rules: N=%d"), BiomeDef->VegetationRules.Num());
+		UE_LOG(LogPCGWorldService, Log, TEXT("Forest rules: N=%d"), BiomeDef->VegetationRules.Num());
 	}
 
 	// For biome-specific generation (test path), don't use cache - always generate fresh
@@ -226,8 +226,8 @@ TArray<FPCGInstanceData> UPCGWorldService::GenerateVegetationInstances(FTileCoor
 	float BiomeWeight = GetBiomeWeightForSpawn(SpawnParams, BiomeDef.BiomeType);
 
 	// Add logging to biome content test path
-	UE_LOG(LogPCGWorldService, Warning, TEXT("BiomeContentTest rules=%d area=%.1fm2 density=%.3f -> biomeWeight=%.3f"),
-		BiomeDef.VegetationRules.Num(), TileAreaM2, WorldGenSettings.VegetationDensity, BiomeWeight);
+    UE_LOG(LogPCGWorldService, Log, TEXT("BiomeContentTest rules=%d area=%.1fm2 density=%.3f -> biomeWeight=%.3f"),
+        BiomeDef.VegetationRules.Num(), TileAreaM2, WorldGenSettings.VegetationDensity, BiomeWeight);
 
 	// Validate height data size
 	const int32 ExpectedHeightDataSize = 64 * 64; // Standard 64x64 grid
@@ -262,7 +262,7 @@ TArray<FPCGInstanceData> UPCGWorldService::GenerateVegetationInstances(FTileCoor
 		}
 
 		// Add logging to biome content test path
-		UE_LOG(LogPCGWorldService, Warning, TEXT("BiomeContentTest rule %d: density=%.3f -> count=%d"),
+		UE_LOG(LogPCGWorldService, Log, TEXT("BiomeContentTest rule %d: density=%.3f -> count=%d"),
 			&VegRule - &BiomeDef.VegetationRules[0], BaseDensity, InstanceCount);
 
 		// Add diagnostic logging for PCG generation
@@ -418,8 +418,8 @@ TArray<FPCGInstanceData> UPCGWorldService::GenerateVegetationInstances(FTileCoor
 	}
 
 	// Final logging for biome content test path
-	UE_LOG(LogPCGWorldService, Warning, TEXT("BiomeContentTest final: rules=%d area=%.1fm2 density=%.3f -> count=%d (instances array size=%d)"),
-		BiomeDef.VegetationRules.Num(), TileAreaM2, WorldGenSettings.VegetationDensity, TotalInstanceCount, Instances.Num());
+    UE_LOG(LogPCGWorldService, Log, TEXT("BiomeContentTest final: rules=%d area=%.1fm2 density=%.3f -> count=%d (instances array size=%d)"),
+        BiomeDef.VegetationRules.Num(), TileAreaM2, WorldGenSettings.VegetationDensity, TotalInstanceCount, Instances.Num());
 
 	// Debug: Verify that TotalInstanceCount matches Instances.Num()
 	if (TotalInstanceCount != Instances.Num())

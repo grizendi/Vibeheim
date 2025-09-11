@@ -88,14 +88,14 @@ void UBiomeService::InitializeDefaultBiomes()
 
 FBiomeResult UBiomeService::DetermineBiome(FVector2D WorldPosition, float Altitude) const
 {
-	if (!ClimateSystem)
-	{
-		UE_LOG(LogBiomeService, Warning, TEXT("Climate system not set, returning default biome"));
-		FBiomeResult Result;
-		Result.PrimaryBiome = EBiomeType::Meadows;
-		Result.BiomeWeights.Add(EBiomeType::Meadows, 1.0f);
-		return Result;
-	}
+    if (!ClimateSystem)
+    {
+        UE_LOG(LogBiomeService, Log, TEXT("Climate system not set, returning default biome"));
+        FBiomeResult Result;
+        Result.PrimaryBiome = EBiomeType::Meadows;
+        Result.BiomeWeights.Add(EBiomeType::Meadows, 1.0f);
+        return Result;
+    }
 	
 	// Get climate data for this position
 	FClimateData ClimateData = ClimateSystem->CalculateClimate(WorldPosition, Altitude);
@@ -111,11 +111,11 @@ EBiomeType UBiomeService::DetermineTileBiome(FTileCoord Tile, const TArray<float
 {
 	WORLDGEN_TIMER_WITH_CONTEXT("Biome classify", WorldGenSettings.Seed, Tile);
 	
-	if (!ClimateSystem)
-	{
-		WORLDGEN_LOG_WITH_TILE(Warning, Tile, TEXT("Climate system not set, defaulting to Meadows biome"));
-		return EBiomeType::Meadows;
-	}
+    if (!ClimateSystem)
+    {
+        WORLDGEN_LOG_WITH_TILE(Log, Tile, TEXT("Climate system not set, defaulting to Meadows biome"));
+        return EBiomeType::Meadows;
+    }
 
 	// Calculate tile world position (center of tile)
 	FVector TileWorldPos = Tile.ToWorldPosition(WorldGenSettings.TileSizeMeters);

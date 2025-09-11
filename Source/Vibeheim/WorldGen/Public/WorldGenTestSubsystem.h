@@ -77,6 +77,12 @@ private:
     // Internal helper to apply an edit
     void ApplyEdit(EHeightfieldOperation Op, const TArray<FString>& Args, const TCHAR* CmdName);
 
+    // Determinism test command
+    void ExecuteDeterminismTestCommand(const TArray<FString>& Args);
+    void ExecutePerfExportCommand(const TArray<FString>& Args);
+    void ExecuteStatusCommand(const TArray<FString>& Args);
+    void ExecutePerfSummaryCommand(const TArray<FString>& Args);
+
 	// Get the seed subsystem
 	UWorldGenSeedSubsystem* GetSeedSubsystem() const;
 

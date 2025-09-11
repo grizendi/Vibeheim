@@ -179,6 +179,63 @@ FHeightfieldData UHeightfieldService::GenerateHeightfield(int32 Seed, FTileCoord
 	return HeightfieldData;
 }
 
+FHeightfieldData UHeightfieldService::GenerateHeightfieldPristine(int32 Seed, FTileCoord TileCoord)
+{
+    double StartTime = FPlatformTime::Seconds();
+
+    FHeightfieldData HeightfieldData;
+    HeightfieldData.TileCoord = TileCoord;
+    HeightfieldData.Resolution = 64; // Locked per coordinate system
+
+    // Calculate tile world position
+    FVector TileWorldPos = TileCoord.ToWorldPosition(64.0f);
+    FVector2D TileStart(TileWorldPos.X - 32.0f, TileWorldPos.Y - 32.0f);
+
+    // Generate height data for 64x64 samples
+    const int32 SamplesPerTile = 64;
+    HeightfieldData.HeightData.Reserve(SamplesPerTile * SamplesPerTile);
+
+    float MinHeight = FLT_MAX;
+    float MaxHeight = -FLT_MAX;
+
+    for (int32 Y = 0; Y < SamplesPerTile; Y++)
+    {
+        for (int32 X = 0; X < SamplesPerTile; X++)
+        {
+            FVector2D SampleWorldPos = TileStart + FVector2D(X, Y);
+            float Height = GenerateBaseHeight(SampleWorldPos, Seed);
+
+            HeightfieldData.HeightData.Add(Height);
+            MinHeight = FMath::Min(MinHeight, Height);
+            MaxHeight = FMath::Max(MaxHeight, Height);
+        }
+    }
+
+    HeightfieldData.MinHeight = MinHeight;
+    HeightfieldData.MaxHeight = MaxHeight;
+
+    // Derived buffers
+    const int32 SampleCount = HeightfieldData.HeightData.Num();
+    HeightfieldData.NormalData.Empty(SampleCount);
+    HeightfieldData.NormalData.SetNumZeroed(SampleCount);
+    HeightfieldData.SlopeData.Empty(SampleCount);
+    HeightfieldData.SlopeData.SetNumZeroed(SampleCount);
+
+    // Normals, slopes, smoothing as in normal path
+    CalculateNormalsAndSlopes(HeightfieldData);
+    if (GenerationSettings.bEnableThermalSmoothing)
+    {
+        ApplyThermalSmoothing(HeightfieldData, GenerationSettings.ThermalSmoothingIterations);
+    }
+
+    double EndTime = FPlatformTime::Seconds();
+    float GenerationTimeMs = static_cast<float>((EndTime - StartTime) * 1000.0);
+    UpdatePerformanceStats(GenerationTimeMs);
+    WORLDGEN_LOG_WITH_SEED_TILE(Log, Seed, TileCoord, TEXT("Height build (pristine) completed in %.2fms"), GenerationTimeMs);
+
+    return HeightfieldData;
+}
+
 float UHeightfieldService::GenerateBaseHeight(FVector2D WorldPosition, int32 Seed) const
 {
 	float Height = GenerationSettings.BaseHeight;
@@ -1407,35 +1464,62 @@ void UHeightfieldService::ApplyModificationsToTile(FTileCoord TileCoord, TArray<
 	const int32 Resolution = 64; // Locked per coordinate system
 	const float SampleSpacing = 1.0f; // 1m per sample
 
-	// Stable deduplication using TArray + TSet (preserves first-seen order)
-	TArray<FHeightfieldModification> UniqueModifications;
-	UniqueModifications.Reserve(ModList->Modifications.Num());
-	TSet<FGuid> SeenModifications;
+    // First: GUID-based dedup (preserve first-seen order)
+    TArray<FHeightfieldModification> UniqueModifications;
+    UniqueModifications.Reserve(ModList->Modifications.Num());
+    TSet<FGuid> SeenModifications;
+    for (const FHeightfieldModification& Modification : ModList->Modifications)
+    {
+        if (!SeenModifications.Contains(Modification.ModificationId))
+        {
+            SeenModifications.Add(Modification.ModificationId);
+            UniqueModifications.Add(Modification);
+        }
+    }
 
-	for (const FHeightfieldModification& Modification : ModList->Modifications)
-	{
-		if (!SeenModifications.Contains(Modification.ModificationId))
-		{
-			SeenModifications.Add(Modification.ModificationId);
-			UniqueModifications.Add(Modification);
-		}
-	}
+    // Order for deterministic application
+    Algo::Sort(UniqueModifications, [](const FHeightfieldModification& A, const FHeightfieldModification& B) {
+        return A.Order < B.Order;
+    });
 
-	// Sort by Order field only - no other sorting
-	Algo::Sort(UniqueModifications, [](const FHeightfieldModification& A, const FHeightfieldModification& B) {
-		return A.Order < B.Order;
-		});
+    // Second: collapse logical duplicates (same op/center/kernel radius/strength) to avoid double-applying across sessions
+    auto Quantize = [](float V)->int32 { return FMath::RoundToInt(V * 100.0f); }; // 1cm
+    struct FModKey { uint8 Op; int32 Qx; int32 Qy; int32 KR; int32 QS; };
 
-	UE_LOG(LogHeightfieldService, Log, TEXT("ApplyModificationsToTile: After deduplication, applying %d unique modifications to tile (%d, %d)"),
-		UniqueModifications.Num(), TileCoord.X, TileCoord.Y);
+    TMap<uint64, FHeightfieldModification> LatestByKey;
+    for (const FHeightfieldModification& M : UniqueModifications)
+    {
+        uint64 Key = 1469598103934665603ull;
+        Key = (Key ^ (uint64)M.Operation) * 1099511628211ull;
+        Key = (Key ^ (uint64)Quantize(M.Center.X)) * 1099511628211ull;
+        Key = (Key ^ (uint64)Quantize(M.Center.Y)) * 1099511628211ull;
+        Key = (Key ^ (uint64)M.KernelRadius) * 1099511628211ull;
+        Key = (Key ^ (uint64)Quantize(M.Strength)) * 1099511628211ull;
+
+        if (FHeightfieldModification* Existing = LatestByKey.Find(Key))
+        {
+            if (M.Timestamp > Existing->Timestamp) { *Existing = M; }
+        }
+        else
+        {
+            LatestByKey.Add(Key, M);
+        }
+    }
+
+    TArray<FHeightfieldModification> Compressed;
+    LatestByKey.GenerateValueArray(Compressed);
+    Algo::Sort(Compressed, [](const FHeightfieldModification& A, const FHeightfieldModification& B){ return A.Order < B.Order; });
+
+    UE_LOG(LogHeightfieldService, Log, TEXT("ApplyModificationsToTile: After dedup/compress, applying %d modifications (from %d) to tile (%d, %d)"),
+        Compressed.Num(), UniqueModifications.Num(), TileCoord.X, TileCoord.Y);
 
 	// Apply each modification in Order sequence
-	for (int32 ModIndex = 0; ModIndex < UniqueModifications.Num(); ++ModIndex)
-	{
-		const FHeightfieldModification& Modification = UniqueModifications[ModIndex];
+    for (int32 ModIndex = 0; ModIndex < Compressed.Num(); ++ModIndex)
+    {
+        const FHeightfieldModification& Modification = Compressed[ModIndex];
 
 		UE_LOG(LogHeightfieldService, Warning, TEXT("ApplyModificationsToTile: [%d/%d] Applying Op=%d Order=%u KR=%d FlattenZ=%.4f bUsesTarget=%s at (%.1f,%.1f)"),
-			ModIndex + 1, UniqueModifications.Num(), (int32)Modification.Operation, Modification.Order,
+            ModIndex + 1, Compressed.Num(), (int32)Modification.Operation, Modification.Order,
 			Modification.KernelRadius, Modification.FlattenTargetZ, Modification.bFlattenUsesTarget ? TEXT("true") : TEXT("false"),
 			Modification.Center.X, Modification.Center.Y);
 		// For smooth operations, create a snapshot of the current state

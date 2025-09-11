@@ -8,6 +8,9 @@
 #include "Engine/Engine.h"
 #include "HAL/PlatformFilemanager.h"
 #include "Misc/DateTime.h"
+#include "Misc/Paths.h"
+#include "Misc/FileHelper.h"
+#include "Misc/App.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogTileStreaming, Log, All);
 
@@ -47,9 +50,11 @@ bool UTileStreamingService::Initialize(const FWorldGenConfig& Settings,
 	TileCache.Empty();
 	LRUList.Empty();
 
-	// Reset performance metrics
-	PerformanceMetrics = FTileStreamingMetrics();
-	RecentGenerationTimes.Empty();
+    // Reset performance metrics
+    PerformanceMetrics = FTileStreamingMetrics();
+    RecentGenerationTimes.Empty();
+    FrameTimeSamples.Empty();
+    ErrorEntries.Empty();
 
 	WORLDGEN_LOG_WITH_SEED(Log, WorldGenSettings.Seed, TEXT("TileStreamingService initialized with cache size %d"), MaxCacheSize);
 	return true;
@@ -74,7 +79,8 @@ void UTileStreamingService::UpdateStreaming(const FTileCoord& PlayerTileCoord)
 
 	WORLDGEN_TIMER_WITH_CONTEXT("Streaming tick", WorldGenSettings.Seed, PlayerTileCoord);
 	
-	CurrentTime = FPlatformTime::Seconds();
+    CurrentTime = FPlatformTime::Seconds();
+    SampleFrameTime();
 
 	// Skip update if player hasn't moved significantly
 	if (CalculateTileDistance(PlayerTileCoord, LastPlayerTileCoord) == 0 && LastPlayerTileCoord.X != INT32_MAX)
@@ -182,10 +188,10 @@ void UTileStreamingService::ProcessTileGeneration(const TArray<FTileCoord>& Tile
 			WORLDGEN_LOG_WITH_SEED_TILE(Verbose, WorldGenSettings.Seed, TileCoord, TEXT("Generated tile in %.2fms"), 
 				NewTileData.GenerationTimeMs);
 		}
-		else
-		{
-			WORLDGEN_LOG_WITH_SEED_TILE(Warning, WorldGenSettings.Seed, TileCoord, TEXT("Failed to generate tile"));
-		}
+        else
+        {
+            WORLDGEN_LOG_WITH_SEED_TILE(Warning, WorldGenSettings.Seed, TileCoord, TEXT("GEN_FAIL: Failed to generate tile"));
+        }
 	}
 }
 
@@ -304,17 +310,18 @@ bool UTileStreamingService::GenerateSingleTile(const FTileCoord& TileCoord, FTil
 		TEXT("UTileStreamingService: PCGWorldService is null. Call Initialize() before using GenerateSingleTile()."));
 
 	// Early return with error logging if any required service is missing
-	if (!HeightfieldService || !BiomeService || !PCGWorldService)
-	{
-		UE_LOG(LogTileStreaming, Error, TEXT("UTileStreamingService::GenerateSingleTile failed for tile (%d, %d) - missing required services: HeightfieldService=%s, BiomeService=%s, PCGWorldService=%s"),
-			TileCoord.X, TileCoord.Y,
-			HeightfieldService ? TEXT("OK") : TEXT("NULL"),
-			BiomeService ? TEXT("OK") : TEXT("NULL"),
-			PCGWorldService ? TEXT("OK") : TEXT("NULL"));
-		return false;
-	}
+    if (!HeightfieldService || !BiomeService || !PCGWorldService)
+    {
+        UE_LOG(LogTileStreaming, Error, TEXT("UTileStreamingService::GenerateSingleTile failed for tile (%d, %d) - missing required services: HeightfieldService=%s, BiomeService=%s, PCGWorldService=%s"),
+            TileCoord.X, TileCoord.Y,
+            HeightfieldService ? TEXT("OK") : TEXT("NULL"),
+            BiomeService ? TEXT("OK") : TEXT("NULL"),
+            PCGWorldService ? TEXT("OK") : TEXT("NULL"));
+        ErrorEntries.Add({TileCoord, TEXT("GEN_FAIL_MISSING_SERVICE")});
+        return false;
+    }
 
-	double StartTime = FPlatformTime::Seconds();
+    double StartTimeTotal = FPlatformTime::Seconds();
 
 	try
 	{
@@ -322,34 +329,41 @@ bool UTileStreamingService::GenerateSingleTile(const FTileCoord& TileCoord, FTil
 		OutTileData.State = ETileState::Generating;
 		OutTileData.TileCoord = TileCoord;
 
-		// Generate heightfield
-		OutTileData.HeightfieldData = HeightfieldService->GenerateHeightfield(WorldGenSettings.Seed, TileCoord);
+        // Generate heightfield + biome timing
+        const double HFBStart = FPlatformTime::Seconds();
+        OutTileData.HeightfieldData = HeightfieldService->GenerateHeightfield(WorldGenSettings.Seed, TileCoord);
 
-		// Determine biome
-		OutTileData.BiomeType = BiomeService->DetermineTileBiome(TileCoord, OutTileData.HeightfieldData.HeightData);
+        // Determine biome
+        OutTileData.BiomeType = BiomeService->DetermineTileBiome(TileCoord, OutTileData.HeightfieldData.HeightData);
+        const double HFBEnd = FPlatformTime::Seconds();
+        OutTileData.GenerationTimeMs = static_cast<float>((HFBEnd - HFBStart) * 1000.0);
 
-		// Generate PCG content
-		FPCGGenerationData PCGData = PCGWorldService->GenerateBiomeContent(
-			TileCoord, OutTileData.BiomeType, OutTileData.HeightfieldData.HeightData);
+        // Generate PCG content
+        const double PCGStart = FPlatformTime::Seconds();
+        FPCGGenerationData PCGData = PCGWorldService->GenerateBiomeContent(
+            TileCoord, OutTileData.BiomeType, OutTileData.HeightfieldData.HeightData);
+        const double PCGEnd = FPlatformTime::Seconds();
+        OutTileData.PCGGenerationTimeMs = static_cast<float>((PCGEnd - PCGStart) * 1000.0);
 		
 		OutTileData.bHasPCGContent = PCGData.TotalInstanceCount > 0;
 
-		// Calculate generation time
-		double EndTime = FPlatformTime::Seconds();
-		OutTileData.GenerationTimeMs = static_cast<float>((EndTime - StartTime) * 1000.0);
-		OutTileData.LastAccessTime = CurrentTime;
+        // Calculate total generation time for rolling metrics (heightfield+biome+pcg)
+        double EndTimeTotal = FPlatformTime::Seconds();
+        const float TotalGenMs = static_cast<float>((EndTimeTotal - StartTimeTotal) * 1000.0);
+        OutTileData.LastAccessTime = CurrentTime;
 
-		// Record performance
-		RecordGenerationTime(OutTileData.GenerationTimeMs);
+        // Record performance
+        RecordGenerationTime(TotalGenMs);
 
 		return true;
 	}
 	catch (...)
 	{
-		UE_LOG(LogTileStreaming, Error, TEXT("Exception during tile generation for (%d, %d)"), 
-			TileCoord.X, TileCoord.Y);
-		return false;
-	}
+        UE_LOG(LogTileStreaming, Error, TEXT("Exception during tile generation for (%d, %d)"), 
+            TileCoord.X, TileCoord.Y);
+        ErrorEntries.Add({TileCoord, TEXT("GEN_EXCEPTION")});
+        return false;
+    }
 }
 
 bool UTileStreamingService::GetTileData(const FTileCoord& TileCoord, FTileStreamingData& OutTileData)
@@ -572,10 +586,26 @@ void UTileStreamingService::NotifyVHMRenderer(const TArray<FTileCoord>& ActiveTi
 		FTileStreamingData* TileData = TileCache.Find(TileCoord);
 		if (TileData && TileData->State == ETileState::Active)
 		{
-			// Notify VHM renderer that this tile is active and should have a mesh
-			VHMTerrainRenderer->OnTileStreamingEvent(TileCoord, true);
-		}
-	}
+            // Notify VHM renderer that this tile is active and should have a mesh
+            const double Before = FPlatformTime::Seconds();
+            VHMTerrainRenderer->OnTileStreamingEvent(TileCoord, true);
+            const double After = FPlatformTime::Seconds();
+
+            // Capture mesh creation time and overhead
+            float MeshMs = 0.0f;
+            if (UVHMTerrainRenderer* Renderer = VHMTerrainRenderer)
+            {
+                MeshMs = Renderer->GetLastMeshGenerationTimeMs(TileCoord);
+            }
+            const float CallMs = static_cast<float>((After - Before) * 1000.0);
+            TileData->StreamInTimeMs = MeshMs;
+            TileData->GTOverheadMs = FMath::Max(0.0f, CallMs - MeshMs);
+
+            // Compute recent thread spike around activation
+            const float SpikeMs = ComputeRecentSpikeMs(After, /*WindowSec=*/3.0);
+            TileData->ThreadSpikesMs = SpikeMs;
+        }
+    }
 
 	// Check for tiles that are no longer active and should be removed
 	TArray<FTileCoord> CurrentVHMTiles = VHMTerrainRenderer->GetActiveMeshTiles();
@@ -587,4 +617,105 @@ void UTileStreamingService::NotifyVHMRenderer(const TArray<FTileCoord>& ActiveTi
 			VHMTerrainRenderer->OnTileStreamingEvent(VHMTileCoord, false);
 		}
 	}
+}
+
+void UTileStreamingService::SampleFrameTime()
+{
+    const float FrameMs = FApp::GetDeltaTime() * 1000.0f;
+    const double Now = FPlatformTime::Seconds();
+    FrameTimeSamples.Emplace(Now, FrameMs);
+    if (FrameTimeSamples.Num() > MaxFrameSamples)
+    {
+        const int32 Excess = FrameTimeSamples.Num() - MaxFrameSamples;
+        FrameTimeSamples.RemoveAt(0, Excess, EAllowShrinking::No);
+    }
+}
+
+float UTileStreamingService::ComputeRecentSpikeMs(double NowSeconds, double WindowSec) const
+{
+    if (FrameTimeSamples.Num() == 0)
+    {
+        return 0.0f;
+    }
+
+    // Compute baseline as average of samples prior to window
+    const double WindowStart = NowSeconds - WindowSec;
+    float SumBefore = 0.0f; int32 CountBefore = 0;
+    float MaxInWindow = 0.0f; int32 CountInWindow = 0;
+    for (const auto& S : FrameTimeSamples)
+    {
+        if (S.Key < WindowStart)
+        {
+            SumBefore += S.Value;
+            CountBefore++;
+        }
+        else
+        {
+            MaxInWindow = FMath::Max(MaxInWindow, S.Value);
+            CountInWindow++;
+        }
+    }
+
+    if (CountInWindow == 0)
+    {
+        return 0.0f;
+    }
+
+    const float Baseline = (CountBefore > 0) ? (SumBefore / CountBefore) : MaxInWindow;
+    return FMath::Max(0.0f, MaxInWindow - Baseline);
+}
+
+bool UTileStreamingService::ExportPerformanceCSV(const FString& OptionalFileName)
+{
+    const FString Dir = FPaths::ProjectSavedDir() / TEXT("Vibeheim/WorldGen/Perf");
+    IFileManager::Get().MakeDirectory(*Dir, /*Tree*/true);
+
+    const FString Filename = OptionalFileName.Len() > 0
+        ? OptionalFileName
+        : FString::Printf(TEXT("perf_%s.csv"), *FDateTime::Now().ToString(TEXT("yyyyMMdd_HHmmss")));
+    const FString Path = Dir / Filename;
+
+    FString Out;
+    Out += TEXT("TileX,TileY,GenMs,PCGMs,StreamInMs,GTOverheadMs,ThreadSpikesMs\n");
+
+    // Write rows for cached tiles
+    for (const auto& Pair : TileCache)
+    {
+        const FTileCoord& T = Pair.Key;
+        const FTileStreamingData& D = Pair.Value;
+
+        if (!D.ErrorCode.IsEmpty())
+        {
+            const FString Err = FString::Printf(TEXT("ERR:%s"), *D.ErrorCode);
+            Out += FString::Printf(TEXT("%d,%d,%s,%s,%s,%s,%s\n"), T.X, T.Y, *Err, *Err, *Err, *Err, *Err);
+        }
+        else
+        {
+            Out += FString::Printf(TEXT("%d,%d,%.2f,%.2f,%.2f,%.2f,%.2f\n"),
+                T.X, T.Y,
+                D.GenerationTimeMs,
+                D.PCGGenerationTimeMs,
+                D.StreamInTimeMs,
+                D.GTOverheadMs,
+                D.ThreadSpikesMs);
+        }
+    }
+
+    // Write rows for explicit error entries that may not be cached
+    for (const FTileErrorEntry& E : ErrorEntries)
+    {
+        const FString Err = FString::Printf(TEXT("ERR:%s"), *E.Code);
+        Out += FString::Printf(TEXT("%d,%d,%s,%s,%s,%s,%s\n"), E.Tile.X, E.Tile.Y, *Err, *Err, *Err, *Err, *Err);
+    }
+
+    const bool bSaved = FFileHelper::SaveStringToFile(Out, *Path);
+    if (!bSaved)
+    {
+        UE_LOG(LogTileStreaming, Error, TEXT("Failed to write perf CSV to %s"), *Path);
+    }
+    else
+    {
+        UE_LOG(LogTileStreaming, Log, TEXT("Wrote perf CSV to %s"), *Path);
+    }
+    return bSaved;
 }

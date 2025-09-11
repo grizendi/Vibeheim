@@ -8,11 +8,15 @@
 #include "Services/HeightfieldService.h"
 #include "Services/PCGWorldService.h"
 #include "Services/TileStreamingService.h"
+#include "Services/BiomeService.h"
+#include "Services/ClimateSystem.h"
 #include "VHMTerrainRendering/VHMTerrainRenderer.h"
 #include "VHMTerrainRendering/VHMTypes.h"
 #include "EngineUtils.h"
 // Ensure full type for UVirtualHeightfieldMeshComponent when referenced in logs
 #include "VirtualHeightfieldMeshComponent.h"
+#include "Misc/Paths.h"
+#include "Misc/FileHelper.h"
 
 DEFINE_LOG_CATEGORY(LogWorldGenTest);
 
@@ -165,6 +169,38 @@ void UWorldGenTestSubsystem::RegisterConsoleCommands()
 		ECVF_Default
 	));
 
+    // Determinism test command
+    RegisteredCommands.Add(IConsoleManager::Get().RegisterConsoleCommand(
+        TEXT("wg.test.determinism"),
+        TEXT("Determinism test. Usage: wg.test.determinism <seed> [tiles] [-writebaseline]"),
+        FConsoleCommandWithArgsDelegate::CreateUObject(this, &UWorldGenTestSubsystem::ExecuteDeterminismTestCommand),
+        ECVF_Default
+    ));
+
+    // Performance CSV export command
+    RegisteredCommands.Add(IConsoleManager::Get().RegisterConsoleCommand(
+        TEXT("wg.perf.export"),
+        TEXT("Export per-tile performance CSV to Saved/Vibeheim/WorldGen/Perf/. Usage: wg.perf.export [filename.csv]"),
+        FConsoleCommandWithArgsDelegate::CreateUObject(this, &UWorldGenTestSubsystem::ExecutePerfExportCommand),
+        ECVF_Default
+    ));
+
+    // Status command
+    RegisteredCommands.Add(IConsoleManager::Get().RegisterConsoleCommand(
+        TEXT("wg.status"),
+        TEXT("Print seed, radii, and tile counts. Usage: wg.status"),
+        FConsoleCommandWithArgsDelegate::CreateUObject(this, &UWorldGenTestSubsystem::ExecuteStatusCommand),
+        ECVF_Default
+    ));
+
+    // Perf summary command
+    RegisteredCommands.Add(IConsoleManager::Get().RegisterConsoleCommand(
+        TEXT("wg.perf.summary"),
+        TEXT("Summarize last or specified perf CSV (p50/p95). Usage: wg.perf.summary [filename.csv]"),
+        FConsoleCommandWithArgsDelegate::CreateUObject(this, &UWorldGenTestSubsystem::ExecutePerfSummaryCommand),
+        ECVF_Default
+    ));
+
 	UE_LOG(LogWorldGenTest, Log, TEXT("Registered %d console commands"), RegisteredCommands.Num());
 }
 
@@ -220,11 +256,16 @@ void UWorldGenTestSubsystem::LogMapError(const FString& CommandName) const
 
 void UWorldGenTestSubsystem::ExecuteLaunchCommand(const TArray<FString>& Args)
 {
-	if (!IsValidTestMap())
-	{
-		LogMapError(TEXT("wg.launch"));
-		return;
-	}
+    if (Args.Num() > 0)
+    {
+        UE_LOG(LogWorldGenTest, Error, TEXT("wg.launch: Usage: wg.launch"));
+        return;
+    }
+    if (!IsValidTestMap())
+    {
+        LogMapError(TEXT("wg.launch"));
+        return;
+    }
 
 	UE_LOG(LogWorldGenTest, Log, TEXT("Launching test world systems..."));
 	
@@ -287,17 +328,17 @@ void UWorldGenTestSubsystem::ExecuteLaunchCommand(const TArray<FString>& Args)
 
 void UWorldGenTestSubsystem::ExecuteSeedCommand(const TArray<FString>& Args)
 {
-	if (!IsValidTestMap())
-	{
-		LogMapError(TEXT("wg.seed"));
-		return;
-	}
+    if (!IsValidTestMap())
+    {
+        LogMapError(TEXT("wg.seed"));
+        return;
+    }
 
-	if (Args.Num() < 1)
-	{
-		UE_LOG(LogWorldGenTest, Error, TEXT("wg.seed: Usage: wg.seed <value>"));
-		return;
-	}
+    if (Args.Num() != 1)
+    {
+        UE_LOG(LogWorldGenTest, Error, TEXT("wg.seed: Usage: wg.seed <value>"));
+        return;
+    }
 
 	int32 NewSeed = FCString::Atoi(*Args[0]);
 	SetWorldSeed(NewSeed);
@@ -305,17 +346,17 @@ void UWorldGenTestSubsystem::ExecuteSeedCommand(const TArray<FString>& Args)
 
 void UWorldGenTestSubsystem::ExecuteRadiiCommand(const TArray<FString>& Args)
 {
-	if (!IsValidTestMap())
-	{
-		LogMapError(TEXT("wg.radii"));
-		return;
-	}
+    if (!IsValidTestMap())
+    {
+        LogMapError(TEXT("wg.radii"));
+        return;
+    }
 
-	if (Args.Num() < 3)
-	{
-		UE_LOG(LogWorldGenTest, Error, TEXT("wg.radii: Usage: wg.radii <generate> <load> <active>"));
-		return;
-	}
+    if (Args.Num() != 3)
+    {
+        UE_LOG(LogWorldGenTest, Error, TEXT("wg.radii: Usage: wg.radii <generate> <load> <active>"));
+        return;
+    }
 
 	int32 GenerateRadius = FCString::Atoi(*Args[0]);
 	int32 LoadRadius = FCString::Atoi(*Args[1]);
@@ -326,22 +367,32 @@ void UWorldGenTestSubsystem::ExecuteRadiiCommand(const TArray<FString>& Args)
 
 void UWorldGenTestSubsystem::ExecuteResetCommand(const TArray<FString>& Args)
 {
-	if (!IsValidTestMap())
-	{
-		LogMapError(TEXT("wg.reset"));
-		return;
-	}
+    if (Args.Num() > 0)
+    {
+        UE_LOG(LogWorldGenTest, Error, TEXT("wg.reset: Usage: wg.reset"));
+        return;
+    }
+    if (!IsValidTestMap())
+    {
+        LogMapError(TEXT("wg.reset"));
+        return;
+    }
 
 	ResetTestWorld();
 }
 
 void UWorldGenTestSubsystem::ExecuteValidateCommand(const TArray<FString>& Args)
 {
-	if (!IsValidTestMap())
-	{
-		LogMapError(TEXT("wg.validate"));
-		return;
-	}
+    if (Args.Num() > 0)
+    {
+        UE_LOG(LogWorldGenTest, Error, TEXT("wg.validate: Usage: wg.validate"));
+        return;
+    }
+    if (!IsValidTestMap())
+    {
+        LogMapError(TEXT("wg.validate"));
+        return;
+    }
 
 	bool bValidationPassed = ValidateVHMIntegration();
 	UE_LOG(LogWorldGenTest, Log, TEXT("VHM integration validation: %s"), 
@@ -535,11 +586,16 @@ bool UWorldGenTestSubsystem::ValidateVHMIntegration() const
 
 void UWorldGenTestSubsystem::ExecuteGateACommand(const TArray<FString>& Args)
 {
-	if (!IsValidTestMap())
-	{
-		LogMapError(TEXT("wg.gateA"));
-		return;
-	}
+    if (Args.Num() > 0)
+    {
+        UE_LOG(LogWorldGenTest, Error, TEXT("wg.gateA: Usage: wg.gateA"));
+        return;
+    }
+    if (!IsValidTestMap())
+    {
+        LogMapError(TEXT("wg.gateA"));
+        return;
+    }
 
 	bool bGateAPassed = ExecuteGateATest();
 	UE_LOG(LogWorldGenTest, Log, TEXT("Gate A Test Result: %s"), 
@@ -718,7 +774,17 @@ bool UWorldGenTestSubsystem::ExecuteGateATest()
 
 void UWorldGenTestSubsystem::ExecuteTestCommand(const TArray<FString>& Args)
 {
-	UE_LOG(LogWorldGenTest, Log, TEXT("=== WorldGenTestSubsystem Test ==="));
+    if (Args.Num() > 0)
+    {
+        UE_LOG(LogWorldGenTest, Error, TEXT("wg.test: Usage: wg.test"));
+        return;
+    }
+    if (!IsValidTestMap())
+    {
+        LogMapError(TEXT("wg.test"));
+        return;
+    }
+    UE_LOG(LogWorldGenTest, Log, TEXT("=== WorldGenTestSubsystem Test ==="));
 	
 	UWorld* World = GetWorld();
 	if (!World)
@@ -746,7 +812,17 @@ void UWorldGenTestSubsystem::ExecuteTestCommand(const TArray<FString>& Args)
 
 void UWorldGenTestSubsystem::ExecuteDebugCommand(const TArray<FString>& Args)
 {
-	UE_LOG(LogWorldGenTest, Log, TEXT("=== WorldGen Debug Information ==="));
+    if (Args.Num() > 0)
+    {
+        UE_LOG(LogWorldGenTest, Error, TEXT("wg.debug: Usage: wg.debug"));
+        return;
+    }
+    if (!IsValidTestMap())
+    {
+        LogMapError(TEXT("wg.debug"));
+        return;
+    }
+    UE_LOG(LogWorldGenTest, Log, TEXT("=== WorldGen Debug Information ==="));
 	
 	UWorld* World = GetWorld();
 	if (!World)
@@ -844,20 +920,29 @@ void UWorldGenTestSubsystem::ExecuteDebugCommand(const TArray<FString>& Args)
 
 void UWorldGenTestSubsystem::ExecuteTestTileCommand(const TArray<FString>& Args)
 {
-	if (!IsValidTestMap())
-	{
-		LogMapError(TEXT("wg.testtile"));
-		return;
-	}
+    if (!IsValidTestMap())
+    {
+        LogMapError(TEXT("wg.testtile"));
+        return;
+    }
 
-	// Parse tile coordinates (default to origin)
-	int32 TileX = 0;
-	int32 TileY = 0;
-	if (Args.Num() >= 2)
-	{
-		TileX = FCString::Atoi(*Args[0]);
-		TileY = FCString::Atoi(*Args[1]);
-	}
+    // Parse tile coordinates (default to origin)
+    int32 TileX = 0;
+    int32 TileY = 0;
+    if (Args.Num() == 0)
+    {
+        // OK: use defaults
+    }
+    else if (Args.Num() == 2)
+    {
+        TileX = FCString::Atoi(*Args[0]);
+        TileY = FCString::Atoi(*Args[1]);
+    }
+    else
+    {
+        UE_LOG(LogWorldGenTest, Error, TEXT("wg.testtile: Usage: wg.testtile [x] [y]"));
+        return;
+    }
 
 	FTileCoord TestTile(TileX, TileY);
 	UE_LOG(LogWorldGenTest, Log, TEXT("=== Testing Tile Generation (%d, %d) ==="), TileX, TileY);
@@ -1153,4 +1238,471 @@ void UWorldGenTestSubsystem::ExecuteEditSmoothCommand(const TArray<FString>& Arg
 void UWorldGenTestSubsystem::ExecuteEditNoiseCommand(const TArray<FString>& Args)
 {
     ApplyEdit(EHeightfieldOperation::Noise, Args, TEXT("wg.edit.noise"));
+}
+
+// ===== Determinism Test =====
+namespace {
+// 64-bit FNV-1a
+static uint64 HashBytes64(const uint8* Data, int32 Len, uint64 Seed = 1469598103934665603ull)
+{
+    uint64 Hash = Seed;
+    const uint64 Prime = 1099511628211ull;
+    for (int32 i = 0; i < Len; ++i)
+    {
+        Hash ^= (uint64)Data[i];
+        Hash *= Prime;
+    }
+    return Hash;
+}
+
+static uint64 HashFloat64(float V, uint64 Seed)
+{
+    uint32 Bits = *reinterpret_cast<uint32*>(&V);
+    return HashBytes64(reinterpret_cast<const uint8*>(&Bits), sizeof(Bits), Seed);
+}
+
+static uint64 HashInt32_64(int32 V, uint64 Seed)
+{
+    return HashBytes64(reinterpret_cast<const uint8*>(&V), sizeof(V), Seed);
+}
+
+static TArray<FTileCoord> MakeSpiralFromOrigin(int32 Count)
+{
+    TArray<FTileCoord> Result;
+    Result.Reserve(Count);
+    int x = 0, y = 0; // start at origin
+    int dx = 1, dy = 0; // initial direction: right
+    int segmentLength = 1;
+    int segmentPassed = 0;
+    int turns = 0;
+    
+    for (int i = 0; i < Count; ++i)
+    {
+        Result.Add(FTileCoord(x, y));
+        x += dx;
+        y += dy;
+        segmentPassed++;
+        if (segmentPassed == segmentLength)
+        {
+            segmentPassed = 0;
+            // rotate direction right
+            int ndx = -dy;
+            int ndy = dx;
+            dx = ndx;
+            dy = ndy;
+            turns++;
+            if (turns % 2 == 0)
+            {
+                segmentLength++;
+            }
+        }
+    }
+    return Result;
+}
+}
+
+void UWorldGenTestSubsystem::ExecuteDeterminismTestCommand(const TArray<FString>& Args)
+{
+    if (!IsValidTestMap())
+    {
+        LogMapError(TEXT("wg.test.determinism"));
+        return;
+    }
+
+    if (Args.Num() < 1)
+    {
+        UE_LOG(LogWorldGenTest, Error, TEXT("wg.test.determinism: Usage: wg.test.determinism <seed> [tiles] [-writebaseline]"));
+        return;
+    }
+
+    int32 Seed = FCString::Atoi(*Args[0]);
+    int32 Tiles = 10;
+    bool bWriteBaseline = false;
+    if (Args.Num() >= 2)
+    {
+        if (!Args[1].StartsWith(TEXT("-")))
+        {
+            Tiles = FMath::Max(1, FCString::Atoi(*Args[1]));
+        }
+    }
+    for (int32 i = 1; i < Args.Num(); ++i)
+    {
+        if (Args[i].Equals(TEXT("-writebaseline"), ESearchCase::IgnoreCase))
+        {
+            bWriteBaseline = true;
+        }
+    }
+
+    // Find manager and services
+    UWorld* World = GetWorld();
+    AWorldGenManager* Manager = nullptr;
+    for (TActorIterator<AWorldGenManager> It(World); It; ++It) { Manager = *It; break; }
+    if (!Manager)
+    {
+        UE_LOG(LogWorldGenTest, Error, TEXT("wg.test.determinism: No WorldGenManager found"));
+        return;
+    }
+
+    UHeightfieldService* HF = nullptr; UBiomeService* BiomeUnused = nullptr; UClimateSystem* ClimateUnused = nullptr;
+    if (UClass* Cls = Manager->GetClass())
+    {
+        if (FObjectProperty* P = FindFProperty<FObjectProperty>(Cls, TEXT("HeightfieldService"))) HF = Cast<UHeightfieldService>(P->GetObjectPropertyValue_InContainer(Manager));
+        if (FObjectProperty* P = FindFProperty<FObjectProperty>(Cls, TEXT("BiomeService"))) BiomeUnused = Cast<UBiomeService>(P->GetObjectPropertyValue_InContainer(Manager));
+        if (FObjectProperty* P = FindFProperty<FObjectProperty>(Cls, TEXT("ClimateSystem"))) ClimateUnused = Cast<UClimateSystem>(P->GetObjectPropertyValue_InContainer(Manager));
+    }
+    if (!HF)
+    {
+        UE_LOG(LogWorldGenTest, Error, TEXT("wg.test.determinism: Missing HeightfieldService"));
+        return;
+    }
+
+    // Build local climate + biome service seeded with requested seed (do not use world singletons)
+    UWorldGenSettings* Settings = UWorldGenSettings::GetWorldGenSettings();
+    FWorldGenConfig WGConfig = Settings ? Settings->Settings : FWorldGenConfig();
+    UClimateSystem* LocalClimate = NewObject<UClimateSystem>(this);
+    FClimateSettings ClimateSettings; // defaults
+    LocalClimate->Initialize(ClimateSettings, Seed);
+    UBiomeService* LocalBiome = NewObject<UBiomeService>(this);
+    LocalBiome->Initialize(LocalClimate, WGConfig);
+
+    // Generate spiral tiles
+    TArray<FTileCoord> TilesList = MakeSpiralFromOrigin(Tiles);
+
+    // Compute checksums per tile
+    struct FTileChecksum { FTileCoord Tile; uint64 Hash; };
+    TArray<FTileChecksum> Results; Results.Reserve(Tiles);
+
+    for (const FTileCoord& T : TilesList)
+    {
+        // Generate pristine heightfield deterministically for given seed (ignore terrain deltas)
+        FHeightfieldData HFData = HF->GenerateHeightfieldPristine(Seed, T);
+
+        // Biome ID using generated data and local climate seeded with 'Seed'
+        EBiomeType BiomeType = LocalBiome->DetermineTileBiome(T, HFData.HeightData);
+
+        // Climate at tile center (altitude = center height)
+        FVector TileWorldPos = T.ToWorldPosition(64.0f);
+        FVector2D Center(TileWorldPos.X, TileWorldPos.Y);
+        float CenterHeight = HFData.GetHeightAtSample(HFData.Resolution/2, HFData.Resolution/2);
+        FClimateData Clim = LocalClimate->CalculateClimate(Center, CenterHeight);
+
+        // Combine into 64-bit hash
+        uint64 H = 1469598103934665603ull;
+        // Heights
+        for (float v : HFData.HeightData) { H = HashFloat64(v, H); }
+        // Biome id
+        H = HashInt32_64(static_cast<int32>(BiomeType), H);
+        // Climate (limit to temp, moisture, ringbias)
+        H = HashFloat64(Clim.Temperature, H);
+        H = HashFloat64(Clim.Moisture, H);
+        H = HashFloat64(Clim.RingBias, H);
+
+        Results.Add({T, H});
+    }
+
+    // Baseline path
+    const FString Dir = FPaths::ProjectSavedDir() / TEXT("Vibeheim/WorldGen/Determinism");
+    IFileManager::Get().MakeDirectory(*Dir, true);
+    const FString FileName = FString::Printf(TEXT("seed_%d_tiles_%d.txt"), Seed, Tiles);
+    const FString Path = Dir / FileName;
+
+    if (bWriteBaseline)
+    {
+        FString Out;
+        for (const FTileChecksum& R : Results)
+        {
+            Out += FString::Printf(TEXT("%d,%d,0x%016llX\n"), R.Tile.X, R.Tile.Y, (unsigned long long)R.Hash);
+        }
+        if (FFileHelper::SaveStringToFile(Out, *Path))
+        {
+            UE_LOG(LogWorldGenTest, Log, TEXT("wg.test.determinism: Wrote baseline to %s"), *Path);
+        }
+        else
+        {
+            UE_LOG(LogWorldGenTest, Error, TEXT("wg.test.determinism: Failed to write baseline to %s"), *Path);
+        }
+        return;
+    }
+
+    // Compare with baseline if exists
+    if (!IFileManager::Get().FileExists(*Path))
+    {
+        UE_LOG(LogWorldGenTest, Warning, TEXT("wg.test.determinism: Baseline not found at %s. Use -writebaseline to create."), *Path);
+        // Still print computed checksums for convenience
+        for (const FTileChecksum& R : Results)
+        {
+            UE_LOG(LogWorldGenTest, Log, TEXT("Tile (%d,%d): 0x%016llX"), R.Tile.X, R.Tile.Y, (unsigned long long)R.Hash);
+        }
+        return;
+    }
+
+    TMap<FTileCoord, uint64> Baseline;
+    {
+        FString In;
+        if (FFileHelper::LoadFileToString(In, *Path))
+        {
+            TArray<FString> Lines; In.ParseIntoArrayLines(Lines);
+            for (const FString& L : Lines)
+            {
+                TArray<FString> Parts; L.ParseIntoArray(Parts, TEXT(","));
+                if (Parts.Num() == 3)
+                {
+                    int32 X = FCString::Atoi(*Parts[0]);
+                    int32 Y = FCString::Atoi(*Parts[1]);
+                    FString Hex = Parts[2];
+                    uint64 Val = 0; 
+                    // Accept with or without 0x
+                    const TCHAR* Start = *Hex;
+                    if (Hex.StartsWith(TEXT("0x"))) Start += 2;
+                    Val = FCString::Strtoui64(Start, nullptr, 16);
+                    Baseline.Add(FTileCoord(X,Y), Val);
+                }
+            }
+        }
+    }
+
+    int32 Mismatches = 0;
+    int32 Printed = 0;
+    for (const FTileChecksum& R : Results)
+    {
+        const uint64* Base = Baseline.Find(R.Tile);
+        if (!Base)
+        {
+            Mismatches++;
+            if (Printed < 3)
+            {
+                UE_LOG(LogWorldGenTest, Error, TEXT("Mismatch: Tile (%d,%d) missing in baseline. Current=0x%016llX"), R.Tile.X, R.Tile.Y, (unsigned long long)R.Hash);
+                Printed++;
+            }
+            continue;
+        }
+        if (*Base != R.Hash)
+        {
+            Mismatches++;
+            if (Printed < 3)
+            {
+                UE_LOG(LogWorldGenTest, Error, TEXT("Mismatch: Tile (%d,%d) baseline=0x%016llX current=0x%016llX"), R.Tile.X, R.Tile.Y, (unsigned long long)*Base, (unsigned long long)R.Hash);
+                Printed++;
+            }
+        }
+    }
+
+    if (Mismatches == 0)
+    {
+        UE_LOG(LogWorldGenTest, Log, TEXT("wg.test.determinism: PASS (%d/%d tiles match)"), Tiles, Tiles);
+    }
+    else
+    {
+        UE_LOG(LogWorldGenTest, Error, TEXT("wg.test.determinism: FAIL - %d mismatches out of %d tiles (showing first %d)"), Mismatches, Tiles, FMath::Min(3, Mismatches));
+    }
+}
+void UWorldGenTestSubsystem::ExecutePerfExportCommand(const TArray<FString>& Args)
+{
+    if (Args.Num() > 1)
+    {
+        UE_LOG(LogWorldGenTest, Error, TEXT("wg.perf.export: Usage: wg.perf.export [filename.csv]"));
+        return;
+    }
+    if (!IsValidTestMap())
+    {
+        LogMapError(TEXT("wg.perf.export"));
+        return;
+    }
+
+    UWorld* World = GetWorld();
+    if (!World)
+    {
+        UE_LOG(LogWorldGenTest, Error, TEXT("wg.perf.export: No world found"));
+        return;
+    }
+
+    // Find WorldGenManager
+    AWorldGenManager* Manager = nullptr;
+    for (TActorIterator<AWorldGenManager> It(World); It; ++It) { Manager = *It; break; }
+    if (!Manager)
+    {
+        UE_LOG(LogWorldGenTest, Error, TEXT("wg.perf.export: No WorldGenManager found"));
+        return;
+    }
+
+    // Get TileStreamingService via reflection (private member)
+    UTileStreamingService* Streaming = nullptr;
+    if (UClass* Cls = Manager->GetClass())
+    {
+        if (FObjectProperty* P = FindFProperty<FObjectProperty>(Cls, TEXT("TileStreamingService")))
+        {
+            Streaming = Cast<UTileStreamingService>(P->GetObjectPropertyValue_InContainer(Manager));
+        }
+    }
+
+    if (!Streaming)
+    {
+        UE_LOG(LogWorldGenTest, Error, TEXT("wg.perf.export: TileStreamingService not available"));
+        return;
+    }
+
+    FString FileArg = Args.Num() > 0 ? Args[0] : FString();
+    const bool bOk = Streaming->ExportPerformanceCSV(FileArg);
+    if (bOk)
+    {
+        UE_LOG(LogWorldGenTest, Log, TEXT("wg.perf.export: CSV export completed"));
+    }
+}
+
+namespace {
+static bool LoadCSVLines(const FString& Path, TArray<FString>& OutLines)
+{
+    FString Data;
+    if (!FFileHelper::LoadFileToString(Data, *Path))
+    {
+        return false;
+    }
+    Data.ParseIntoArrayLines(OutLines);
+    return OutLines.Num() > 0;
+}
+
+static float Percentile(const TArray<float>& In, float P)
+{
+    if (In.Num() == 0) return 0.0f;
+    TArray<float> A = In; A.Sort();
+    const float fidx = P * (A.Num() - 1);
+    const int32 idx = FMath::FloorToInt(fidx);
+    const int32 idx2 = FMath::Min(idx + 1, A.Num() - 1);
+    const float frac = fidx - idx;
+    return A[idx] * (1.0f - frac) + A[idx2] * frac;
+}
+}
+
+void UWorldGenTestSubsystem::ExecutePerfSummaryCommand(const TArray<FString>& Args)
+{
+    if (Args.Num() > 1)
+    {
+        UE_LOG(LogWorldGenTest, Error, TEXT("wg.perf.summary: Usage: wg.perf.summary [filename.csv]"));
+        return;
+    }
+    if (!IsValidTestMap())
+    {
+        LogMapError(TEXT("wg.perf.summary"));
+        return;
+    }
+
+    const FString Dir = FPaths::ProjectSavedDir() / TEXT("Vibeheim/WorldGen/Perf");
+    FString File = Args.Num() == 1 ? Args[0] : FString();
+    FString Path;
+    if (File.IsEmpty())
+    {
+        // Find latest perf_*.csv by name (timestamp-based name sorts lexicographically)
+        TArray<FString> Files;
+        IFileManager::Get().FindFiles(Files, *(Dir / TEXT("perf_*.csv")), true, false);
+        Files.Sort();
+        if (Files.Num() == 0)
+        {
+            UE_LOG(LogWorldGenTest, Error, TEXT("wg.perf.summary: No CSV files found in %s"), *Dir);
+            return;
+        }
+        File = Files.Last();
+        Path = Dir / File;
+    }
+    else
+    {
+        Path = (File.Contains(TEXT(":/")) || File.Contains(TEXT("\\"))) ? File : (Dir / File);
+    }
+
+    TArray<FString> Lines;
+    if (!LoadCSVLines(Path, Lines))
+    {
+        UE_LOG(LogWorldGenTest, Error, TEXT("wg.perf.summary: Failed to read %s"), *Path);
+        return;
+    }
+
+    // Parse header + rows
+    TArray<float> GenMs, PCGMs, StreamInMs, SpikeMs;
+    int32 Rows = 0; bool bHasHeader = false;
+    for (int32 i = 0; i < Lines.Num(); ++i)
+    {
+        const FString& L = Lines[i];
+        if (i == 0 && L.StartsWith(TEXT("TileX,TileY"))) { bHasHeader = true; continue; }
+        TArray<FString> C; L.ParseIntoArray(C, TEXT(","));
+        if (C.Num() < 7) continue;
+        auto oknum = [](const FString& s){ return !s.StartsWith(TEXT("ERR:")); };
+        if (oknum(C[2]) && oknum(C[3]) && oknum(C[4]) && oknum(C[6]))
+        {
+            GenMs.Add(FCString::Atof(*C[2]));
+            PCGMs.Add(FCString::Atof(*C[3]));
+            StreamInMs.Add(FCString::Atof(*C[4]));
+            SpikeMs.Add(FCString::Atof(*C[6]));
+            Rows++;
+        }
+    }
+
+    if (Rows == 0)
+    {
+        UE_LOG(LogWorldGenTest, Error, TEXT("wg.perf.summary: No numeric rows in %s"), *Path);
+        return;
+    }
+
+    const float GenP50 = Percentile(GenMs, 0.5f);
+    const float GenP95 = Percentile(GenMs, 0.95f);
+    const float PCGP50 = Percentile(PCGMs, 0.5f);
+    const float PCGP95 = Percentile(PCGMs, 0.95f);
+    float SpikeMax = 0.0f; for (float v : SpikeMs) SpikeMax = FMath::Max(SpikeMax, v);
+
+    UE_LOG(LogWorldGenTest, Log, TEXT("wg.perf.summary: tiles=%d GenMs p50=%.2f p95=%.2f PCGMs p50=%.2f p95=%.2f SpikeMax=%.2f file=%s"),
+        Rows, GenP50, GenP95, PCGP50, PCGP95, SpikeMax, *Path);
+}
+
+void UWorldGenTestSubsystem::ExecuteStatusCommand(const TArray<FString>& Args)
+{
+    if (!IsValidTestMap())
+    {
+        LogMapError(TEXT("wg.status"));
+        return;
+    }
+
+    UWorld* World = GetWorld();
+    if (!World)
+    {
+        UE_LOG(LogWorldGenTest, Error, TEXT("wg.status: No world found"));
+        return;
+    }
+
+    // Seed
+    int32 SeedVal = 0;
+    if (UWorldGenSeedSubsystem* SeedSubsystem = GetSeedSubsystem())
+    {
+        SeedVal = SeedSubsystem->GetAuthoritativeSeed();
+    }
+
+    // Settings
+    int32 GenR = 0, LoadR = 0, ActiveR = 0;
+    if (UWorldGenSettings* Settings = UWorldGenSettings::GetWorldGenSettings())
+    {
+        GenR = Settings->Settings.GenerateRadius;
+        LoadR = Settings->Settings.LoadRadius;
+        ActiveR = Settings->Settings.ActiveRadius;
+    }
+
+    // Manager and streaming metrics
+    AWorldGenManager* Manager = nullptr;
+    for (TActorIterator<AWorldGenManager> It(World); It; ++It) { Manager = *It; break; }
+    FTileStreamingMetrics M = FTileStreamingMetrics();
+    if (Manager)
+    {
+        UTileStreamingService* Streaming = nullptr;
+        if (UClass* Cls = Manager->GetClass())
+        {
+            if (FObjectProperty* P = FindFProperty<FObjectProperty>(Cls, TEXT("TileStreamingService")))
+            {
+                Streaming = Cast<UTileStreamingService>(P->GetObjectPropertyValue_InContainer(Manager));
+            }
+        }
+        if (Streaming)
+        {
+            M = Streaming->GetPerformanceMetrics();
+        }
+    }
+
+    UE_LOG(LogWorldGenTest, Log, TEXT("wg.status: Seed=%d Radii(G/L/A)=(%d/%d/%d)"), SeedVal, GenR, LoadR, ActiveR);
+    UE_LOG(LogWorldGenTest, Log, TEXT("wg.status: Tiles Active=%d Loaded=%d Generated=%d PendingGen=%d CacheEff=%.2f AvgGenMs=%.2f PeakGenMs=%.2f"),
+        M.ActiveTiles, M.LoadedTiles, M.GeneratedTiles, M.PendingGenerations, M.CacheEfficiency, M.AverageGenerationTimeMs, M.PeakGenerationTimeMs);
 }

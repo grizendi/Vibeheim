@@ -283,6 +283,7 @@ bool UVHMTerrainRenderer::CreateTerrainMeshForTile(const FTileCoord& TileCoord)
     float GenerationTime = (FPlatformTime::Seconds() - StartTime) * 1000.0f; // Convert to milliseconds
     UpdatePerformanceStats(GenerationTime);
     RecordMeshGenerationTime(GenerationTime);
+    LastMeshGenTimePerTile.Add(TileCoord, GenerationTime);
 
     // Update boundary stitching stats if boundary stitching was applied
     if (VHMSettings.bEnableBoundaryStitching && TileBoundaryManager.GetInterface())
@@ -298,8 +299,12 @@ bool UVHMTerrainRenderer::UpdateTerrainMesh(const FTileCoord& TileCoord, const T
 {
     if (!TerrainMeshes.Contains(TileCoord))
     {
-        UE_LOG(LogVHMTerrainRenderer, Warning, TEXT("UpdateTerrainMesh - No mesh exists for tile: (%d, %d)"), TileCoord.X, TileCoord.Y);
-        return false;
+        // Create on demand for edited tiles to ensure visual + collision update within target
+        if (!CreateTerrainMeshForTile(TileCoord))
+        {
+            UE_LOG(LogVHMTerrainRenderer, Warning, TEXT("UpdateTerrainMesh - No mesh exists and creation failed for tile: (%d, %d)"), TileCoord.X, TileCoord.Y);
+            return false;
+        }
     }
 
     if (!VHMSettings.bEnableRealTimeEditing)
@@ -371,6 +376,7 @@ void UVHMTerrainRenderer::RemoveTerrainMesh(const FTileCoord& TileCoord)
 
     // Remove from cache
     TerrainMeshes.Remove(TileCoord);
+    LastMeshGenTimePerTile.Remove(TileCoord);
 
     // Unregister tile from LOD manager
     if (UVHMTerrainLODManager* ConcreteLODManager = Cast<UVHMTerrainLODManager>(TerrainLODManager.GetObject()))
@@ -640,7 +646,9 @@ void UVHMTerrainRenderer::ConfigureVHMComponent(UVirtualHeightfieldMeshComponent
     UE_LOG(LogVHMTerrainRenderer, Log, TEXT("VHM component created and configured for tile (%d, %d)"), TileCoord.X, TileCoord.Y);
 
     // Configure basic component settings (available on all primitive components)
-    VHMComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    // Enable collision so edited terrain affects gameplay collision promptly (Gate B)
+    VHMComponent->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+    VHMComponent->SetCollisionResponseToAllChannels(ECR_Block);
     VHMComponent->SetVisibility(true);
     VHMComponent->SetHiddenInGame(false);
     VHMComponent->SetCastShadow(true);
@@ -683,7 +691,9 @@ bool UVHMTerrainRenderer::GenerateMeshFromHeightfield(UVirtualHeightfieldMeshCom
 
     Proc->SetupAttachment(VHMComponent); // attach under the VHM component/actor
     Proc->RegisterComponent();
-    Proc->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    // Enable collision on the generated mesh
+    Proc->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+    Proc->SetCollisionResponseToAllChannels(ECR_Block);
     Proc->bUseAsyncCooking = true;
     Proc->ComponentTags.AddUnique(FName(TEXT("VHMProcMesh")));
 
@@ -746,7 +756,7 @@ bool UVHMTerrainRenderer::GenerateMeshFromHeightfield(UVirtualHeightfieldMeshCom
         }
     }
 
-    Proc->CreateMeshSection_LinearColor(0, Vertices, Indices, Normals, UV0, Colors, Tangents, /*bCreateCollision*/ false);
+    Proc->CreateMeshSection_LinearColor(0, Vertices, Indices, Normals, UV0, Colors, Tangents, /*bCreateCollision*/ true);
     Proc->SetMaterial(0, VHMComponent->UPrimitiveComponent::GetMaterial(0)); // apply whatever material was set on VHM comp later
 
     // Keep VHM component alive and registered for consistency/debug flows
@@ -840,6 +850,15 @@ FVector UVHMTerrainRenderer::GetTileCenterWorldPosition(const FTileCoord& TileCo
         TileCoord.Y * TileSizeCm + TileSizeCm * 0.5f,
         0.0f
     );
+}
+
+float UVHMTerrainRenderer::GetLastMeshGenerationTimeMs(const FTileCoord& TileCoord) const
+{
+    if (const float* Time = LastMeshGenTimePerTile.Find(TileCoord))
+    {
+        return *Time;
+    }
+    return 0.0f;
 }
 
 FVector UVHMTerrainRenderer::GetTileCornerWorldPosition(const FTileCoord& TileCoord) const
