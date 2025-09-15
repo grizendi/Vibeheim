@@ -14,6 +14,8 @@
 // Forward declarations
 class UTexture2D;
 class UMaterialInterface;
+class UStaticMesh;
+class UBlueprint;
 // Forward declare PCG classes (optional dependency)
 class UPCGGraph;
 class UCurveFloat;
@@ -118,111 +120,307 @@ enum class EHeightfieldOperation : uint8
 USTRUCT(BlueprintType)
 struct VIBEHEIM_API FWorldGenConfig
 {
-	GENERATED_BODY()
+    GENERATED_BODY()
 
-	// Core generation parameters
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Generation")
-	int32 Seed = 1337;
+    // Core generation parameters
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Generation")
+    int32 Seed = 1337;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Generation")
-	int32 WorldGenVersion = 1;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Generation")
+    int32 WorldGenVersion = 1;
 
-	// Tile and coordinate system (locked values)
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Coordinates", meta = (ClampMin = "64", ClampMax = "64"))
-	float TileSizeMeters = 64.0f;
+    // Tile and coordinate system (locked values)
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Coordinates", meta = (ClampMin = "64", ClampMax = "64"))
+    float TileSizeMeters = 64.0f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Coordinates", meta = (ClampMin = "1", ClampMax = "1"))
-	float SampleSpacingMeters = 1.0f;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Coordinates", meta = (ClampMin = "1", ClampMax = "1"))
+    float SampleSpacingMeters = 1.0f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Coordinates", meta = (ClampMin = "120", ClampMax = "120"))
-	float MaxTerrainHeight = 120.0f;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Coordinates", meta = (ClampMin = "120", ClampMax = "120"))
+    float MaxTerrainHeight = 120.0f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Coordinates")
-	float SeaLevel = 0.0f;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Coordinates")
+    float SeaLevel = 0.0f;
 
-	// Streaming radii (in tiles)
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Streaming", meta = (ClampMin = "1", ClampMax = "20"))
-	int32 GenerateRadius = 9;
+    // Streaming radii (in tiles)
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Streaming", meta = (ClampMin = "1", ClampMax = "20"))
+    int32 GenerateRadius = 9;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Streaming", meta = (ClampMin = "1", ClampMax = "15"))
-	int32 LoadRadius = 5;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Streaming", meta = (ClampMin = "1", ClampMax = "15"))
+    int32 LoadRadius = 5;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Streaming", meta = (ClampMin = "1", ClampMax = "10"))
-	int32 ActiveRadius = 3;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Streaming", meta = (ClampMin = "1", ClampMax = "10"))
+    int32 ActiveRadius = 3;
 
-	// Heightfield settings
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Heightfield")
-	float HeightfieldScale = 100.0f;
+    // Heightfield settings
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Heightfield")
+    float HeightfieldScale = 100.0f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Heightfield")
-	int32 HeightfieldResolution = 1024;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Heightfield")
+    int32 HeightfieldResolution = 1024;
 
-	// World Partition settings
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldPartition")
-	int32 CellSize = 12800; // 128m cells
+    // World Partition settings
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldPartition")
+    int32 CellSize = 12800; // 128m cells
 
-	// PCG settings
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PCG")
-	float VegetationDensity = 1.0f;
+    // PCG settings
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PCG")
+    float VegetationDensity = 1.0f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PCG")
-	float POIDensity = 0.1f;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PCG")
+    float POIDensity = 0.1f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PCG")
-	int32 MaxHISMInstances = 10000;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PCG")
+    int32 MaxHISMInstances = 10000;
 
-	// Biome noise parameters
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Biomes")
-	float BiomeScale = 0.001f;
+    // Biome noise parameters
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Biomes")
+    float BiomeScale = 0.001f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Biomes")
-	float BiomeBlendDistance = 500.0f;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Biomes")
+    float BiomeBlendDistance = 500.0f;
 
-	// RVT settings
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RVT")
-	int32 RVTResolution = 4096;
+    // RVT settings
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RVT")
+    int32 RVTResolution = 4096;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RVT")
-	int32 RVTTileSize = 256;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RVT")
+    int32 RVTTileSize = 256;
 
-	// Performance targets
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Performance")
-	float TileGenTargetMs = 2.0f;
+    // Performance targets
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Performance")
+    float TileGenTargetMs = 2.0f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Performance")
-	float PCGTargetMsPerTile = 1.0f;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Performance")
+    float PCGTargetMsPerTile = 1.0f;
 
-	// VHM terrain rendering settings
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VHM")
-	int32 VHMHeightTextureResolution = 64;
+    // Feature toggles (Phase 0)
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Features")
+    bool bEnableWater = false;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VHM")
-	int32 VHMLODLevels = 4;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Features")
+    bool bEnableRivers = false;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VHM")
-	float VHMMaxViewDistance = 2000.0f;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Features")
+    bool bEnableRings = false;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VHM")
-	bool bVHMEnableRealTimeEditing = true;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Features")
+    bool bEnablePCGGraphs = false;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VHM")
-	bool bVHMUseRuntimeVirtualTexturing = true;
+    // VHM terrain rendering settings
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VHM")
+    int32 VHMHeightTextureResolution = 64;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VHM")
-	float VHMMeshGenerationBudgetMs = 2.0f;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VHM")
+    int32 VHMLODLevels = 4;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VHM")
-	bool bVHMUseHighPrecisionHeightTextures = false;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VHM")
+    float VHMMaxViewDistance = 2000.0f;
 
-	FWorldGenConfig()
-	{
-		// Ensure locked values are set correctly
-		TileSizeMeters = 64.0f;
-		SampleSpacingMeters = 1.0f;
-		MaxTerrainHeight = 120.0f;
-	}
-};/**
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VHM")
+    bool bVHMEnableRealTimeEditing = true;
 
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VHM")
+    bool bVHMUseRuntimeVirtualTexturing = true;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VHM")
+    float VHMMeshGenerationBudgetMs = 2.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VHM")
+    bool bVHMUseHighPrecisionHeightTextures = false;
+
+    FWorldGenConfig()
+    {
+        // Ensure locked values are set correctly
+        TileSizeMeters = 64.0f;
+        SampleSpacingMeters = 1.0f;
+        MaxTerrainHeight = 120.0f;
+    }
+};
+
+/**
+ * Macro world configuration (continental scale)
+ */
+USTRUCT(BlueprintType)
+struct VIBEHEIM_API FMacroWorldConfig
+{
+    GENERATED_BODY()
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MacroWorld")
+    float WorldRadiusMeters = 10000.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MacroWorld")
+    float ContinentScale = 0.001f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MacroWorld")
+    float IslandFalloff = 2.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MacroWorld")
+    float OceanDepth = -50.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MacroWorld")
+    float CoastSharpness = 1.5f;
+
+    // Optional falloff curve for island shaping
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MacroWorld")
+    TObjectPtr<UCurveFloat> IslandFalloffCurve = nullptr;
+};
+
+/**
+ * Biome ring definition for radial progression
+ */
+USTRUCT(BlueprintType)
+struct VIBEHEIM_API FBiomeRingDefinition
+{
+    GENERATED_BODY()
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Biomes")
+    EBiomeType BiomeType = EBiomeType::Meadows;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Biomes")
+    float InnerRadius = 0.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Biomes")
+    float OuterRadius = 1000.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Biomes")
+    float BlendWidth = 200.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Biomes")
+    float Weight = 1.0f;
+
+    // Ring-specific modifiers
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Biomes")
+    float HeightInfluence = 1.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Biomes")
+    float ClimateInfluence = 1.0f;
+
+    // Transition rules
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Biomes")
+    TArray<EBiomeType> AllowedNeighbors;
+};
+
+/**
+ * Shoreline foam visual settings
+ */
+USTRUCT(BlueprintType)
+struct VIBEHEIM_API FShorelineFoamSettings
+{
+    GENERATED_BODY()
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Water")
+    bool bEnable = true;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Water")
+    float FoamWidth = 10.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Water")
+    float FoamIntensity = 1.0f;
+};
+
+/**
+ * Water system configuration
+ */
+USTRUCT(BlueprintType)
+struct VIBEHEIM_API FWaterSystemConfig
+{
+    GENERATED_BODY()
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Water")
+    bool bEnableWaterSystem = true;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Water")
+    float SeaLevel = 0.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Water")
+    float ShorelineDetectionThreshold = 2.0f;
+
+    // Shoreline effects
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Water")
+    FShorelineFoamSettings ShorelineFoam;
+
+    // Water body spawning
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Water")
+    float MinWaterBodySize = 100.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Water")
+    int32 MaxWaterBodiesPerTile = 5;
+};
+
+/**
+ * River and lake generation configuration
+ */
+USTRUCT(BlueprintType)
+struct VIBEHEIM_API FRiverSystemConfig
+{
+    GENERATED_BODY()
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rivers")
+    float MinRiverWidth = 5.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rivers")
+    float MaxRiverWidth = 20.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rivers")
+    float RiverBedDepth = 2.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rivers")
+    float SplineSmoothing = 0.5f;
+
+    // Lake parameters
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rivers")
+    float LakeMinRadius = 50.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rivers")
+    float LakeMaxRadius = 200.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rivers")
+    int32 MaxLakesPerTile = 2;
+
+    // Flow computation
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rivers")
+    int32 FlowMapResolution = 32;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rivers")
+    float FlowAccumulationThreshold = 10.0f;
+};
+
+/**
+ * Streaming budgets configuration
+ */
+USTRUCT(BlueprintType)
+struct VIBEHEIM_API FStreamingBudgetsConfig
+{
+    GENERATED_BODY()
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Streaming")
+    float StreamingBudgetMsPerTick = 2.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Streaming")
+    int32 PrefetchRings = 2;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Streaming")
+    int32 WorkQueueThreads = 2;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Streaming")
+    int32 MaxActiveTiles = 25;
+
+    // Stage budgets (in milliseconds)
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Streaming")
+    float HeightGenerationBudget = 0.5f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Streaming")
+    float BiomeCalculationBudget = 0.3f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Streaming")
+    float PCGGenerationBudget = 0.8f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Streaming")
+    float VHMMeshBudget = 0.4f;
+};
+ 
+/**
  * PCG vegetation rule for biome-specific content generation
  */
 USTRUCT(BlueprintType)

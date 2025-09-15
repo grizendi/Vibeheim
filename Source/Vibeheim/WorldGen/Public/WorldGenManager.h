@@ -15,6 +15,8 @@ class UTileStreamingService;
 class UPOIService;
 class UVHMTerrainRenderer;
 class UVHMDebugSystem;
+class UWorldGenSettingsAsset;
+class UBiomeDefinitionsAsset;
 struct FTileCoord;
 
 /**
@@ -74,6 +76,25 @@ public:
     UFUNCTION(BlueprintCallable, Category = "World Generation")
     UVHMDebugSystem* GetVHMDebugSystem() const { return VHMDebugSystem; }
 
+    /**
+     * Get Tile Streaming Service
+     */
+    UFUNCTION(BlueprintCallable, Category = "World Generation")
+    UTileStreamingService* GetTileStreamingService() const { return TileStreamingService; }
+
+    /**
+     * Data Assets selected for world generation
+     */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "World Generation|Assets")
+    TSoftObjectPtr<UWorldGenSettingsAsset> WorldGenSettingsAsset;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "World Generation|Assets")
+    TSoftObjectPtr<UBiomeDefinitionsAsset> BiomeDefinitionsAsset;
+
+    /** Reload selected data assets (resolve soft refs and validate) */
+    UFUNCTION(BlueprintCallable, Category = "World Generation|Assets")
+    void ReloadWorldGenAssets();
+
 protected:
     // World generation configuration
     UPROPERTY(BlueprintReadOnly, Category = "World Generation")
@@ -125,6 +146,9 @@ protected:
     int32 TotalTilesGenerated;
 
 private:
+    /** Resolve and load data assets with defaults when unset */
+    void ResolveWorldGenAssets();
+
     /**
      * Calculate player's current tile coordinate
      */

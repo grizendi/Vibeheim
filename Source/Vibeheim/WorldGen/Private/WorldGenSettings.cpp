@@ -106,10 +106,10 @@ bool UWorldGenSettings::SaveToJSON(const FString& ConfigPath) const
 
 bool UWorldGenSettings::ParseJSONObject(const TSharedPtr<FJsonObject>& JsonObject)
 {
-	if (!JsonObject.IsValid())
-	{
-		return false;
-	}
+    if (!JsonObject.IsValid())
+    {
+        return false;
+    }
 
 	// Parse core generation settings
 	if (JsonObject->HasField(TEXT("Seed")))
@@ -220,10 +220,53 @@ bool UWorldGenSettings::ParseJSONObject(const TSharedPtr<FJsonObject>& JsonObjec
 		Settings.TileGenTargetMs = static_cast<float>(JsonObject->GetNumberField(TEXT("TileGenTargetMs")));
 	}
 	
-	if (JsonObject->HasField(TEXT("PCGTargetMsPerTile")))
-	{
-		Settings.PCGTargetMsPerTile = static_cast<float>(JsonObject->GetNumberField(TEXT("PCGTargetMsPerTile")));
-	}
+    if (JsonObject->HasField(TEXT("PCGTargetMsPerTile")))
+    {
+        Settings.PCGTargetMsPerTile = static_cast<float>(JsonObject->GetNumberField(TEXT("PCGTargetMsPerTile")));
+    }
+
+    // Parse feature toggles (top-level)
+    if (JsonObject->HasField(TEXT("bEnableWater")))
+    {
+        Settings.bEnableWater = JsonObject->GetBoolField(TEXT("bEnableWater"));
+    }
+    if (JsonObject->HasField(TEXT("bEnableRivers")))
+    {
+        Settings.bEnableRivers = JsonObject->GetBoolField(TEXT("bEnableRivers"));
+    }
+    if (JsonObject->HasField(TEXT("bEnableRings")))
+    {
+        Settings.bEnableRings = JsonObject->GetBoolField(TEXT("bEnableRings"));
+    }
+    if (JsonObject->HasField(TEXT("bEnablePCGGraphs")))
+    {
+        Settings.bEnablePCGGraphs = JsonObject->GetBoolField(TEXT("bEnablePCGGraphs"));
+    }
+
+    // Parse feature toggles (nested object: "Features") - optional
+    if (JsonObject->HasField(TEXT("Features")))
+    {
+        const TSharedPtr<FJsonObject> Features = JsonObject->GetObjectField(TEXT("Features"));
+        if (Features.IsValid())
+        {
+            if (Features->HasField(TEXT("EnableWater")))
+            {
+                Settings.bEnableWater = Features->GetBoolField(TEXT("EnableWater"));
+            }
+            if (Features->HasField(TEXT("EnableRivers")))
+            {
+                Settings.bEnableRivers = Features->GetBoolField(TEXT("EnableRivers"));
+            }
+            if (Features->HasField(TEXT("EnableRings")))
+            {
+                Settings.bEnableRings = Features->GetBoolField(TEXT("EnableRings"));
+            }
+            if (Features->HasField(TEXT("EnablePCGGraphs")))
+            {
+                Settings.bEnablePCGGraphs = Features->GetBoolField(TEXT("EnablePCGGraphs"));
+            }
+        }
+    }
 
 	// Parse nested performance targets object if it exists
 	if (JsonObject->HasField(TEXT("PerfTargets")))
@@ -291,7 +334,7 @@ bool UWorldGenSettings::ParseJSONObject(const TSharedPtr<FJsonObject>& JsonObjec
 
 TSharedPtr<FJsonObject> UWorldGenSettings::CreateJSONObject() const
 {
-	TSharedPtr<FJsonObject> JsonObject = MakeShareable(new FJsonObject);
+    TSharedPtr<FJsonObject> JsonObject = MakeShareable(new FJsonObject);
 
 	// Core generation settings
 	JsonObject->SetNumberField(TEXT("Seed"), static_cast<double>(Settings.Seed));
@@ -328,11 +371,24 @@ TSharedPtr<FJsonObject> UWorldGenSettings::CreateJSONObject() const
 	JsonObject->SetNumberField(TEXT("RVTResolution"), Settings.RVTResolution);
 	JsonObject->SetNumberField(TEXT("RVTTileSize"), Settings.RVTTileSize);
 
-	// Performance targets (nested object for compatibility)
-	TSharedPtr<FJsonObject> PerfTargets = MakeShareable(new FJsonObject);
-	PerfTargets->SetNumberField(TEXT("TileGenMs"), Settings.TileGenTargetMs);
-	PerfTargets->SetNumberField(TEXT("PCGMsPerTile"), Settings.PCGTargetMsPerTile);
-	JsonObject->SetObjectField(TEXT("PerfTargets"), PerfTargets);
+    // Performance targets (nested object for compatibility)
+    TSharedPtr<FJsonObject> PerfTargets = MakeShareable(new FJsonObject);
+    PerfTargets->SetNumberField(TEXT("TileGenMs"), Settings.TileGenTargetMs);
+    PerfTargets->SetNumberField(TEXT("PCGMsPerTile"), Settings.PCGTargetMsPerTile);
+    JsonObject->SetObjectField(TEXT("PerfTargets"), PerfTargets);
+
+    // Feature toggles (top-level and nested for compatibility)
+    JsonObject->SetBoolField(TEXT("bEnableWater"), Settings.bEnableWater);
+    JsonObject->SetBoolField(TEXT("bEnableRivers"), Settings.bEnableRivers);
+    JsonObject->SetBoolField(TEXT("bEnableRings"), Settings.bEnableRings);
+    JsonObject->SetBoolField(TEXT("bEnablePCGGraphs"), Settings.bEnablePCGGraphs);
+
+    TSharedPtr<FJsonObject> Features = MakeShareable(new FJsonObject);
+    Features->SetBoolField(TEXT("EnableWater"), Settings.bEnableWater);
+    Features->SetBoolField(TEXT("EnableRivers"), Settings.bEnableRivers);
+    Features->SetBoolField(TEXT("EnableRings"), Settings.bEnableRings);
+    Features->SetBoolField(TEXT("EnablePCGGraphs"), Settings.bEnablePCGGraphs);
+    JsonObject->SetObjectField(TEXT("Features"), Features);
 
 	// VHM settings (nested object)
 	TSharedPtr<FJsonObject> VHMSettingsJson = MakeShareable(new FJsonObject);

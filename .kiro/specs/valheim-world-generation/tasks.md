@@ -1,21 +1,21 @@
 ﻿# Implementation Plan
 
-## Phase 0: Foundations and Feature Toggles
+## Phase 0: Foundations and Feature Toggles ✅ COMPLETE
 
-- [ ] 0. Setup feature flags and console command infrastructure
-  - Add feature flags to FWorldGenConfig: bEnableWater, bEnableRivers, bEnableRings, bEnablePCGGraphs
-  - Re-enable console commands in WorldGenConsoleCommands.cpp with proper safety checks
-  - Add performance instrumentation with CSV export functionality to TileStreamingService
+- [x] 0. Setup feature flags and console command infrastructure
+
+  - ✅ Feature flags already exist in FWorldGenConfig: bEnableWater, bEnableRivers, bEnableRings, bEnablePCGGraphs
+  - ✅ Console commands implemented in WorldGenConsoleCommands.cpp: wg.settings.show, wg.perf.export, wg.flags.show/set
+  - ✅ Performance instrumentation exists in TileStreamingService with CSV export
   - _Requirements: 9.1, 9.2_
-  - _Deliverables: Feature toggle system, console command registration, perf CSV structure_
-  - _Acceptance: Feature flags toggle systems cleanly, console commands work in PIE and editor_
+  - _Status: COMPLETE - Feature toggles and basic console commands already implemented_
 
 ## Phase 1: Data Asset Configuration System
 
-- [ ] 1. Create Data Asset classes for configuration management
-  - Create UWorldGenSettingsAsset and UBiomeDefinitionsAsset primary data assets
-  - Implement FMacroWorldConfig, FBiomeRingDefinition, FWaterSystemConfig, FRiverSystemConfig, FStreamingBudgetsConfig structs
-  - Add asset resolution and lifecycle management to WorldGenManager
+- [x] 1. Create Data Asset classes for configuration management
+  - ✓ Created UWorldGenSettingsAsset and UBiomeDefinitionsAsset (PrimaryDataAsset)
+  - ✓ Implemented FMacroWorldConfig, FBiomeRingDefinition, FWaterSystemConfig, FRiverSystemConfig, FStreamingBudgetsConfig
+  - ✓ Added asset resolution + validation to WorldGenManager with default paths
   - _Requirements: 9.1, 9.2, 9.3, 9.4_
   - _Deliverables: UWorldGenSettingsAsset, UBiomeDefinitionsAsset classes, config structs_
   - _Acceptance: Assets load in editor, validation works, default paths exist_
@@ -75,10 +75,10 @@
   - _Deliverables: Biome ring configuration system_
   - _Acceptance: Ring progression works correctly, blend zones within tolerance_
 
-## Phase 4: Enhanced PCG System (moved up for faster wins)
+## Phase 4: Enhanced PCG System
 
 - [ ] 8. Enhance PCGWorldService with real PCG graph integration
-  - Add bEnablePCGGraphs feature flag to FWorldGenConfig
+  - Add bEnablePCGGraphs feature flag to FWorldGenConfig (already exists)
   - Extend existing GenerateBiomeContent method to use biome-specific PCG graphs when available
   - Parameterize PCG with biome weights, slope data, and water distance in existing PCG generation
   - Enhance existing HISM fallback generation with vegetation clusters, bushes, trees, rocks
@@ -97,7 +97,7 @@
 ## Phase 5: Water System Integration
 
 - [ ] 10. Extend TerrainMaterialSystem for water integration
-  - Add bEnableWater feature flag to FWorldGenConfig
+  - Add bEnableWater feature flag to FWorldGenConfig (already exists)
   - Extend existing TerrainMaterialSystem with water mask and distance-to-water parameters
   - Implement water-terrain blending for shoreline effects in existing material system
   - Add graceful fallback when water system fails to existing error handling
@@ -117,7 +117,7 @@
 ## Phase 6: Rivers and Lakes System
 
 - [ ] 12. Implement RiverFlowService for flow computation
-  - Add bEnableRivers feature flag to FWorldGenConfig
+  - Add bEnableRivers feature flag to FWorldGenConfig (already exists)
   - Create new URiverFlowService class in Services directory
   - Add low-resolution flow map computation per tile neighborhood using gradient analysis
   - Implement flow pattern derivation from terrain gradients in HeightfieldService
@@ -158,7 +158,7 @@
 ## Phase 8: Complete Async Generation Pipeline
 
 - [ ] 16. Complete AsyncGenerationPipeline in TileStreamingService
-  - Expand existing async work queue with full budgets for height â†’ biome â†’ PCG â†’ VHM mesh pipeline
+  - Expand existing async work queue with full budgets for height → biome → PCG → VHM mesh pipeline
   - Add prefetch next-ring tiles while demoting far tiles for smooth transitions to existing streaming logic
   - Implement complete time-sliced generation operations with frame rate targets in existing GenerateSingleTile
   - _Requirements: 8.1, 8.2, 8.3_
@@ -176,7 +176,7 @@
 ## Phase 9: Enhanced Configuration and Runtime Control
 
 - [ ] 18. Add comprehensive console commands for validation
-  - Re-enable and extend existing WorldGenConsoleCommands.cpp with proper safety checks
+  - Extend existing WorldGenConsoleCommands.cpp with validation commands
   - Implement wg.map.export, wg.rings.validate, wg.rivers.export commands
   - Add wg.pcg.validate, wg.poi.validate, wg.streaming.budget commands
   - Implement wg.prefetch and performance monitoring commands
@@ -229,18 +229,25 @@
   - Verify texture memory <= 512MB and MaxActiveTiles <= 25 limits using existing VHM limits
   - _Requirements: Performance and Determinism Requirements, Cross-Tile Continuity Requirements_
   - _Deliverables: Performance validation and continuity testing_
-  - _Acceptance: Gate H passes - texture memory <= 512MB, MaxActiveTiles <= 25, river/shoreline continuity violations = 0
+  - _Acceptance: Gate H passes - texture memory <= 512MB, MaxActiveTiles <= 25, river/shoreline continuity violations = 0_
 
 ## Verification Gates Summary
-
-- Note: normalized comparisons (<=, >=) are used for clarity in targets
 
 - **Gate E** (Phase 2): Macro topology complete - coastline ratio, histogram shape, seam check pass
 - **Gate F** (Phase 6): Water and rivers complete - wg.rivers.export continuity = 0, water coverage >= 80% on coasts
 - **Gate G** (Phase 7): PCG and POI complete - wg.pcg.validate/wg.poi.validate violations = 0, density within ±20%
 - **Gate H** (Phase 11): Pipeline and performance complete - p50/p95/spikes meet targets, memory <= limits
 
+## Implementation Notes
 
+### Current Status Analysis
+- ✅ **MVP Foundation Complete**: HeightfieldService, BiomeService, TileStreamingService, PCGWorldService, POIService, VHMTerrainRenderer all implemented
+- ✅ **Feature Flags Ready**: bEnableWater, bEnableRivers, bEnableRings, bEnablePCGGraphs already exist in FWorldGenConfig
+- ✅ **Basic Console Commands**: wg.settings.show, wg.perf.export, wg.flags.show/set implemented
+- ❌ **Valheim Features Missing**: No Data Assets, macro topology, biome rings, water systems, rivers, async pipeline
 
-
-
+### Key Implementation Strategy
+- **Extend Existing Services**: Enhance HeightfieldService, BiomeService, TileStreamingService rather than creating new ones
+- **Data Asset Migration**: Replace JSON configuration with UE5 Data Assets for designer-friendly editing
+- **Incremental Enhancement**: Build on existing MVP foundation, maintain backward compatibility
+- **Performance Focus**: Implement async pipeline and budgets to meet performance targets

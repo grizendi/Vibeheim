@@ -122,19 +122,19 @@ FPCGGenerationData UPCGWorldService::GenerateBiomeContent(FTileCoord TileCoord, 
 FPCGGenerationData UPCGWorldService::GenerateContentInternal(FTileCoord TileCoord, EBiomeType BiomeType, const TArray<float>& HeightData)
 {
 #if WITH_PCG
-	// Try PCG generation first
-	if (CurrentPCGGraph && bRuntimeOperationsEnabled)
-	{
-		UPCGGraph* PCGGraph = Cast<UPCGGraph>(CurrentPCGGraph);
-		if (PCGGraph)
-		{
-			return GeneratePCGContent(TileCoord, BiomeType, HeightData, PCGGraph);
-		}
-	}
+    // Try PCG generation first (gated by feature flag)
+    if (WorldGenSettings.bEnablePCGGraphs && CurrentPCGGraph && bRuntimeOperationsEnabled)
+    {
+        UPCGGraph* PCGGraph = Cast<UPCGGraph>(CurrentPCGGraph);
+        if (PCGGraph)
+        {
+            return GeneratePCGContent(TileCoord, BiomeType, HeightData, PCGGraph);
+        }
+    }
 #endif
 
-	// Use fallback generation
-	return GenerateFallbackContent(TileCoord, BiomeType, HeightData);
+    // Use fallback generation
+    return GenerateFallbackContent(TileCoord, BiomeType, HeightData);
 }
 
 FPCGGenerationData UPCGWorldService::GeneratePCGContent(FTileCoord TileCoord, EBiomeType BiomeType, const TArray<float>& HeightData, UPCGGraph* PCGGraph)

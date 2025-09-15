@@ -9,6 +9,7 @@
 #include "VHMTerrainRendering/VHMTerrainRenderer.h"
 #include "VHMTerrainRendering/VHMDebugSystem.h"
 #include "Data/WorldGenTypes.h"
+#include "Data/WorldGenAssets.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
@@ -79,19 +80,22 @@ void AWorldGenManager::Tick(float DeltaTime)
 
 bool AWorldGenManager::InitializeWorldGenSystems()
 {
-	// Load world generation settings
-	WorldGenSettings = UWorldGenSettings::GetWorldGenSettings();
-	if (!WorldGenSettings)
+    // Load world generation settings
+    WorldGenSettings = UWorldGenSettings::GetWorldGenSettings();
+    if (!WorldGenSettings)
 	{
 		UE_LOG(LogWorldGenManager, Error, TEXT("Failed to load WorldGen settings"));
 		return false;
 	}
 
-	// Apply fixed streaming radii for test world (Generate=9, Load=5, Active=3)
-	WorldGenSettings->Settings.GenerateRadius = 9;
-	WorldGenSettings->Settings.LoadRadius = 5;
-	WorldGenSettings->Settings.ActiveRadius = 3;
-	UE_LOG(LogWorldGenManager, Log, TEXT("Applied fixed streaming radii: Generate=9, Load=5, Active=3"));
+    // Apply fixed streaming radii for test world (Generate=9, Load=5, Active=3)
+    WorldGenSettings->Settings.GenerateRadius = 9;
+    WorldGenSettings->Settings.LoadRadius = 5;
+    WorldGenSettings->Settings.ActiveRadius = 3;
+    UE_LOG(LogWorldGenManager, Log, TEXT("Applied fixed streaming radii: Generate=9, Load=5, Active=3"));
+
+    // Resolve data assets (settings + biome definitions)
+    ResolveWorldGenAssets();
 
 	// Configure VHM settings for seam prevention
 	if (!WorldGenSettings->VHMSettings.IsSet())
@@ -247,6 +251,78 @@ void AWorldGenManager::UpdateWorldStreaming()
 			StreamingMetrics.ActiveTiles, StreamingMetrics.LoadedTiles, StreamingMetrics.GeneratedTiles,
 			StreamingMetrics.AverageGenerationTimeMs, StreamingMetrics.CacheEfficiency * 100.0f);
 	}
+}
+
+void AWorldGenManager::ResolveWorldGenAssets()
+{
+    static const TCHAR* DefaultSettingsPath = TEXT("/Game/Data/WorldGen/DA_WorldGenSettings_Default.DA_WorldGenSettings_Default");
+    static const TCHAR* DefaultBiomesPath   = TEXT("/Game/Data/WorldGen/DA_BiomeDefinitions_Default.DA_BiomeDefinitions_Default");
+
+    // Resolve settings asset soft reference
+    if (!WorldGenSettingsAsset.IsValid())
+    {
+        const FSoftObjectPath Existing = WorldGenSettingsAsset.ToSoftObjectPath();
+        if (!Existing.IsValid())
+        {
+            WorldGenSettingsAsset = TSoftObjectPtr<UWorldGenSettingsAsset>(FSoftObjectPath(DefaultSettingsPath));
+        }
+    }
+
+    UWorldGenSettingsAsset* SettingsAsset = WorldGenSettingsAsset.IsNull() ? nullptr : WorldGenSettingsAsset.LoadSynchronous();
+    if (!SettingsAsset)
+    {
+        UE_LOG(LogWorldGenManager, Warning, TEXT("WorldGenSettingsAsset not found (path: %s)"), *WorldGenSettingsAsset.ToString());
+    }
+    else
+    {
+        TArray<FString> Errors;
+        if (!SettingsAsset->ValidateAsset(Errors))
+        {
+            for (const FString& E : Errors)
+            {
+                UE_LOG(LogWorldGenManager, Warning, TEXT("SettingsAsset validation: %s"), *E);
+            }
+        }
+
+        // Allow settings asset to drive biome definitions reference if unset
+        if (!BiomeDefinitionsAsset.IsValid() && SettingsAsset->BiomeDefinitions.ToSoftObjectPath().IsValid())
+        {
+            BiomeDefinitionsAsset = SettingsAsset->BiomeDefinitions;
+        }
+    }
+
+    // Resolve biome definitions soft reference
+    if (!BiomeDefinitionsAsset.IsValid())
+    {
+        const FSoftObjectPath Existing = BiomeDefinitionsAsset.ToSoftObjectPath();
+        if (!Existing.IsValid())
+        {
+            BiomeDefinitionsAsset = TSoftObjectPtr<UBiomeDefinitionsAsset>(FSoftObjectPath(DefaultBiomesPath));
+        }
+    }
+
+    UBiomeDefinitionsAsset* BiomesAsset = BiomeDefinitionsAsset.IsNull() ? nullptr : BiomeDefinitionsAsset.LoadSynchronous();
+    if (!BiomesAsset)
+    {
+        UE_LOG(LogWorldGenManager, Warning, TEXT("BiomeDefinitionsAsset not found (path: %s)"), *BiomeDefinitionsAsset.ToString());
+    }
+    else
+    {
+        TArray<FString> Errors;
+        if (!BiomesAsset->ValidateAsset(Errors))
+        {
+            for (const FString& E : Errors)
+            {
+                UE_LOG(LogWorldGenManager, Warning, TEXT("BiomeDefinitions validation: %s"), *E);
+            }
+        }
+    }
+}
+
+void AWorldGenManager::ReloadWorldGenAssets()
+{
+    ResolveWorldGenAssets();
+    UE_LOG(LogWorldGenManager, Log, TEXT("Reloaded WorldGen data assets (settings/biomes)"));
 }
 
 FTileCoord AWorldGenManager::GetPlayerTileCoordinate() const
