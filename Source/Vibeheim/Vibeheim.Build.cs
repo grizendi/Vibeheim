@@ -33,7 +33,8 @@ public class Vibeheim : ModuleRules
             "Json",
             "JsonUtilities",
             "Projects", // FPaths, IPluginManager, config helpers, etc.
-            "RHI" // Needed for PixelFormat.h
+            "RHI", // Needed for PixelFormat.h
+            "AssetRegistry"
         });
 
         // Compile dev automation tests in non-shipping configs
@@ -46,3 +47,4 @@ public class Vibeheim : ModuleRules
         // No engine-version checks: UE 5.6 ships PCG; your code requires it publicly.
     }
 }
+

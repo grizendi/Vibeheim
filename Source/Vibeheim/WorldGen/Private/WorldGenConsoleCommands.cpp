@@ -18,7 +18,31 @@ static bool IsEngineReady()
 static UWorld* GetAnyWorld()
 {
     if (!GEngine) return nullptr;
-    return GEngine->GetWorldFromContextObject(GEngine, EGetWorldErrorMode::ReturnNull);
+
+    const TIndirectArray<FWorldContext>& Contexts = GEngine->GetWorldContexts();
+    // Prefer PIE/Game worlds first
+    for (const FWorldContext& Ctx : Contexts)
+    {
+        UWorld* W = Ctx.World();
+        if (!W) continue;
+        const EWorldType::Type WT = W->WorldType;
+        if (WT == EWorldType::PIE || WT == EWorldType::Game || WT == EWorldType::GameRPC || WT == EWorldType::GamePreview)
+        {
+            return W;
+        }
+    }
+    // Fallback to Editor worlds
+    for (const FWorldContext& Ctx : Contexts)
+    {
+        UWorld* W = Ctx.World();
+        if (!W) continue;
+        const EWorldType::Type WT = W->WorldType;
+        if (WT == EWorldType::Editor || WT == EWorldType::EditorPreview)
+        {
+            return W;
+        }
+    }
+    return nullptr;
 }
 
 static AWorldGenManager* FindWorldGenManager(UWorld* World)
@@ -187,7 +211,7 @@ static FAutoConsoleCommand CmdBiomesSelect(
         if (!Mgr) { UE_LOG(LogWorldGenConsole, Warning, TEXT("No AWorldGenManager found")); return; }
         const FString& Path = Args[0];
         FSoftObjectPath SoftPath(Path);
-        if (!SoftPath.IsValid()) { UE_LOG(LogWorldGenConsole, Error, TEXT("Invalid asset path: %s")); return; }
+        if (!SoftPath.IsValid()) { UE_LOG(LogWorldGenConsole, Error, TEXT("Invalid asset path: %s"), *Path); return; }
         Mgr->BiomeDefinitionsAsset = TSoftObjectPtr<UBiomeDefinitionsAsset>(SoftPath);
         Mgr->ReloadWorldGenAssets();
         UE_LOG(LogWorldGenConsole, Log, TEXT("Selected BiomeDefinitionsAsset: %s"), *Path);

@@ -8,6 +8,8 @@
 
 // Forward declarations
 class UVHMTerrainRenderer;
+class UWorldGenSettingsAsset;
+class UBiomeDefinitionsAsset;
 
 /**
  * Settings manager for world generation configuration
@@ -46,8 +48,18 @@ public:
 	 * @param ConfigPath Path to save the JSON configuration file
 	 * @return True if settings were saved successfully
 	 */
-	UFUNCTION(BlueprintCallable, Category = "WorldGen")
-	bool SaveToJSON(const FString& ConfigPath = TEXT("Config/WorldGenSettings.json")) const;
+    UFUNCTION(BlueprintCallable, Category = "WorldGen")
+    bool SaveToJSON(const FString& ConfigPath = TEXT("Config/WorldGenSettings.json")) const;
+
+    /**
+     * Apply settings from selected Data Assets (preferred over JSON)
+     * @param SettingsAsset World generation settings asset
+     * @param BiomeAsset Biome definitions asset (optional; used for feature gating)
+     * @param OutWarnings Any non-fatal warnings generated during application
+     * @return True if any settings were applied from assets
+     */
+    UFUNCTION(BlueprintCallable, Category = "WorldGen|Assets")
+    bool ApplyFromAssets(const UWorldGenSettingsAsset* SettingsAsset, const UBiomeDefinitionsAsset* BiomeAsset, TArray<FString>& OutWarnings);
 
 	/**
 	 * Validate current settings and fix any invalid values
@@ -89,14 +101,28 @@ public:
 	bool ValidateVHMSettings(TArray<FString>& OutErrors);
 
 private:
-	// Internal JSON parsing helpers
-	bool ParseJSONObject(const TSharedPtr<FJsonObject>& JsonObject);
-	TSharedPtr<FJsonObject> CreateJSONObject() const;
+    // Internal JSON parsing helpers
+    bool ParseJSONObject(const TSharedPtr<FJsonObject>& JsonObject);
+    TSharedPtr<FJsonObject> CreateJSONObject() const;
 	
 	// Validation helpers
 	void ClampSettingValue(float& Value, float MinValue, float MaxValue, const FString& SettingName, TArray<FString>& OutErrors);
 	void ClampSettingValue(int32& Value, int32 MinValue, int32 MaxValue, const FString& SettingName, TArray<FString>& OutErrors);
 
-	// Singleton instance
-	static UWorldGenSettings* Instance;
+    // Singleton instance
+    static UWorldGenSettings* Instance;
+
+public:
+    /** Optional soft references to selected assets (mirrors AWorldGenManager) */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "WorldGen|Assets")
+    TSoftObjectPtr<UWorldGenSettingsAsset> SelectedSettingsAsset;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "WorldGen|Assets")
+    TSoftObjectPtr<UBiomeDefinitionsAsset> SelectedBiomeDefinitionsAsset;
+
+    /** Applied Data Asset configurations (stored for services to consume; no reflection needed) */
+    TOptional<FMacroWorldConfig> MacroWorldConfig;
+    TOptional<FStreamingBudgetsConfig> StreamingBudgetsConfig;
+    TOptional<FRiverSystemConfig> RiverSystemConfig;
+    TOptional<FWaterSystemConfig> WaterSystemConfig;
 };

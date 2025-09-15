@@ -1,7 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Engine/PrimaryDataAsset.h"
+#include "Engine/DataAsset.h"
 #include "Data/WorldGenTypes.h"
 #include "WorldGenAssets.generated.h"
 
@@ -53,4 +53,3 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Biomes")
     bool ValidateAsset(TArray<FString>& OutErrors) const;
 };
-

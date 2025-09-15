@@ -1,4 +1,5 @@
 #include "WorldGenSettings.h"
+#include "Data/WorldGenAssets.h"
 #include "Engine/Engine.h"
 #include "HAL/FileManager.h"
 #include "Misc/FileHelper.h"
@@ -102,6 +103,63 @@ bool UWorldGenSettings::SaveToJSON(const FString& ConfigPath) const
 
 	UE_LOG(LogWorldGenSettings, Log, TEXT("Successfully saved WorldGen settings to %s"), *FullPath);
 	return true;
+}
+
+bool UWorldGenSettings::ApplyFromAssets(const UWorldGenSettingsAsset* SettingsAsset, const UBiomeDefinitionsAsset* BiomeAsset, TArray<FString>& OutWarnings)
+{
+    bool bApplied = false;
+
+    if (!SettingsAsset && !BiomeAsset)
+    {
+        return false;
+    }
+
+    // Apply core values from settings asset where they map to existing config
+    if (SettingsAsset)
+    {
+        // Store full configs for downstream services
+        MacroWorldConfig = SettingsAsset->MacroWorld;
+        StreamingBudgetsConfig = SettingsAsset->StreamingBudgets;
+        RiverSystemConfig = SettingsAsset->RiverSystem;
+        WaterSystemConfig = SettingsAsset->WaterSystem;
+
+        // Apply important top-level fields to FWorldGenConfig for immediate effect
+        Settings.SeaLevel = SettingsAsset->WaterSystem.SeaLevel;
+        Settings.bEnableWater = SettingsAsset->WaterSystem.bEnableWaterSystem;
+
+        bApplied = true;
+    }
+
+    if (BiomeAsset)
+    {
+        // Feature gate: enable rings if any ring definitions exist
+        if (BiomeAsset->BiomeRings.Num() > 0)
+        {
+            Settings.bEnableRings = true;
+        }
+        bApplied = true;
+    }
+
+    // Apply locked values and validate after changes
+    if (bApplied)
+    {
+        ApplyLockedValues();
+        TArray<FString> ValidationErrors;
+        ValidateSettings(ValidationErrors);
+        for (const FString& E : ValidationErrors)
+        {
+            UE_LOG(LogWorldGenSettings, Warning, TEXT("Validation: %s"), *E);
+        }
+
+        // Deprecation notice if legacy JSON config exists
+        const FString JsonPath = FPaths::ProjectDir() / TEXT("Config/WorldGenSettings.json");
+        if (IFileManager::Get().FileExists(*JsonPath))
+        {
+            UE_LOG(LogWorldGenSettings, Warning, TEXT("Data Assets detected; JSON config at %s is deprecated and will be ignored when assets are set."), *JsonPath);
+        }
+    }
+
+    return bApplied;
 }
 
 bool UWorldGenSettings::ParseJSONObject(const TSharedPtr<FJsonObject>& JsonObject)

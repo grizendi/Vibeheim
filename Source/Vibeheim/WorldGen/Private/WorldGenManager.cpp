@@ -10,6 +10,7 @@
 #include "VHMTerrainRendering/VHMDebugSystem.h"
 #include "Data/WorldGenTypes.h"
 #include "Data/WorldGenAssets.h"
+#include "UObject/SoftObjectPath.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
@@ -323,6 +324,31 @@ void AWorldGenManager::ReloadWorldGenAssets()
 {
     ResolveWorldGenAssets();
     UE_LOG(LogWorldGenManager, Log, TEXT("Reloaded WorldGen data assets (settings/biomes)"));
+
+    UWorldGenSettingsAsset* SettingsAsset = WorldGenSettingsAsset.IsNull() ? nullptr : WorldGenSettingsAsset.LoadSynchronous();
+    UBiomeDefinitionsAsset* BiomesAsset   = BiomeDefinitionsAsset.IsNull() ? nullptr : BiomeDefinitionsAsset.LoadSynchronous();
+
+    if (WorldGenSettings)
+    {
+        WorldGenSettings->SelectedSettingsAsset = WorldGenSettingsAsset;
+        WorldGenSettings->SelectedBiomeDefinitionsAsset = BiomeDefinitionsAsset;
+
+        TArray<FString> Warnings;
+        if (WorldGenSettings->ApplyFromAssets(SettingsAsset, BiomesAsset, Warnings))
+        {
+            for (const FString& W : Warnings)
+            {
+                UE_LOG(LogWorldGenManager, Verbose, TEXT("Asset apply: %s"), *W);
+            }
+            UE_LOG(LogWorldGenManager, Log, TEXT("Applied Data Assets to world generation settings"));
+        }
+    }
+
+    if (BiomeService && BiomesAsset)
+    {
+        BiomeService->SetBiomeDefinitions(BiomesAsset->Biomes);
+        UE_LOG(LogWorldGenManager, Log, TEXT("Applied BiomeDefinitionsAsset to BiomeService (%d biomes)"), BiomesAsset->Biomes.Num());
+    }
 }
 
 FTileCoord AWorldGenManager::GetPlayerTileCoordinate() const
