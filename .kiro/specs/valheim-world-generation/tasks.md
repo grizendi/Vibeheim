@@ -1,4 +1,4 @@
-# Implementation Plan
+﻿# Implementation Plan
 
 ## Phase 0: Foundations and Feature Toggles
 
@@ -50,7 +50,7 @@
 
 - [ ] 5. Add macro world configuration parameters
   - Extend FWorldGenConfig with macro world parameters (WorldRadiusMeters, ContinentScale, IslandFalloff, OceanDepth, CoastSharpness)
-  - Update JSON configuration loading/saving to include macro world settings
+  - Update UWorldGenSettingsAsset to include macro world settings
   - Implement fallback to existing heightfield generation on failure
   - _Requirements: 1.4, 1.5_
   - _Deliverables: Macro world configuration system_
@@ -68,8 +68,8 @@
   - _Acceptance: wg.rings.validate shows per-ring biome distribution within config, monotonicity in 3x3 neighborhoods_
 
 - [ ] 7. Add biome ring configuration system
-  - Add ring configuration to existing BiomeDefinitions.json structure
-  - Update LoadBiomesFromJSON method to parse ring definitions
+  - Add ring configuration to UBiomeDefinitionsAsset (Data Asset)
+  - Update BiomeService initialization to read ring definitions from the asset (remove JSON parsing path)
   - Add fallback to existing climate-based biome selection on ring calculation failure
   - _Requirements: 2.4, 2.5_
   - _Deliverables: Biome ring configuration system_
@@ -117,18 +117,19 @@
 ## Phase 6: Rivers and Lakes System
 
 - [ ] 12. Implement RiverFlowService for flow computation
-  - Create IRiverFlowService interface and URiverFlowService class
+  - Add bEnableRivers feature flag to FWorldGenConfig
+  - Create new URiverFlowService class in Services directory
   - Add low-resolution flow map computation per tile neighborhood using gradient analysis
-  - Implement flow pattern derivation from terrain gradients
+  - Implement flow pattern derivation from terrain gradients in HeightfieldService
   - Add spline-based water feature generation following computed flow paths
   - _Requirements: 4.1, 4.2, 4.3_
   - _Deliverables: RiverFlowService with flow computation_
   - _Acceptance: wg.rivers.export shows 0 continuity violations, flow maps generate correctly_
 
 - [ ] 13. Add river carving and lake placement
-  - Implement river channel carving into heightfield before normal calculation
-  - Add local minima identification for lake placement
-  - Implement appropriate shoreline stamping for lakes
+  - Implement river channel carving into existing HeightfieldService before normal calculation
+  - Add local minima identification for lake placement to existing heightfield generation
+  - Implement appropriate shoreline stamping for lakes using existing modification system
   - Add fallback to static water bodies on river generation failure
   - _Requirements: 4.2, 4.4, 4.5_
   - _Deliverables: River carving and lake placement system_
@@ -138,18 +139,18 @@
 
 - [ ] 14. Extend POIService for global uniqueness and stamping
   - Add world-level blue-noise sampling for global minimum distance enforcement to existing UPOIService
-  - Implement multi-tile reservation systems for large POIs like altars and dungeons
-  - Maintain global POI state across tile streaming and world sessions
-  - Add terrain stamping helpers for clearing trees and flattening pads
+  - Implement multi-tile reservation systems for large POIs like altars and dungeons in existing POI system
+  - Maintain global POI state across tile streaming and world sessions using existing persistence
+  - Add terrain stamping helpers for clearing trees and flattening pads to existing HeightfieldService
   - _Requirements: 6.1, 6.2, 6.3, 7.1, 7.2_
   - _Deliverables: Enhanced POIService with global coordination and stamping_
   - _Acceptance: wg.poi.validate shows 0 uniqueness violations, global spacing enforced_
 
 - [ ] 15. Add comprehensive terrain stamping integration
-  - Implement terrain stamping operations for clearing vegetation in defined areas
-  - Add terrain flattening for building pads and structure foundations
+  - Implement terrain stamping operations for clearing vegetation in existing HeightfieldService
+  - Add terrain flattening for building pads using existing FHeightfieldModification system
   - Implement ramp path creation between nearby POIs for navigation
-  - Reconcile terrain changes with HISM removal and persistence systems
+  - Reconcile terrain changes with existing HISM removal and persistence systems
   - _Requirements: 7.3, 7.4, 7.5_
   - _Deliverables: Comprehensive terrain stamping system_
   - _Acceptance: POIs integrate naturally with terrain, stamping operations work reliably_
@@ -157,24 +158,25 @@
 ## Phase 8: Complete Async Generation Pipeline
 
 - [ ] 16. Complete AsyncGenerationPipeline in TileStreamingService
-  - Expand async work queue with full budgets for height → biome → PCG → VHM mesh pipeline
-  - Add prefetch next-ring tiles while demoting far tiles for smooth transitions
-  - Implement complete time-sliced generation operations with frame rate targets
+  - Expand existing async work queue with full budgets for height â†’ biome â†’ PCG â†’ VHM mesh pipeline
+  - Add prefetch next-ring tiles while demoting far tiles for smooth transitions to existing streaming logic
+  - Implement complete time-sliced generation operations with frame rate targets in existing GenerateSingleTile
   - _Requirements: 8.1, 8.2, 8.3_
   - _Deliverables: Complete async generation pipeline_
-  - _Acceptance: p50/p95 budgets from wg.perf.summary within targets, prefetch reduces cache misses_
+  - _Acceptance: p50 <= 10ms, p95 <= 20ms from wg.perf.summary; spikes <= +8ms over 3s; prefetch reduces cache misses_
 
 - [ ] 17. Add comprehensive performance monitoring and budget management
-  - Track generation times and provide runtime adjustment capabilities
+  - Track generation times and provide runtime adjustment capabilities in existing performance tracking
   - Implement fallback to synchronous generation with performance warnings
-  - Add complete per-stage budget enforcement and spike detection (≤ +8ms over 3s window)
+  - Add complete per-stage budget enforcement and spike detection (<= +8ms over 3s window) to existing metrics
   - _Requirements: 8.4, 8.5_
   - _Deliverables: Performance monitoring and budget system_
-  - _Acceptance: Spikes ≤ +8ms over 3s window, budget adjustments work at runtime_
+  - _Acceptance (numeric): Spikes <= +8ms over 3s window; budget adjustments work at runtime_
 
 ## Phase 9: Enhanced Configuration and Runtime Control
 
 - [ ] 18. Add comprehensive console commands for validation
+  - Re-enable and extend existing WorldGenConsoleCommands.cpp with proper safety checks
   - Implement wg.map.export, wg.rings.validate, wg.rivers.export commands
   - Add wg.pcg.validate, wg.poi.validate, wg.streaming.budget commands
   - Implement wg.prefetch and performance monitoring commands
@@ -184,9 +186,9 @@
   - _Acceptance: All listed commands registered and safe in PIE and editor world_
 
 - [ ] 19. Implement world map export and validation tools
-  - Add world map export functionality for seed validation and visualization
-  - Implement real-time generation metrics and bottleneck identification
-  - Add configuration error handling with sensible defaults
+  - Add world map export functionality for seed validation and visualization to existing services
+  - Implement real-time generation metrics and bottleneck identification in existing performance tracking
+  - Add configuration error handling with sensible defaults to existing validation system
   - _Requirements: 9.3, 9.4, 9.5_
   - _Deliverables: World map export and validation system_
   - _Acceptance: Export tools work correctly, metrics provide useful bottleneck data_
@@ -194,17 +196,17 @@
 ## Phase 10: Persistence and Determinism Enhancement
 
 - [ ] 20. Enhance persistence system for macro world changes
-  - Ensure height modifications replay deterministically over macro world changes
-  - Maintain instance and POI journals compatibility with enhanced world generation
-  - Add version bump and migration support for world format changes
+  - Ensure existing height modifications replay deterministically over macro world changes
+  - Maintain existing instance and POI journals compatibility with enhanced world generation
+  - Add version bump and migration support for world format changes to existing persistence system
   - _Requirements: 10.1, 10.2, 10.3_
   - _Deliverables: Enhanced persistence system_
   - _Acceptance: Terrain edits replay correctly, journals work with new generation_
 
 - [ ] 21. Add determinism validation and recovery
-  - Implement determinism violation detection with diagnostic information
-  - Add world integrity maintenance and recovery mechanisms
-  - Ensure first N tiles' checksum stability across relaunch for given seed
+  - Implement determinism violation detection with diagnostic information in existing HeightfieldService
+  - Add world integrity maintenance and recovery mechanisms to existing error handling
+  - Ensure first N tiles' checksum stability across relaunch for given seed using existing determinism tests
   - _Requirements: 10.4, 10.5_
   - _Deliverables: Determinism validation system_
   - _Acceptance: wg.test.determinism shows first N tiles stable, version bump triggers migration_
@@ -212,26 +214,33 @@
 ## Phase 11: Integration and Performance Validation
 
 - [ ] 22. Integrate all services with WorldGenManager
-  - Update WorldGenManager initialization sequence with proper dependency order
-  - Implement service integration layers (Macro, Enhanced, Water, Content, Performance)
-  - Add comprehensive error handling and fallback systems
-  - Connect all services with proper event handling and coordination
+  - Update existing WorldGenManager initialization sequence with proper dependency order for new services
+  - Implement service integration layers (Macro, Enhanced, Water, Content, Performance) in existing manager
+  - Add comprehensive error handling and fallback systems to existing error handling
+  - Connect all services with proper event handling and coordination using existing service connections
   - _Requirements: All requirements integration_
   - _Deliverables: Complete system integration_
   - _Acceptance: All services initialize correctly, error handling works, fallbacks engage properly_
 
 - [ ] 23. Validate performance targets and cross-tile continuity
-  - Ensure tile generation p50 ≤ 10ms, p95 ≤ 20ms targets
-  - Validate streaming spikes ≤ +8ms over 3s window
+  - Ensure tile generation p50 <= 10ms, p95 <= 20ms targets using existing performance tracking
+  - Validate streaming spikes <= +8ms over 3s window using existing TileStreamingService metrics
   - Test cross-tile continuity for rivers, shorelines, and biome rings
-  - Verify texture memory ≤ 512MB and MaxActiveTiles ≤ 25 limits
+  - Verify texture memory <= 512MB and MaxActiveTiles <= 25 limits using existing VHM limits
   - _Requirements: Performance and Determinism Requirements, Cross-Tile Continuity Requirements_
   - _Deliverables: Performance validation and continuity testing_
-  - _Acceptance: Gate H passes - texture memory ≤ 512MB, MaxActiveTiles ≤ 25, river/shoreline continuity violations = 0_
+  - _Acceptance: Gate H passes - texture memory <= 512MB, MaxActiveTiles <= 25, river/shoreline continuity violations = 0
 
 ## Verification Gates Summary
 
+- Note: normalized comparisons (<=, >=) are used for clarity in targets
+
 - **Gate E** (Phase 2): Macro topology complete - coastline ratio, histogram shape, seam check pass
-- **Gate F** (Phase 6): Water and rivers complete - wg.rivers.export continuity = 0, water coverage ≥ 80% on coasts
+- **Gate F** (Phase 6): Water and rivers complete - wg.rivers.export continuity = 0, water coverage >= 80% on coasts
 - **Gate G** (Phase 7): PCG and POI complete - wg.pcg.validate/wg.poi.validate violations = 0, density within ±20%
-- **Gate H** (Phase 11): Pipeline and performance complete - p50/p95/spikes meet targets, memory ≤ limits
+- **Gate H** (Phase 11): Pipeline and performance complete - p50/p95/spikes meet targets, memory <= limits
+
+
+
+
+
