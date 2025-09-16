@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "UObject/NoExportTypes.h"
+#include "Containers/Queue.h"
 #include "Data/WorldGenTypes.h"
 #include "Services/HeightfieldService.h"
 #include "TileStreamingService.generated.h"
@@ -131,6 +132,24 @@ struct VIBEHEIM_API FTileStreamingMetrics
 };
 
 /**
+ * Pending generation task used by streaming work queue
+ */
+struct FTileGenerationTask
+{
+	FTileCoord TileCoord;
+	bool bIsPrefetch = false;
+	double EnqueueTimeSeconds = 0.0;
+
+	FTileGenerationTask() = default;
+	FTileGenerationTask(const FTileCoord& InCoord, bool bInPrefetch, double InEnqueueTime)
+		: TileCoord(InCoord)
+		, bIsPrefetch(bInPrefetch)
+		, EnqueueTimeSeconds(InEnqueueTime)
+	{
+	}
+};
+
+/**
  * Tile streaming service with LRU cache and radius-based loading
  * Manages procedural tile generation, loading, and eviction
  */
@@ -209,6 +228,62 @@ private:
 	UPROPERTY()
 	FWorldGenConfig WorldGenSettings;
 
+	// Streaming budget configuration (optional, from settings asset)
+	FStreamingBudgetsConfig StreamingBudgets;
+	bool bHasStreamingBudgets = false;
+
+	struct FBudgetState
+	{
+		float TotalRemainingMs = TNumericLimits<float>::Max();
+		float HeightRemainingMs = TNumericLimits<float>::Max();
+		float BiomeRemainingMs = TNumericLimits<float>::Max();
+		float PCGRemainingMs = TNumericLimits<float>::Max();
+		float VHMMeshRemainingMs = TNumericLimits<float>::Max();
+
+		static float NormalizeBudgetValue(float Value)
+		{
+			return (Value <= 0.0f) ? TNumericLimits<float>::Max() : Value;
+		}
+
+		void Reset(const FStreamingBudgetsConfig& Budgets)
+		{
+			TotalRemainingMs = NormalizeBudgetValue(Budgets.StreamingBudgetMsPerTick);
+			HeightRemainingMs = NormalizeBudgetValue(Budgets.HeightGenerationBudget);
+			BiomeRemainingMs = NormalizeBudgetValue(Budgets.BiomeCalculationBudget);
+			PCGRemainingMs = NormalizeBudgetValue(Budgets.PCGGenerationBudget);
+			VHMMeshRemainingMs = NormalizeBudgetValue(Budgets.VHMMeshBudget);
+		}
+
+		void Clear()
+		{
+			TotalRemainingMs = HeightRemainingMs = BiomeRemainingMs = PCGRemainingMs = VHMMeshRemainingMs = TNumericLimits<float>::Max();
+		}
+
+		void ConsumeGeneration(float TotalMs, float HeightMs, float BiomeMs, float PCGMs)
+		{
+			TotalRemainingMs = FMath::Max(0.0f, TotalRemainingMs - TotalMs);
+			HeightRemainingMs = FMath::Max(0.0f, HeightRemainingMs - HeightMs);
+			BiomeRemainingMs = FMath::Max(0.0f, BiomeRemainingMs - BiomeMs);
+			PCGRemainingMs = FMath::Max(0.0f, PCGRemainingMs - PCGMs);
+		}
+
+		void ConsumeVHM(float MeshMs)
+		{
+			VHMMeshRemainingMs = FMath::Max(0.0f, VHMMeshRemainingMs - MeshMs);
+			TotalRemainingMs = FMath::Max(0.0f, TotalRemainingMs - MeshMs);
+		}
+
+		bool HasRemainingGenerationBudget() const
+		{
+			return TotalRemainingMs > 0.0f && HeightRemainingMs > 0.0f && BiomeRemainingMs > 0.0f && PCGRemainingMs > 0.0f;
+		}
+
+		bool HasVHMBudget() const
+		{
+			return VHMMeshRemainingMs > 0.0f;
+		}
+	} CurrentBudgets;
+
 	// Service references
 	UPROPERTY()
 	UHeightfieldService* HeightfieldService;
@@ -233,6 +308,12 @@ private:
 	FTileCoord LastPlayerTileCoord;
 	float CurrentTime;
 
+	// Pending generation queues and bookkeeping
+	TQueue<FTileGenerationTask> RequestedGenerationQueue;
+	TQueue<FTileGenerationTask> PrefetchGenerationQueue;
+	TSet<FTileCoord> EnqueuedTiles;
+	TSet<FTileCoord> EnqueuedPrefetchTiles;
+
 	// Performance metrics
 	mutable FTileStreamingMetrics PerformanceMetrics;
     TArray<float> RecentGenerationTimes;
@@ -252,12 +333,18 @@ private:
 	void CalculateRequiredTiles(const FTileCoord& PlayerTileCoord,
 		TArray<FTileCoord>& OutActiveTiles,
 		TArray<FTileCoord>& OutLoadTiles,
-		TArray<FTileCoord>& OutGenerateTiles);
+		TArray<FTileCoord>& OutGenerateTiles,
+		TArray<FTileCoord>& OutPrefetchTiles);
 
 	/**
 	 * Process tiles that need to be generated
 	 */
 	void ProcessTileGeneration(const TArray<FTileCoord>& TilesToGenerate);
+
+	/**
+	 * Process tiles that should be prefetched for upcoming rings
+	 */
+	void ProcessPrefetchGeneration(const TArray<FTileCoord>& TilesToPrefetch);
 
 	/**
 	 * Process tiles that need to be loaded
@@ -280,6 +367,8 @@ private:
 	 * Generate heightfield and content for a single tile
 	 */
 	bool GenerateSingleTile(const FTileCoord& TileCoord, FTileStreamingData& OutTileData);
+	bool GenerateSingleTileInternal(const FTileCoord& TileCoord, FTileStreamingData& OutTileData, float& OutHeightMs, float& OutBiomeMs, float& OutPCGMs);
+	void EnqueueGenerationTask(const FTileCoord& TileCoord, bool bIsPrefetch);
 
 	/**
 	 * Update LRU list when a tile is accessed
@@ -330,4 +419,19 @@ private:
      * Compute spike in last WindowSec seconds relative to baseline
      */
     float ComputeRecentSpikeMs(double NowSeconds, double WindowSec = 3.0) const;
+
+	/**
+	 * Drain queued generation work while respecting streaming budgets
+	 */
+	void DrainGenerationQueues();
+
+	/**
+	 * Attempt to dequeue the next work item (prioritising requested tiles over prefetch)
+	 */
+	bool DequeueNextTask(FTileGenerationTask& OutTask);
+
+	/**
+	 * Reset per-tick budgets from the configured values
+	 */
+	void ResetBudgetsForTick();
 };

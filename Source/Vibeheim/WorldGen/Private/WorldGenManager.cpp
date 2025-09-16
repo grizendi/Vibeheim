@@ -256,8 +256,8 @@ void AWorldGenManager::UpdateWorldStreaming()
 
 void AWorldGenManager::ResolveWorldGenAssets()
 {
-    static const TCHAR* DefaultSettingsPath = TEXT("/Game/Data/WorldGen/DA_WorldGenSettings_Default.DA_WorldGenSettings_Default");
-    static const TCHAR* DefaultBiomesPath   = TEXT("/Game/Data/WorldGen/DA_BiomeDefinitions_Default.DA_BiomeDefinitions_Default");
+    static const TCHAR* DefaultSettingsPath = TEXT("/Game/_Assets/Data/DA_WorldGenSettings.DA_WorldGenSettings");
+    static const TCHAR* DefaultBiomesPath   = TEXT("/Game/_Assets/Data/DA_BiomeDefinitions.DA_BiomeDefinitions");
 
     // Resolve settings asset soft reference
     if (!WorldGenSettingsAsset.IsValid())

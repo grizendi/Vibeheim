@@ -1,10 +1,12 @@
 #include "Services/TileStreamingService.h"
+#include "Algo/Sort.h"
 #include "Services/HeightfieldService.h"
 #include "Services/BiomeService.h"
 #include "Services/PCGWorldService.h"
 #include "VHMTerrainRendering/VHMTerrainRenderer.h"
 #include "Data/WorldGenTypes.h"
 #include "Utils/WorldGenLogging.h"
+#include "WorldGenSettings.h"
 #include "Engine/Engine.h"
 #include "HAL/PlatformFilemanager.h"
 #include "Misc/DateTime.h"
@@ -23,6 +25,9 @@ UTileStreamingService::UTileStreamingService()
 	MaxCacheSize = 81; // 9x9 grid as per task requirements (Generate=9, so max 81 tiles)
 	CurrentTime = 0.0f;
 	LastPlayerTileCoord = FTileCoord(INT32_MAX, INT32_MAX); // Initialize to invalid coord
+	StreamingBudgets = FStreamingBudgetsConfig();
+	bHasStreamingBudgets = true;
+	CurrentBudgets.Clear();
 }
 
 bool UTileStreamingService::Initialize(const FWorldGenConfig& Settings, 
@@ -49,6 +54,28 @@ bool UTileStreamingService::Initialize(const FWorldGenConfig& Settings,
 	// Clear any existing cache
 	TileCache.Empty();
 	LRUList.Empty();
+
+	// Clear pending work queues
+	FTileGenerationTask DummyTask;
+	while (RequestedGenerationQueue.Dequeue(DummyTask)) {}
+	while (PrefetchGenerationQueue.Dequeue(DummyTask)) {}
+	EnqueuedTiles.Empty();
+	EnqueuedPrefetchTiles.Empty();
+
+	// Resolve streaming budgets from world settings (if provided)
+	StreamingBudgets = FStreamingBudgetsConfig();
+	bHasStreamingBudgets = true;
+	if (const UWorldGenSettings* WGSettings = UWorldGenSettings::GetWorldGenSettings())
+	{
+		if (WGSettings->StreamingBudgetsConfig.IsSet())
+		{
+			StreamingBudgets = WGSettings->StreamingBudgetsConfig.GetValue();
+		}
+	}
+	CurrentBudgets.Clear();
+
+	// Ensure cache size respects configured limits
+	MaxCacheSize = FMath::Max(MaxCacheSize, StreamingBudgets.MaxActiveTiles);
 
     // Reset performance metrics
     PerformanceMetrics = FTileStreamingMetrics();
@@ -81,9 +108,11 @@ void UTileStreamingService::UpdateStreaming(const FTileCoord& PlayerTileCoord)
 	
     CurrentTime = FPlatformTime::Seconds();
     SampleFrameTime();
+	ResetBudgetsForTick();
 
-	// Skip update if player hasn't moved significantly
-	if (CalculateTileDistance(PlayerTileCoord, LastPlayerTileCoord) == 0 && LastPlayerTileCoord.X != INT32_MAX)
+	const bool bHasPendingWork = EnqueuedTiles.Num() > 0 || EnqueuedPrefetchTiles.Num() > 0;
+	// Skip update if player hasn't moved significantly and no pending generation work
+	if (!bHasPendingWork && CalculateTileDistance(PlayerTileCoord, LastPlayerTileCoord) == 0 && LastPlayerTileCoord.X != INT32_MAX)
 	{
 		return;
 	}
@@ -93,11 +122,13 @@ void UTileStreamingService::UpdateStreaming(const FTileCoord& PlayerTileCoord)
 	WORLDGEN_LOG_WITH_SEED_TILE(Verbose, WorldGenSettings.Seed, PlayerTileCoord, TEXT("Updating streaming for player tile"));
 
 	// Calculate required tiles based on streaming radii
-	TArray<FTileCoord> ActiveTiles, LoadTiles, GenerateTiles;
-	CalculateRequiredTiles(PlayerTileCoord, ActiveTiles, LoadTiles, GenerateTiles);
+	TArray<FTileCoord> ActiveTiles, LoadTiles, GenerateTiles, PrefetchTiles;
+	CalculateRequiredTiles(PlayerTileCoord, ActiveTiles, LoadTiles, GenerateTiles, PrefetchTiles);
 
 	// Process tile generation first
 	ProcessTileGeneration(GenerateTiles);
+	ProcessPrefetchGeneration(PrefetchTiles);
+	DrainGenerationQueues();
 
 	// Process tile loading
 	ProcessTileLoading(LoadTiles);
@@ -121,27 +152,46 @@ void UTileStreamingService::UpdateStreaming(const FTileCoord& PlayerTileCoord)
 void UTileStreamingService::CalculateRequiredTiles(const FTileCoord& PlayerTileCoord,
 	TArray<FTileCoord>& OutActiveTiles,
 	TArray<FTileCoord>& OutLoadTiles,
-	TArray<FTileCoord>& OutGenerateTiles)
+	TArray<FTileCoord>& OutGenerateTiles,
+	TArray<FTileCoord>& OutPrefetchTiles)
 {
 	int32 GenerateRadius = WorldGenSettings.GenerateRadius; // 9
 	int32 LoadRadius = WorldGenSettings.LoadRadius;         // 5
 	int32 ActiveRadius = WorldGenSettings.ActiveRadius;     // 3
 
-	// Generate tiles within GenerateRadius (but not already cached)
+	TArray<FTileCoord> GenerateCandidates;
+	GenerateCandidates.Reserve(FMath::Square(GenerateRadius * 2 + 1));
+
 	for (int32 X = PlayerTileCoord.X - GenerateRadius; X <= PlayerTileCoord.X + GenerateRadius; X++)
 	{
 		for (int32 Y = PlayerTileCoord.Y - GenerateRadius; Y <= PlayerTileCoord.Y + GenerateRadius; Y++)
 		{
 			FTileCoord TileCoord(X, Y);
-			
-			// Check if tile is in cache
 			FTileStreamingData* CachedTile = TileCache.Find(TileCoord);
 			if (!CachedTile || CachedTile->State == ETileState::Unloaded)
 			{
-				OutGenerateTiles.Add(TileCoord);
+				GenerateCandidates.Add(TileCoord);
 			}
 		}
 	}
+
+	// Prioritise closer tiles so the player sees results quickly
+	Algo::Sort(GenerateCandidates, [this, &PlayerTileCoord](const FTileCoord& A, const FTileCoord& B)
+	{
+		const int32 DistA = CalculateTileDistance(A, PlayerTileCoord);
+		const int32 DistB = CalculateTileDistance(B, PlayerTileCoord);
+		if (DistA != DistB)
+		{
+			return DistA < DistB;
+		}
+		if (A.X != B.X)
+		{
+			return A.X < B.X;
+		}
+		return A.Y < B.Y;
+	});
+
+	OutGenerateTiles = MoveTemp(GenerateCandidates);
 
 	// Load tiles within LoadRadius
 	for (int32 X = PlayerTileCoord.X - LoadRadius; X <= PlayerTileCoord.X + LoadRadius; X++)
@@ -162,6 +212,24 @@ void UTileStreamingService::CalculateRequiredTiles(const FTileCoord& PlayerTileC
 			OutActiveTiles.Add(TileCoord);
 		}
 	}
+
+	// Prefetch tiles just beyond the generate radius for smoother transitions
+	if (StreamingBudgets.PrefetchRings > 0)
+	{
+		const int32 PrefetchRadius = GenerateRadius + StreamingBudgets.PrefetchRings;
+		for (int32 X = PlayerTileCoord.X - PrefetchRadius; X <= PlayerTileCoord.X + PrefetchRadius; ++X)
+		{
+			for (int32 Y = PlayerTileCoord.Y - PrefetchRadius; Y <= PlayerTileCoord.Y + PrefetchRadius; ++Y)
+			{
+				FTileCoord TileCoord(X, Y);
+				const int32 Distance = CalculateTileDistance(TileCoord, PlayerTileCoord);
+				if (Distance > GenerateRadius && Distance <= PrefetchRadius)
+				{
+					OutPrefetchTiles.Add(TileCoord);
+				}
+			}
+		}
+	}
 }
 
 void UTileStreamingService::ProcessTileGeneration(const TArray<FTileCoord>& TilesToGenerate)
@@ -178,20 +246,35 @@ void UTileStreamingService::ProcessTileGeneration(const TArray<FTileCoord>& Tile
 			continue;
 		}
 
-		// Generate the tile
-		FTileStreamingData NewTileData(TileCoord);
-		if (GenerateSingleTile(TileCoord, NewTileData))
+		EnqueueGenerationTask(TileCoord, /*bIsPrefetch*/false);
+	}
+}
+
+void UTileStreamingService::ProcessPrefetchGeneration(const TArray<FTileCoord>& TilesToPrefetch)
+{
+	if (TilesToPrefetch.Num() == 0)
+	{
+		return;
+	}
+
+	for (const FTileCoord& TileCoord : TilesToPrefetch)
+	{
+		// Skip if tile already requested or cached in a ready state
+		if (EnqueuedTiles.Contains(TileCoord))
 		{
-			NewTileData.State = ETileState::Generated;
-			AddTileToCache(TileCoord, NewTileData);
-			
-			WORLDGEN_LOG_WITH_SEED_TILE(Verbose, WorldGenSettings.Seed, TileCoord, TEXT("Generated tile in %.2fms"), 
-				NewTileData.GenerationTimeMs);
+			continue; // It will be generated in the high-priority queue
 		}
-        else
-        {
-            WORLDGEN_LOG_WITH_SEED_TILE(Warning, WorldGenSettings.Seed, TileCoord, TEXT("GEN_FAIL: Failed to generate tile"));
-        }
+
+		FTileStreamingData* ExistingTile = TileCache.Find(TileCoord);
+		if (ExistingTile && (ExistingTile->State == ETileState::Generating ||
+			ExistingTile->State == ETileState::Generated ||
+			ExistingTile->State == ETileState::Loaded ||
+			ExistingTile->State == ETileState::Active))
+		{
+			continue;
+		}
+
+		EnqueueGenerationTask(TileCoord, /*bIsPrefetch*/true);
 	}
 }
 
@@ -210,6 +293,135 @@ void UTileStreamingService::ProcessTileLoading(const TArray<FTileCoord>& TilesTo
 			WORLDGEN_LOG_WITH_SEED_TILE(Verbose, WorldGenSettings.Seed, TileCoord, TEXT("Loaded tile"));
 		}
 	}
+}
+
+void UTileStreamingService::EnqueueGenerationTask(const FTileCoord& TileCoord, bool bIsPrefetch)
+{
+	if (!bIsPrefetch)
+	{
+		EnqueuedPrefetchTiles.Remove(TileCoord);
+	}
+
+	TSet<FTileCoord>& PendingSet = bIsPrefetch ? EnqueuedPrefetchTiles : EnqueuedTiles;
+	if (PendingSet.Contains(TileCoord))
+	{
+		return;
+	}
+
+	PendingSet.Add(TileCoord);
+	const double EnqueueTime = CurrentTime > 0.0f ? CurrentTime : FPlatformTime::Seconds();
+
+	if (bIsPrefetch)
+	{
+		PrefetchGenerationQueue.Enqueue(FTileGenerationTask(TileCoord, true, EnqueueTime));
+	}
+	else
+	{
+		RequestedGenerationQueue.Enqueue(FTileGenerationTask(TileCoord, false, EnqueueTime));
+	}
+}
+
+void UTileStreamingService::DrainGenerationQueues()
+{
+	if (!bHasStreamingBudgets)
+	{
+		CurrentBudgets.Clear();
+	}
+
+	if (!CurrentBudgets.HasRemainingGenerationBudget())
+	{
+		return;
+	}
+
+	FTileGenerationTask Task;
+	while (CurrentBudgets.HasRemainingGenerationBudget() && DequeueNextTask(Task))
+	{
+		FTileStreamingData NewTileData(Task.TileCoord);
+		float HeightMs = 0.0f;
+		float BiomeMs = 0.0f;
+		float PCGMs = 0.0f;
+
+		double StageStart = FPlatformTime::Seconds();
+		bool bGenerated = GenerateSingleTileInternal(Task.TileCoord, NewTileData, HeightMs, BiomeMs, PCGMs);
+		double StageEnd = FPlatformTime::Seconds();
+		const float TotalMs = static_cast<float>((StageEnd - StageStart) * 1000.0);
+
+		if (!bGenerated)
+		{
+			WORLDGEN_LOG_WITH_SEED_TILE(Warning, WorldGenSettings.Seed, Task.TileCoord, TEXT("GEN_FAIL: Failed to generate tile"));
+			EnqueuedTiles.Remove(Task.TileCoord);
+			EnqueuedPrefetchTiles.Remove(Task.TileCoord);
+			continue;
+		}
+
+		NewTileData.State = ETileState::Generated;
+		AddTileToCache(Task.TileCoord, NewTileData);
+		EnqueuedTiles.Remove(Task.TileCoord);
+		EnqueuedPrefetchTiles.Remove(Task.TileCoord);
+		CurrentBudgets.ConsumeGeneration(TotalMs, HeightMs, BiomeMs, PCGMs);
+
+		WORLDGEN_LOG_WITH_SEED_TILE(Verbose, WorldGenSettings.Seed, Task.TileCoord, TEXT("Generated tile in %.2fms (prefetch=%s)"),
+			NewTileData.GenerationTimeMs,
+			Task.bIsPrefetch ? TEXT("true") : TEXT("false"));
+
+		// Stop if we exhausted primary budget but still have long queue
+		if (!CurrentBudgets.HasRemainingGenerationBudget())
+		{
+			break;
+		}
+	}
+}
+
+bool UTileStreamingService::DequeueNextTask(FTileGenerationTask& OutTask)
+{
+	auto ConsumeQueue = [this](TQueue<FTileGenerationTask>& Queue, TSet<FTileCoord>& PendingSet, bool bPrefetch, FTileGenerationTask& OutTaskParam) -> bool
+	{
+		FTileGenerationTask LocalTask;
+		while (Queue.Dequeue(LocalTask))
+		{
+			if (!PendingSet.Contains(LocalTask.TileCoord))
+			{
+				continue; // stale task
+			}
+
+			if (FTileStreamingData* Existing = TileCache.Find(LocalTask.TileCoord))
+			{
+				if (Existing->State == ETileState::Generated || Existing->State == ETileState::Loaded || Existing->State == ETileState::Active)
+				{
+					PendingSet.Remove(LocalTask.TileCoord);
+					continue;
+				}
+			}
+
+			LocalTask.bIsPrefetch = bPrefetch;
+			OutTaskParam = LocalTask;
+			return true;
+		}
+		return false;
+	};
+
+	if (ConsumeQueue(RequestedGenerationQueue, EnqueuedTiles, false, OutTask))
+	{
+		return true;
+	}
+
+	if (ConsumeQueue(PrefetchGenerationQueue, EnqueuedPrefetchTiles, true, OutTask))
+	{
+		return true;
+	}
+
+	return false;
+}
+
+void UTileStreamingService::ResetBudgetsForTick()
+{
+	if (!bHasStreamingBudgets)
+	{
+		CurrentBudgets.Clear();
+		return;
+	}
+
+	CurrentBudgets.Reset(StreamingBudgets);
 }
 
 void UTileStreamingService::UpdateTileStates(const FTileCoord& PlayerTileCoord,
@@ -301,6 +513,14 @@ void UTileStreamingService::EvictDistantTiles(const FTileCoord& PlayerTileCoord)
 
 bool UTileStreamingService::GenerateSingleTile(const FTileCoord& TileCoord, FTileStreamingData& OutTileData)
 {
+	float HeightMs = 0.0f;
+	float BiomeMs = 0.0f;
+	float PCGMs = 0.0f;
+	return GenerateSingleTileInternal(TileCoord, OutTileData, HeightMs, BiomeMs, PCGMs);
+}
+
+bool UTileStreamingService::GenerateSingleTileInternal(const FTileCoord& TileCoord, FTileStreamingData& OutTileData, float& OutHeightMs, float& OutBiomeMs, float& OutPCGMs)
+{
 	// Defensive programming guards - check all required services are non-null
 	ensureMsgf(HeightfieldService != nullptr, 
 		TEXT("UTileStreamingService: HeightfieldService is null. Call Initialize() before using GenerateSingleTile()."));
@@ -310,18 +530,18 @@ bool UTileStreamingService::GenerateSingleTile(const FTileCoord& TileCoord, FTil
 		TEXT("UTileStreamingService: PCGWorldService is null. Call Initialize() before using GenerateSingleTile()."));
 
 	// Early return with error logging if any required service is missing
-    if (!HeightfieldService || !BiomeService || !PCGWorldService)
-    {
-        UE_LOG(LogTileStreaming, Error, TEXT("UTileStreamingService::GenerateSingleTile failed for tile (%d, %d) - missing required services: HeightfieldService=%s, BiomeService=%s, PCGWorldService=%s"),
-            TileCoord.X, TileCoord.Y,
-            HeightfieldService ? TEXT("OK") : TEXT("NULL"),
-            BiomeService ? TEXT("OK") : TEXT("NULL"),
-            PCGWorldService ? TEXT("OK") : TEXT("NULL"));
-        ErrorEntries.Add({TileCoord, TEXT("GEN_FAIL_MISSING_SERVICE")});
-        return false;
-    }
+	if (!HeightfieldService || !BiomeService || !PCGWorldService)
+	{
+		UE_LOG(LogTileStreaming, Error, TEXT("UTileStreamingService::GenerateSingleTile failed for tile (%d, %d) - missing required services: HeightfieldService=%s, BiomeService=%s, PCGWorldService=%s"),
+			TileCoord.X, TileCoord.Y,
+			HeightfieldService ? TEXT("OK") : TEXT("NULL"),
+			BiomeService ? TEXT("OK") : TEXT("NULL"),
+			PCGWorldService ? TEXT("OK") : TEXT("NULL"));
+		ErrorEntries.Add({TileCoord, TEXT("GEN_FAIL_MISSING_SERVICE")});
+		return false;
+	}
 
-    double StartTimeTotal = FPlatformTime::Seconds();
+	double StartTimeTotal = FPlatformTime::Seconds();
 
 	try
 	{
@@ -329,41 +549,47 @@ bool UTileStreamingService::GenerateSingleTile(const FTileCoord& TileCoord, FTil
 		OutTileData.State = ETileState::Generating;
 		OutTileData.TileCoord = TileCoord;
 
-        // Generate heightfield + biome timing
-        const double HFBStart = FPlatformTime::Seconds();
-        OutTileData.HeightfieldData = HeightfieldService->GenerateHeightfield(WorldGenSettings.Seed, TileCoord);
+		// Heightfield generation
+		const double HeightStart = FPlatformTime::Seconds();
+		OutTileData.HeightfieldData = HeightfieldService->GenerateHeightfield(WorldGenSettings.Seed, TileCoord);
+		const double HeightEnd = FPlatformTime::Seconds();
+		OutHeightMs = static_cast<float>((HeightEnd - HeightStart) * 1000.0);
+		HeightfieldService->CacheHeightfield(OutTileData.HeightfieldData);
 
-        // Determine biome
-        OutTileData.BiomeType = BiomeService->DetermineTileBiome(TileCoord, OutTileData.HeightfieldData.HeightData);
-        const double HFBEnd = FPlatformTime::Seconds();
-        OutTileData.GenerationTimeMs = static_cast<float>((HFBEnd - HFBStart) * 1000.0);
+		// Biome calculation
+		const double BiomeStart = FPlatformTime::Seconds();
+		OutTileData.BiomeType = BiomeService->DetermineTileBiome(TileCoord, OutTileData.HeightfieldData.HeightData);
+		const double BiomeEnd = FPlatformTime::Seconds();
+		OutBiomeMs = static_cast<float>((BiomeEnd - BiomeStart) * 1000.0);
+		OutTileData.GenerationTimeMs = OutHeightMs + OutBiomeMs;
 
-        // Generate PCG content
-        const double PCGStart = FPlatformTime::Seconds();
-        FPCGGenerationData PCGData = PCGWorldService->GenerateBiomeContent(
-            TileCoord, OutTileData.BiomeType, OutTileData.HeightfieldData.HeightData);
-        const double PCGEnd = FPlatformTime::Seconds();
-        OutTileData.PCGGenerationTimeMs = static_cast<float>((PCGEnd - PCGStart) * 1000.0);
-		
+		// Generate PCG content
+		const double PCGStart = FPlatformTime::Seconds();
+		FPCGGenerationData PCGData = PCGWorldService->GenerateBiomeContent(
+			TileCoord, OutTileData.BiomeType, OutTileData.HeightfieldData.HeightData);
+		const double PCGEnd = FPlatformTime::Seconds();
+		OutPCGMs = static_cast<float>((PCGEnd - PCGStart) * 1000.0);
+		OutTileData.PCGGenerationTimeMs = OutPCGMs;
 		OutTileData.bHasPCGContent = PCGData.TotalInstanceCount > 0;
+		OutTileData.State = ETileState::Generated;
 
-        // Calculate total generation time for rolling metrics (heightfield+biome+pcg)
-        double EndTimeTotal = FPlatformTime::Seconds();
-        const float TotalGenMs = static_cast<float>((EndTimeTotal - StartTimeTotal) * 1000.0);
-        OutTileData.LastAccessTime = CurrentTime;
+		// Calculate total generation time for rolling metrics (heightfield+biome+pcg)
+		double EndTimeTotal = FPlatformTime::Seconds();
+		const float TotalGenMs = static_cast<float>((EndTimeTotal - StartTimeTotal) * 1000.0);
+		OutTileData.LastAccessTime = CurrentTime;
 
-        // Record performance
-        RecordGenerationTime(TotalGenMs);
+		// Record performance
+		RecordGenerationTime(TotalGenMs);
 
 		return true;
 	}
 	catch (...)
 	{
-        UE_LOG(LogTileStreaming, Error, TEXT("Exception during tile generation for (%d, %d)"), 
-            TileCoord.X, TileCoord.Y);
-        ErrorEntries.Add({TileCoord, TEXT("GEN_EXCEPTION")});
-        return false;
-    }
+		UE_LOG(LogTileStreaming, Error, TEXT("Exception during tile generation for (%d, %d)"), 
+			TileCoord.X, TileCoord.Y);
+		ErrorEntries.Add({TileCoord, TEXT("GEN_EXCEPTION")});
+		return false;
+	}
 }
 
 bool UTileStreamingService::GetTileData(const FTileCoord& TileCoord, FTileStreamingData& OutTileData)
@@ -398,6 +624,8 @@ bool UTileStreamingService::GetTileData(const FTileCoord& TileCoord, FTileStream
 	{
 		OutTileData.State = ETileState::Generated;
 		AddTileToCache(TileCoord, OutTileData);
+		EnqueuedTiles.Remove(TileCoord);
+		EnqueuedPrefetchTiles.Remove(TileCoord);
 		return true;
 	}
 
@@ -442,6 +670,9 @@ void UTileStreamingService::RemoveTileFromCache(const FTileCoord& TileCoord)
 	LRUList.RemoveAll([&TileCoord](const FLRUCacheEntry& Entry) {
 		return Entry.TileCoord == TileCoord;
 	});
+
+	EnqueuedTiles.Remove(TileCoord);
+	EnqueuedPrefetchTiles.Remove(TileCoord);
 }
 
 void UTileStreamingService::UpdateLRUAccess(const FTileCoord& TileCoord)
@@ -522,6 +753,8 @@ void UTileStreamingService::UpdatePerformanceMetrics() const
 		}
 	}
 
+	PerformanceMetrics.PendingGenerations += EnqueuedTiles.Num() + EnqueuedPrefetchTiles.Num();
+
 	// Calculate cache efficiency
 	int32 TotalAccesses = PerformanceMetrics.CacheHits + PerformanceMetrics.CacheMisses;
 	if (TotalAccesses > 0)
@@ -563,6 +796,11 @@ void UTileStreamingService::ClearTileCache()
 	LRUList.Empty();
 	PerformanceMetrics = FTileStreamingMetrics();
 	RecentGenerationTimes.Empty();
+	FTileGenerationTask DummyTask;
+	while (RequestedGenerationQueue.Dequeue(DummyTask)) {}
+	while (PrefetchGenerationQueue.Dequeue(DummyTask)) {}
+	EnqueuedTiles.Empty();
+	EnqueuedPrefetchTiles.Empty();
 	
 	UE_LOG(LogTileStreaming, Log, TEXT("Tile cache cleared"));
 }
@@ -583,6 +821,11 @@ void UTileStreamingService::NotifyVHMRenderer(const TArray<FTileCoord>& ActiveTi
 	// Notify VHM renderer about tiles that should have VHM components (within Active radius)
 	for (const FTileCoord& TileCoord : ActiveTiles)
 	{
+		if (!CurrentBudgets.HasVHMBudget())
+		{
+			break; // Defer remaining activations to future ticks
+		}
+
 		FTileStreamingData* TileData = TileCache.Find(TileCoord);
 		if (TileData && TileData->State == ETileState::Active)
 		{
@@ -604,6 +847,8 @@ void UTileStreamingService::NotifyVHMRenderer(const TArray<FTileCoord>& ActiveTi
             // Compute recent thread spike around activation
             const float SpikeMs = ComputeRecentSpikeMs(After, /*WindowSec=*/3.0);
             TileData->ThreadSpikesMs = SpikeMs;
+
+			CurrentBudgets.ConsumeVHM(CallMs);
         }
     }
 

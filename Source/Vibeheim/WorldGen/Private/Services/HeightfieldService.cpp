@@ -2,6 +2,7 @@
 #include "Services/ClimateSystem.h"
 #include "Services/NoiseSystem.h"
 #include "Utils/WorldGenLogging.h"
+#include "WorldGenSettings.h"
 #include "Data/SerializationShims.h"
 #include "Engine/Engine.h"
 #include "HAL/FileManager.h"
@@ -240,6 +241,7 @@ float UHeightfieldService::GenerateBaseHeight(FVector2D WorldPosition, int32 See
 {
 	float Height = GenerationSettings.BaseHeight;
 
+	// 1) Base/local terrain noise (preserves existing look/feel)
 	if (NoiseSystem)
 	{
 		// Convert old noise settings to new advanced noise settings
@@ -286,10 +288,102 @@ float UHeightfieldService::GenerateBaseHeight(FVector2D WorldPosition, int32 See
 		Height += FMath::Abs(RidgeNoise) * 0.5f;
 	}
 
-	// Apply height multiplier
-	Height *= GenerationSettings.HeightMultiplier;
+	// 2) Macro topology: continental noise + island falloff (radial)
+	// Read optional MacroWorld configuration from settings assets
+	const UWorldGenSettings* WGSettings = UWorldGenSettings::GetWorldGenSettings();
+	if (WGSettings && WGSettings->MacroWorldConfig.IsSet())
+	{
+		const FMacroWorldConfig& Macro = WGSettings->MacroWorldConfig.GetValue();
 
-	// Clamp to max terrain height
+		// Compute normalized radial distance from world center (meters)
+		const float Radius = FMath::Max(Macro.WorldRadiusMeters, 1.0f);
+		const float Dist = WorldPosition.Size();
+		const float RNorm = FMath::Clamp(Dist / Radius, 0.0f, 1.0f);
+
+		// Island falloff mask (1 at center -> 0 at edge)
+		float IslandMask = 1.0f - RNorm;
+		IslandMask = FMath::Clamp(IslandMask, 0.0f, 1.0f);
+		if (Macro.IslandFalloffCurve)
+		{
+			// Curve maps [0..1] radial fraction to mask
+			IslandMask = FMath::Clamp(Macro.IslandFalloffCurve->GetFloatValue(RNorm), 0.0f, 1.0f);
+		}
+		else
+		{
+			// Power falloff for broad island shaping
+			IslandMask = FMath::Pow(IslandMask, FMath::Max(0.01f, Macro.IslandFalloff));
+		}
+		// Coast sharpness: emphasize coastline transition
+		IslandMask = FMath::Pow(IslandMask, FMath::Max(0.01f, Macro.CoastSharpness));
+
+		// Large-scale continental ridged noise (very low frequency)
+		float Continental = 0.0f;
+		if (NoiseSystem)
+		{
+			FAdvancedNoiseSettings ContinentNoise;
+			ContinentNoise.NoiseType = ENoiseType::Ridge;
+			ContinentNoise.Scale = Macro.ContinentScale;      // very low frequency
+			ContinentNoise.Amplitude = 1.0f;                  // combine as bias later
+			ContinentNoise.Octaves = 3;
+			ContinentNoise.Persistence = 0.5f;
+			ContinentNoise.Lacunarity = 2.0f;
+			ContinentNoise.RidgeSharpness = 1.2f;
+
+			Continental = NoiseSystem->GenerateOctaveNoise(WorldPosition, ContinentNoise);
+		}
+		else
+		{
+			// Fallback: simple absolute ridge-like behavior via existing noise
+			FNoiseSettings Simple;
+			Simple.Scale = Macro.ContinentScale;
+			Simple.Amplitude = 1.0f;
+			Simple.Octaves = 3;
+			float Raw = GenerateOctaveNoise(WorldPosition, Simple, Seed + 101);
+			Continental = FMath::Abs(Raw); // approximate ridge behavior
+		}
+
+		// Normalize continental value to [0..1]
+		float Continental01 = FMath::Clamp(0.5f * (Continental + 1.0f), 0.0f, 1.0f);
+
+		// Macro blend drives broad elevation bias; keep conservative amplitude
+		const float MacroBiasMeters = 20.0f; // broad elevation swing (~40m peak-to-peak)
+		float MacroBlend = (Continental01 * IslandMask - 0.5f) * 2.0f; // [-1..1]
+		Height += MacroBlend * MacroBiasMeters;
+
+		// 3) Sea level clamping and underwater topology
+		const float SeaLevel = WorldGenSettings.SeaLevel;
+		if (Height < SeaLevel)
+		{
+			// Add subtle underwater variation
+			float UnderTopo = 0.0f;
+			if (NoiseSystem)
+			{
+				FAdvancedNoiseSettings UnderNoise;
+				UnderNoise.NoiseType = ENoiseType::Perlin;
+				UnderNoise.Scale = Macro.ContinentScale * 2.5f;
+				UnderNoise.Amplitude = 1.0f;
+				UnderNoise.Octaves = 2;
+				UnderNoise.Offset = FVector2D(3141.0f, 2718.0f);
+				UnderTopo = NoiseSystem->GenerateOctaveNoise(WorldPosition, UnderNoise) * 2.0f; // ~2m variation
+			}
+			else
+			{
+				FNoiseSettings UnderSimple;
+				UnderSimple.Scale = Macro.ContinentScale * 2.5f;
+				UnderSimple.Amplitude = 2.0f;
+				UnderSimple.Octaves = 2;
+				UnderTopo = GenerateOctaveNoise(WorldPosition, UnderSimple, Seed + 202);
+			}
+
+			Height += UnderTopo;
+
+			// Clamp ocean depth so seabed does not get too deep
+			Height = FMath::Clamp(Height, Macro.OceanDepth, SeaLevel);
+		}
+	}
+
+	// 4) Apply height multiplier and global clamp
+	Height *= GenerationSettings.HeightMultiplier;
 	Height = FMath::Clamp(Height, -WorldGenSettings.MaxTerrainHeight, WorldGenSettings.MaxTerrainHeight);
 
 	return Height;

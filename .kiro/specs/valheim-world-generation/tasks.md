@@ -34,7 +34,7 @@
 
 ## Phase 2: Streaming Budgets and Macro World Topology
 
-- [ ] 3. Implement macro topology in HeightfieldService
+- [x] 3. Implement macro topology in HeightfieldService
   - Extend HeightfieldService::GenerateBaseHeight method with continental noise generation
   - Add island falloff calculation based on radial distance from world center
   - Implement sea level clamping and underwater topology generation
@@ -42,8 +42,9 @@
   - _Requirements: 1.1, 1.2, 1.3, 1.4_
   - _Deliverables: Enhanced HeightfieldService with macro topology_
   - _Acceptance: wg.map.export shows coastlines, coastline coverage in expected range, no tile seams > 0.2m_
+  - _Status: COMPLETE - Continental ridged noise, radial island falloff, sea-level clamping, and underwater topology integrated into GenerateBaseHeight; macro blend preserves cross-tile continuity._
 
-- [ ] 4. Add streaming budgets and async queue foundation
+- [x] 4. Add streaming budgets and async queue foundation
   - Add FStreamingBudgetsConfig integration to TileStreamingService initialization
   - Implement per-stage budget enforcement (HeightGenerationBudget, BiomeCalculationBudget, etc.)
   - Add time-sliced generation with frame rate targets in existing GenerateSingleTile method
@@ -51,6 +52,7 @@
   - _Requirements: 8.1, 8.2, 8.3_
   - _Deliverables: Budget system, async queue foundation, performance monitoring_
   - _Acceptance: Budget enforcement works, generation stays within time limits, prefetch reduces cache misses_
+  - _Status: COMPLETE - Added priority/ prefetched work queues, per-stage budget tracking, and VHM activation budgeting in TileStreamingService with StreamingBudgetsConfig integration._
 
 ## Phase 3: Biome Ring System
 
