@@ -84,7 +84,7 @@ UMaterialInstanceDynamic* UVHMTerrainMaterialSystem::CreateTileMaterial(const FT
     // Store material
     TileMaterials.Add(TileCoord, NewMaterial);
 
-    UE_LOG(LogTerrainMaterialSystem, Verbose, TEXT("CreateTileMaterial: Created material for tile (%d, %d) with biome %s"), 
+    UE_LOG(LogTerrainMaterialSystem, Log, TEXT("CreateTileMaterial: Created material for tile (%d, %d) with biome %s"), 
            TileCoord.X, TileCoord.Y, *BiomeData.BiomeName);
 
     return NewMaterial;
@@ -306,10 +306,15 @@ UMaterialInstanceDynamic* UVHMTerrainMaterialSystem::CreateMaterialFromBiome(con
 {
     UMaterialInterface* ParentMaterial = nullptr;
     
-    // Use biome-specific material if available
-    if (BiomeData.TerrainMaterial.IsValid())
+    // Use biome-specific material if available (load soft reference)
+    if (!BiomeData.TerrainMaterial.IsNull())
     {
         ParentMaterial = BiomeData.TerrainMaterial.LoadSynchronous();
+        if (!ParentMaterial)
+        {
+            UE_LOG(LogTerrainMaterialSystem, Warning, TEXT("CreateMaterialFromBiome: Failed to load TerrainMaterial '%s' for biome '%s'"),
+                *BiomeData.TerrainMaterial.ToString(), *BiomeData.BiomeName);
+        }
     }
     
     // Fall back to base material
@@ -321,6 +326,10 @@ UMaterialInstanceDynamic* UVHMTerrainMaterialSystem::CreateMaterialFromBiome(con
     // Fall back to default material
     if (!ParentMaterial)
     {
+        if (!BiomeData.TerrainMaterial.IsNull())
+        {
+            UE_LOG(LogTerrainMaterialSystem, Warning, TEXT("CreateMaterialFromBiome: Falling back to default material for biome '%s'"), *BiomeData.BiomeName);
+        }
         ParentMaterial = GetDefaultMaterial();
     }
     
@@ -351,8 +360,8 @@ void UVHMTerrainMaterialSystem::ApplyBiomeParameters(UMaterialInstanceDynamic* M
     // Apply RVT blend color
     Material->SetVectorParameterValue(TEXT("BiomeBlendColor"), BiomeData.RVTBlendColor);
 
-    // Apply biome mask texture if available
-    if (BiomeData.BiomeMask.IsValid())
+    // Apply biome mask texture if available (load soft reference)
+    if (!BiomeData.BiomeMask.IsNull())
     {
         UTexture2D* BiomeMaskTexture = BiomeData.BiomeMask.LoadSynchronous();
         if (BiomeMaskTexture)
@@ -384,6 +393,11 @@ void UVHMTerrainMaterialSystem::ApplyBiomeParameters(UMaterialInstanceDynamic* M
     {
         UE_LOG(LogTerrainMaterialSystem, Verbose, TEXT("ApplyBiomeParameters: RVT not available, material configured without RVT"));
     }
+
+    UE_LOG(LogTerrainMaterialSystem, Log, TEXT("ApplyBiomeParameters: Biome %s -> BlendColor=(%.2f, %.2f, %.2f) Material=%s"),
+        *BiomeData.BiomeName,
+        BiomeData.RVTBlendColor.R, BiomeData.RVTBlendColor.G, BiomeData.RVTBlendColor.B,
+        *BiomeData.TerrainMaterial.ToString());
 }
 
 TMap<FTileCoord, float> UVHMTerrainMaterialSystem::CalculateBlendWeights(const FTileCoord& CenterTile, const TArray<FTileCoord>& AdjacentTiles)
@@ -530,12 +544,14 @@ bool UVHMTerrainMaterialSystem::ValidateBiomeDefinition(const FBiomeDefinition& 
     // Check if biome type is valid
     if (BiomeData.BiomeType == EBiomeType::None)
     {
+        UE_LOG(LogTerrainMaterialSystem, Warning, TEXT("ValidateBiomeDefinition: Biome '%s' has type None"), *BiomeData.BiomeName);
         return false;
     }
 
     // Check if biome name is not empty
     if (BiomeData.BiomeName.IsEmpty())
     {
+        UE_LOG(LogTerrainMaterialSystem, Warning, TEXT("ValidateBiomeDefinition: Biome definition missing name"));
         return false;
     }
 

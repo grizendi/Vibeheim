@@ -103,6 +103,16 @@ public:
 	void SetBiomeDefinitions(const TMap<EBiomeType, FBiomeDefinition>& InBiomeDefinitions);
 
 	/**
+	 * Set biome ring definitions for radial progression
+	 */
+	void SetBiomeRingDefinitions(const TArray<FBiomeRingDefinition>& InBiomeRings);
+
+	/**
+	 * Override the world center used for ring calculations
+	 */
+	void SetRingWorldCenter(const FVector2D& InWorldCenter);
+
+	/**
 	 * Load biome definitions from JSON configuration file
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Biome")
@@ -118,7 +128,7 @@ public:
 	 * Calculate biome suitability based on climate conditions
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Biome")
-	float CalculateBiomeSuitability(EBiomeType BiomeType, const FClimateData& ClimateData, float Altitude) const;
+	float CalculateBiomeSuitability(EBiomeType BiomeType, const FClimateData& ClimateData, float Altitude, FVector2D WorldPosition = FVector2D::ZeroVector) const;
 
 	/**
 	 * Get all biome definitions (for PCG integration)
@@ -131,6 +141,11 @@ private:
 
 	UPROPERTY()
 	FWorldGenConfig WorldGenSettings;
+	// Ring configuration supplied by data assets
+	TArray<FBiomeRingDefinition> BiomeRingDefinitions;
+
+	// Cached world center used for distance-based ring weighting
+	FVector2D RingWorldCenter = FVector2D::ZeroVector;
 
 	UPROPERTY()
 	TMap<EBiomeType, FBiomeDefinition> BiomeDefinitions;
@@ -143,7 +158,7 @@ private:
 	/**
 	 * Calculate biome weights based on climate suitability
 	 */
-	TMap<EBiomeType, float> CalculateBiomeWeights(const FClimateData& ClimateData, float Altitude) const;
+	TMap<EBiomeType, float> CalculateBiomeWeights(const FClimateData& ClimateData, float Altitude, FVector2D WorldPosition = FVector2D::ZeroVector) const;
 
 	/**
 	 * Apply biome blending based on distance
@@ -154,4 +169,14 @@ private:
 	 * Get biome color for PNG export
 	 */
 	FColor GetBiomeColor(EBiomeType BiomeType) const;
+
+	/**
+	 * Determine if ring progression data should be used
+	 */
+	bool HasRingDefinitions() const;
+
+	/**
+	 * Compute the ring weight for a biome at the provided distance
+	 */
+	float ComputeRingWeight(EBiomeType BiomeType, float DistanceFromCenter, const FBiomeRingDefinition** OutRingDefinition) const;
 };

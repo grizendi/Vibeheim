@@ -56,164 +56,68 @@ bool UWorldGenTestSubsystem::ShouldCreateSubsystem(UObject* Outer) const
 
 void UWorldGenTestSubsystem::RegisterConsoleCommands()
 {
-	// Clear any existing commands
 	UnregisterConsoleCommands();
 
-	// Register commands for both editor and game
-	// wg.launch command
-	RegisteredCommands.Add(IConsoleManager::Get().RegisterConsoleCommand(
-		TEXT("wg.launch"),
-		TEXT("Load /Game/Maps/WG_TestMap and initialize world generation systems"),
-		FConsoleCommandWithArgsDelegate::CreateUObject(this, &UWorldGenTestSubsystem::ExecuteLaunchCommand),
-		ECVF_Default
-	));
+	IConsoleManager& ConsoleManager = IConsoleManager::Get();
+	RegisteredCommandNames.Empty();
 
-	// wg.seed command
-	RegisteredCommands.Add(IConsoleManager::Get().RegisterConsoleCommand(
-		TEXT("wg.seed"),
-		TEXT("Set world generation seed. Usage: wg.seed <value>"),
-		FConsoleCommandWithArgsDelegate::CreateUObject(this, &UWorldGenTestSubsystem::ExecuteSeedCommand),
-		ECVF_Default
-	));
+	auto Register = [this, &ConsoleManager](const TCHAR* Name, const TCHAR* Help, const FConsoleCommandWithArgsDelegate& Delegate)
+	{
+		if (IConsoleObject* Existing = ConsoleManager.FindConsoleObject(Name))
+		{
+			ConsoleManager.UnregisterConsoleObject(Existing);
+		}
 
-	// wg.radii command
-	RegisteredCommands.Add(IConsoleManager::Get().RegisterConsoleCommand(
-		TEXT("wg.radii"),
-		TEXT("Set streaming radii. Usage: wg.radii <generate> <load> <active>"),
-		FConsoleCommandWithArgsDelegate::CreateUObject(this, &UWorldGenTestSubsystem::ExecuteRadiiCommand),
-		ECVF_Default
-	));
+		ConsoleManager.RegisterConsoleCommand(Name, Help, Delegate, ECVF_Default);
+		RegisteredCommandNames.Add(Name);
+	};
 
-	// wg.reset command
-	RegisteredCommands.Add(IConsoleManager::Get().RegisterConsoleCommand(
-		TEXT("wg.reset"),
-		TEXT("Reset world generation and clear persistence data"),
-		FConsoleCommandWithArgsDelegate::CreateUObject(this, &UWorldGenTestSubsystem::ExecuteResetCommand),
-		ECVF_Default
-	));
+	Register(TEXT("wg.launch"), TEXT("Load /Game/Maps/WG_TestMap and initialize world generation systems"), FConsoleCommandWithArgsDelegate::CreateUObject(this, &UWorldGenTestSubsystem::ExecuteLaunchCommand));
+	Register(TEXT("wg.seed"), TEXT("Set world generation seed. Usage: wg.seed <value>"), FConsoleCommandWithArgsDelegate::CreateUObject(this, &UWorldGenTestSubsystem::ExecuteSeedCommand));
+	Register(TEXT("wg.radii"), TEXT("Set streaming radii. Usage: wg.radii <generate> <load> <active>"), FConsoleCommandWithArgsDelegate::CreateUObject(this, &UWorldGenTestSubsystem::ExecuteRadiiCommand));
+	Register(TEXT("wg.reset"), TEXT("Reset world generation and clear persistence data"), FConsoleCommandWithArgsDelegate::CreateUObject(this, &UWorldGenTestSubsystem::ExecuteResetCommand));
+	Register(TEXT("wg.validate"), TEXT("Validate VHM integration and test world setup"), FConsoleCommandWithArgsDelegate::CreateUObject(this, &UWorldGenTestSubsystem::ExecuteValidateCommand));
+	Register(TEXT("wg.gateA"), TEXT("Execute Gate A test - orbit seam validation at two LOD thresholds"), FConsoleCommandWithArgsDelegate::CreateUObject(this, &UWorldGenTestSubsystem::ExecuteGateACommand));
+	Register(TEXT("wg.test"), TEXT("Simple test to verify WorldGenTestSubsystem is working"), FConsoleCommandWithArgsDelegate::CreateUObject(this, &UWorldGenTestSubsystem::ExecuteTestCommand));
+	Register(TEXT("wg.debug"), TEXT("Debug world generation system initialization"), FConsoleCommandWithArgsDelegate::CreateUObject(this, &UWorldGenTestSubsystem::ExecuteDebugCommand));
+	Register(TEXT("wg.testtile"), TEXT("Test generation of a single tile at origin. Usage: wg.testtile [x] [y]"), FConsoleCommandWithArgsDelegate::CreateUObject(this, &UWorldGenTestSubsystem::ExecuteTestTileCommand));
+	Register(TEXT("wg.cleanup"), TEXT("Cleanup all VHM terrain actors to prevent naming conflicts"), FConsoleCommandWithArgsDelegate::CreateUObject(this, &UWorldGenTestSubsystem::ExecuteCleanupCommand));
+	Register(TEXT("wg.edit.raise"), TEXT("Raise terrain. Usage: wg.edit.raise <x> <y> <radius> <strength>"), FConsoleCommandWithArgsDelegate::CreateUObject(this, &UWorldGenTestSubsystem::ExecuteEditRaiseCommand));
+	Register(TEXT("wg.edit.lower"), TEXT("Lower terrain. Usage: wg.edit.lower <x> <y> <radius> <strength>"), FConsoleCommandWithArgsDelegate::CreateUObject(this, &UWorldGenTestSubsystem::ExecuteEditLowerCommand));
+	Register(TEXT("wg.edit.smooth"), TEXT("Smooth terrain. Usage: wg.edit.smooth <x> <y> <radius> <strength>"), FConsoleCommandWithArgsDelegate::CreateUObject(this, &UWorldGenTestSubsystem::ExecuteEditSmoothCommand));
+	Register(TEXT("wg.edit.noise"), TEXT("Apply noise to terrain. Usage: wg.edit.noise <x> <y> <radius> <strength>"), FConsoleCommandWithArgsDelegate::CreateUObject(this, &UWorldGenTestSubsystem::ExecuteEditNoiseCommand));
+	Register(TEXT("wg.test.determinism"), TEXT("Determinism test. Usage: wg.test.determinism <seed> [tiles] [-writebaseline]"), FConsoleCommandWithArgsDelegate::CreateUObject(this, &UWorldGenTestSubsystem::ExecuteDeterminismTestCommand));
+	Register(TEXT("wg.perf.export"), TEXT("Export per-tile performance CSV to Saved/Vibeheim/WorldGen/Perf/. Usage: wg.perf.export [filename.csv]"), FConsoleCommandWithArgsDelegate::CreateUObject(this, &UWorldGenTestSubsystem::ExecutePerfExportCommand));
+	Register(TEXT("wg.status"), TEXT("Print seed, radii, and tile counts. Usage: wg.status"), FConsoleCommandWithArgsDelegate::CreateUObject(this, &UWorldGenTestSubsystem::ExecuteStatusCommand));
+	Register(TEXT("wg.perf.summary"), TEXT("Summarize last or specified perf CSV (p50/p95). Usage: wg.perf.summary [filename.csv]"), FConsoleCommandWithArgsDelegate::CreateUObject(this, &UWorldGenTestSubsystem::ExecutePerfSummaryCommand));
 
-	// wg.validate command
-	RegisteredCommands.Add(IConsoleManager::Get().RegisterConsoleCommand(
-		TEXT("wg.validate"),
-		TEXT("Validate VHM integration and test world setup"),
-		FConsoleCommandWithArgsDelegate::CreateUObject(this, &UWorldGenTestSubsystem::ExecuteValidateCommand),
-		ECVF_Default
-	));
+	bCommandsRegistered = RegisteredCommandNames.Num() > 0;
 
-	// wg.gateA command
-	RegisteredCommands.Add(IConsoleManager::Get().RegisterConsoleCommand(
-		TEXT("wg.gateA"),
-		TEXT("Execute Gate A test - orbit seam validation at two LOD thresholds"),
-		FConsoleCommandWithArgsDelegate::CreateUObject(this, &UWorldGenTestSubsystem::ExecuteGateACommand),
-		ECVF_Default
-	));
-
-	// wg.test command - simple test to verify subsystem is working
-	RegisteredCommands.Add(IConsoleManager::Get().RegisterConsoleCommand(
-		TEXT("wg.test"),
-		TEXT("Simple test to verify WorldGenTestSubsystem is working"),
-		FConsoleCommandWithArgsDelegate::CreateUObject(this, &UWorldGenTestSubsystem::ExecuteTestCommand),
-		ECVF_Default
-	));
-
-	// wg.debug command - debug world generation initialization
-	RegisteredCommands.Add(IConsoleManager::Get().RegisterConsoleCommand(
-		TEXT("wg.debug"),
-		TEXT("Debug world generation system initialization"),
-		FConsoleCommandWithArgsDelegate::CreateUObject(this, &UWorldGenTestSubsystem::ExecuteDebugCommand),
-		ECVF_Default
-	));
-
-	// wg.testtile command - test single tile generation
-	RegisteredCommands.Add(IConsoleManager::Get().RegisterConsoleCommand(
-		TEXT("wg.testtile"),
-		TEXT("Test generation of a single tile at origin. Usage: wg.testtile [x] [y]"),
-		FConsoleCommandWithArgsDelegate::CreateUObject(this, &UWorldGenTestSubsystem::ExecuteTestTileCommand),
-		ECVF_Default
-	));
-
-	// wg.cleanup command - cleanup all VHM actors
-	RegisteredCommands.Add(IConsoleManager::Get().RegisterConsoleCommand(
-		TEXT("wg.cleanup"),
-		TEXT("Cleanup all VHM terrain actors to prevent naming conflicts"),
-		FConsoleCommandWithArgsDelegate::CreateUObject(this, &UWorldGenTestSubsystem::ExecuteCleanupCommand),
-		ECVF_Default
-	));
-
-	// Terrain editing commands
-	RegisteredCommands.Add(IConsoleManager::Get().RegisterConsoleCommand(
-		TEXT("wg.edit.raise"),
-		TEXT("Raise terrain. Usage: wg.edit.raise <x> <y> <radius> <strength>"),
-		FConsoleCommandWithArgsDelegate::CreateUObject(this, &UWorldGenTestSubsystem::ExecuteEditRaiseCommand),
-		ECVF_Default
-	));
-
-	RegisteredCommands.Add(IConsoleManager::Get().RegisterConsoleCommand(
-		TEXT("wg.edit.lower"),
-		TEXT("Lower terrain. Usage: wg.edit.lower <x> <y> <radius> <strength>"),
-		FConsoleCommandWithArgsDelegate::CreateUObject(this, &UWorldGenTestSubsystem::ExecuteEditLowerCommand),
-		ECVF_Default
-	));
-
-	RegisteredCommands.Add(IConsoleManager::Get().RegisterConsoleCommand(
-		TEXT("wg.edit.smooth"),
-		TEXT("Smooth terrain. Usage: wg.edit.smooth <x> <y> <radius> <strength>"),
-		FConsoleCommandWithArgsDelegate::CreateUObject(this, &UWorldGenTestSubsystem::ExecuteEditSmoothCommand),
-		ECVF_Default
-	));
-
-	RegisteredCommands.Add(IConsoleManager::Get().RegisterConsoleCommand(
-		TEXT("wg.edit.noise"),
-		TEXT("Apply noise to terrain. Usage: wg.edit.noise <x> <y> <radius> <strength>"),
-		FConsoleCommandWithArgsDelegate::CreateUObject(this, &UWorldGenTestSubsystem::ExecuteEditNoiseCommand),
-		ECVF_Default
-	));
-
-    // Determinism test command
-    RegisteredCommands.Add(IConsoleManager::Get().RegisterConsoleCommand(
-        TEXT("wg.test.determinism"),
-        TEXT("Determinism test. Usage: wg.test.determinism <seed> [tiles] [-writebaseline]"),
-        FConsoleCommandWithArgsDelegate::CreateUObject(this, &UWorldGenTestSubsystem::ExecuteDeterminismTestCommand),
-        ECVF_Default
-    ));
-
-    // Performance CSV export command
-    RegisteredCommands.Add(IConsoleManager::Get().RegisterConsoleCommand(
-        TEXT("wg.perf.export"),
-        TEXT("Export per-tile performance CSV to Saved/Vibeheim/WorldGen/Perf/. Usage: wg.perf.export [filename.csv]"),
-        FConsoleCommandWithArgsDelegate::CreateUObject(this, &UWorldGenTestSubsystem::ExecutePerfExportCommand),
-        ECVF_Default
-    ));
-
-    // Status command
-    RegisteredCommands.Add(IConsoleManager::Get().RegisterConsoleCommand(
-        TEXT("wg.status"),
-        TEXT("Print seed, radii, and tile counts. Usage: wg.status"),
-        FConsoleCommandWithArgsDelegate::CreateUObject(this, &UWorldGenTestSubsystem::ExecuteStatusCommand),
-        ECVF_Default
-    ));
-
-    // Perf summary command
-    RegisteredCommands.Add(IConsoleManager::Get().RegisterConsoleCommand(
-        TEXT("wg.perf.summary"),
-        TEXT("Summarize last or specified perf CSV (p50/p95). Usage: wg.perf.summary [filename.csv]"),
-        FConsoleCommandWithArgsDelegate::CreateUObject(this, &UWorldGenTestSubsystem::ExecutePerfSummaryCommand),
-        ECVF_Default
-    ));
-
-	UE_LOG(LogWorldGenTest, Log, TEXT("Registered %d console commands"), RegisteredCommands.Num());
+	UE_LOG(LogWorldGenTest, Log, TEXT("Registered %d console commands"), RegisteredCommandNames.Num());
 }
 
 void UWorldGenTestSubsystem::UnregisterConsoleCommands()
 {
-	for (IConsoleObject* Command : RegisteredCommands)
+	if (!bCommandsRegistered && RegisteredCommandNames.Num() == 0)
 	{
-		if (Command)
+		return;
+	}
+
+	IConsoleManager& ConsoleManager = IConsoleManager::Get();
+
+	for (const FString& CommandName : RegisteredCommandNames)
+	{
+		if (!CommandName.IsEmpty())
 		{
-			IConsoleManager::Get().UnregisterConsoleObject(Command);
+			if (IConsoleObject* Command = ConsoleManager.FindConsoleObject(*CommandName))
+			{
+				ConsoleManager.UnregisterConsoleObject(Command);
+			}
 		}
 	}
-	RegisteredCommands.Empty();
+
+	RegisteredCommandNames.Empty();
+	bCommandsRegistered = false;
 }
 
 bool UWorldGenTestSubsystem::IsValidTestMap() const

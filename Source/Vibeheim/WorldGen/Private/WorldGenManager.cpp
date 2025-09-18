@@ -97,6 +97,7 @@ bool AWorldGenManager::InitializeWorldGenSystems()
 
     // Resolve data assets (settings + biome definitions)
     ResolveWorldGenAssets();
+	ReloadWorldGenAssets();
 
 	// Configure VHM settings for seam prevention
 	if (!WorldGenSettings->VHMSettings.IsSet())
@@ -136,6 +137,10 @@ bool AWorldGenManager::InitializeWorldGenSystems()
 		UE_LOG(LogWorldGenManager, Error, TEXT("Failed to initialize Biome Service"));
 		return false;
 	}
+
+	BiomeService->Initialize(ClimateSystem, WorldGenSettings->Settings);
+	BiomeService->SetRingWorldCenter(FVector2D(ClimateSettings.WorldCenterX, ClimateSettings.WorldCenterY));
+	ReloadWorldGenAssets();
 
 	// Initialize PCG World Service
 	PCGWorldService = NewObject<UPCGWorldService>(this);
@@ -344,10 +349,27 @@ void AWorldGenManager::ReloadWorldGenAssets()
         }
     }
 
-    if (BiomeService && BiomesAsset)
+    if (BiomeService)
     {
-        BiomeService->SetBiomeDefinitions(BiomesAsset->Biomes);
-        UE_LOG(LogWorldGenManager, Log, TEXT("Applied BiomeDefinitionsAsset to BiomeService (%d biomes)"), BiomesAsset->Biomes.Num());
+        if (BiomesAsset)
+        {
+            BiomeService->SetBiomeDefinitions(BiomesAsset->Biomes);
+            BiomeService->SetBiomeRingDefinitions(BiomesAsset->BiomeRings);
+            UE_LOG(LogWorldGenManager, Log, TEXT("Applied BiomeDefinitionsAsset to BiomeService (%d biomes, %d rings)"), BiomesAsset->Biomes.Num(), BiomesAsset->BiomeRings.Num());
+
+            for (const TPair<EBiomeType, FBiomeDefinition>& BiomePair : BiomesAsset->Biomes)
+            {
+                const FBiomeDefinition& Biome = BiomePair.Value;
+                const FString MaterialPath = Biome.TerrainMaterial.IsNull() ? TEXT("None") : Biome.TerrainMaterial.ToString();
+                const FString MaskPath     = Biome.BiomeMask.IsNull() ? TEXT("None") : Biome.BiomeMask.ToString();
+
+                UE_LOG(LogWorldGenManager, Log, TEXT("\tBiome '%s' material=%s mask=%s"), *Biome.BiomeName, *MaterialPath, *MaskPath);
+            }
+        }
+        else
+        {
+            BiomeService->SetBiomeRingDefinitions(TArray<FBiomeRingDefinition>());
+        }
     }
 }
 

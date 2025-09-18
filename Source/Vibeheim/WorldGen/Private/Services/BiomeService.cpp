@@ -8,18 +8,32 @@
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonWriter.h"
+#include "UObject/EnumProperty.h"
+#include "Algo/Sort.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogBiomeService, Log, All);
 
 UBiomeService::UBiomeService()
 {
 	ClimateSystem = nullptr;
+	RingWorldCenter = FVector2D::ZeroVector;
+	BiomeRingDefinitions.Reset();
 }
 
 void UBiomeService::Initialize(UClimateSystem* InClimateSystem, const FWorldGenConfig& Settings)
 {
 	ClimateSystem = InClimateSystem;
 	WorldGenSettings = Settings;
+	
+	if (ClimateSystem)
+	{
+		const FClimateSettings& ClimateSettings = ClimateSystem->GetClimateSettings();
+		RingWorldCenter = FVector2D(ClimateSettings.WorldCenterX, ClimateSettings.WorldCenterY);
+	}
+	else
+	{
+		RingWorldCenter = FVector2D::ZeroVector;
+	}
 	
 	// Try to load biomes from JSON first, fallback to defaults
 	if (!LoadBiomesFromJSON(TEXT("Config/BiomeDefinitions.json")))
@@ -101,7 +115,7 @@ FBiomeResult UBiomeService::DetermineBiome(FVector2D WorldPosition, float Altitu
 	FClimateData ClimateData = ClimateSystem->CalculateClimate(WorldPosition, Altitude);
 	
 	// Calculate biome weights based on climate suitability
-	TMap<EBiomeType, float> BiomeWeights = CalculateBiomeWeights(ClimateData, Altitude);
+	TMap<EBiomeType, float> BiomeWeights = CalculateBiomeWeights(ClimateData, Altitude, WorldPosition);
 	
 	// Apply biome blending
 	return ApplyBiomeBlending(BiomeWeights, WorldPosition);
@@ -182,14 +196,14 @@ EBiomeType UBiomeService::DetermineTileBiome(FTileCoord Tile, const TArray<float
 	return DominantBiome;
 }
 
-TMap<EBiomeType, float> UBiomeService::CalculateBiomeWeights(const FClimateData& ClimateData, float Altitude) const
+TMap<EBiomeType, float> UBiomeService::CalculateBiomeWeights(const FClimateData& ClimateData, float Altitude, FVector2D WorldPosition) const
 {
 	TMap<EBiomeType, float> Weights;
 	
 	for (const auto& BiomePair : BiomeDefinitions)
 	{
 		EBiomeType BiomeType = BiomePair.Key;
-		float Suitability = CalculateBiomeSuitability(BiomeType, ClimateData, Altitude);
+		float Suitability = CalculateBiomeSuitability(BiomeType, ClimateData, Altitude, WorldPosition);
 		
 		if (Suitability > 0.0f)
 		{
@@ -200,14 +214,14 @@ TMap<EBiomeType, float> UBiomeService::CalculateBiomeWeights(const FClimateData&
 	return Weights;
 }
 
-float UBiomeService::CalculateBiomeSuitability(EBiomeType BiomeType, const FClimateData& ClimateData, float Altitude) const
+float UBiomeService::CalculateBiomeSuitability(EBiomeType BiomeType, const FClimateData& ClimateData, float Altitude, FVector2D WorldPosition) const
 {
 	const FBiomeDefinition* BiomeDef = BiomeDefinitions.Find(BiomeType);
 	if (!BiomeDef)
 	{
 		return 0.0f;
 	}
-	
+
 	// Temperature suitability
 	float TempSuitability = 1.0f;
 	if (ClimateData.Temperature < BiomeDef->MinTemperature || ClimateData.Temperature > BiomeDef->MaxTemperature)
@@ -224,7 +238,7 @@ float UBiomeService::CalculateBiomeSuitability(EBiomeType BiomeType, const FClim
 			TempSuitability = FMath::Max(0.0f, 1.0f - (Diff / (TempRange * 0.5f)));
 		}
 	}
-	
+
 	// Moisture suitability
 	float MoistureSuitability = 1.0f;
 	if (ClimateData.Moisture < BiomeDef->MinMoisture || ClimateData.Moisture > BiomeDef->MaxMoisture)
@@ -241,7 +255,9 @@ float UBiomeService::CalculateBiomeSuitability(EBiomeType BiomeType, const FClim
 			MoistureSuitability = FMath::Max(0.0f, 1.0f - (Diff / (MoistureRange * 0.5f)));
 		}
 	}
-	
+
+	float ClimateSuitability = TempSuitability * MoistureSuitability;
+
 	// Altitude influence (mountains prefer higher altitudes)
 	float AltitudeSuitability = 1.0f;
 	if (BiomeType == EBiomeType::Mountains)
@@ -252,19 +268,47 @@ float UBiomeService::CalculateBiomeSuitability(EBiomeType BiomeType, const FClim
 	{
 		AltitudeSuitability = Altitude < 0.0f ? 2.0f : FMath::Max(0.0f, 1.0f - (Altitude / 20.0f));
 	}
-	
-	// Ring bias influence
-	float RingInfluence = 1.0f + (ClimateData.RingBias * 0.5f);
-	
-	// Keep ring influence in [0,1] range then apply weight, finally clamp
-	float ClampedRingInfluence = FMath::Clamp(RingInfluence, 0.0f, 1.0f);
-	
-	// Combine all factors
-	float TotalSuitability = TempSuitability * MoistureSuitability * AltitudeSuitability * ClampedRingInfluence;
-	TotalSuitability *= FMath::Max(0.0f, BiomeDef->BiomeWeight); // Allow >1 weight but clamp final result
-	
+
+	// Climate system ring bias
+	const float ClampedRingInfluence = FMath::Clamp(1.0f + (ClimateData.RingBias * 0.5f), 0.0f, 1.0f);
+	float RingWeight = 1.0f;
+
+	if (HasRingDefinitions())
+	{
+		const float DistanceFromCenter = FVector2D::Distance(WorldPosition, RingWorldCenter);
+		const FBiomeRingDefinition* MatchingRing = nullptr;
+		const float ComputedRingWeight = ComputeRingWeight(BiomeType, DistanceFromCenter, &MatchingRing);
+
+		if (MatchingRing != nullptr)
+		{
+			if (ComputedRingWeight > 0.0f)
+			{
+				const float ClimateMultiplier = FMath::Clamp(MatchingRing->ClimateInfluence, 0.0f, 2.0f);
+				const float HeightMultiplier = FMath::Clamp(MatchingRing->HeightInfluence, 0.0f, 2.0f);
+
+				ClimateSuitability = FMath::Clamp(ClimateSuitability * ClimateMultiplier, 0.0f, 2.0f);
+				AltitudeSuitability = FMath::Clamp(AltitudeSuitability * HeightMultiplier, 0.0f, 2.0f);
+				RingWeight = FMath::Clamp(ComputedRingWeight, 0.0f, 1.0f);
+			}
+			else
+			{
+				RingWeight = 0.0f;
+			}
+		}
+		else
+		{
+			// No ring configuration for this biome, fallback to climate-based weighting
+			RingWeight = 1.0f;
+		}
+	}
+
+	float TotalSuitability = ClimateSuitability * AltitudeSuitability * ClampedRingInfluence * RingWeight;
+	TotalSuitability *= FMath::Max(0.0f, BiomeDef->BiomeWeight);
+
 	return FMath::Clamp(TotalSuitability, 0.0f, 1.0f);
-}FBiomeResult UBiomeService::ApplyBiomeBlending(const TMap<EBiomeType, float>& BiomeWeights, FVector2D WorldPosition) const
+}
+
+FBiomeResult UBiomeService::ApplyBiomeBlending(const TMap<EBiomeType, float>& BiomeWeights, FVector2D WorldPosition) const
 {
 	FBiomeResult Result;
 	
@@ -412,12 +456,71 @@ bool UBiomeService::GetBiomeDefinition(EBiomeType BiomeType, FBiomeDefinition& O
 
 void UBiomeService::SetBiomeDefinitions(const TMap<EBiomeType, FBiomeDefinition>& InBiomeDefinitions)
 {
-	BiomeDefinitions = InBiomeDefinitions;
+	BiomeDefinitions.Reset();
+
+	const UEnum* BiomeEnum = StaticEnum<EBiomeType>();
+
+	for (const TPair<EBiomeType, FBiomeDefinition>& Pair : InBiomeDefinitions)
+	{
+		EBiomeType BiomeType = Pair.Key;
+		FBiomeDefinition SanitizedDefinition = Pair.Value;
+
+		// Ensure the biome definition reports the same type as the key
+		if (SanitizedDefinition.BiomeType == EBiomeType::None)
+		{
+			SanitizedDefinition.BiomeType = BiomeType;
+		}
+
+		// Populate missing biome name so downstream validation succeeds
+		if (SanitizedDefinition.BiomeName.IsEmpty())
+		{
+			FString FallbackName = TEXT("Biome");
+			if (BiomeEnum)
+			{
+				FallbackName = BiomeEnum->GetNameStringByValue(static_cast<int64>(BiomeType));
+			}
+
+			SanitizedDefinition.BiomeName = FallbackName;
+			UE_LOG(LogBiomeService, Warning, TEXT("Biome definition for %s was missing a name – defaulting to '%s'"),
+				BiomeEnum ? *BiomeEnum->GetNameStringByValue(static_cast<int64>(BiomeType)) : TEXT("Unknown"), *FallbackName);
+		}
+
+		// Warn when visual data is missing so the renderer can fall back gracefully
+		if (SanitizedDefinition.TerrainMaterial.IsNull())
+		{
+			UE_LOG(LogBiomeService, Warning, TEXT("Biome definition '%s' has no TerrainMaterial assigned"), *SanitizedDefinition.BiomeName);
+		}
+
+		BiomeDefinitions.Add(BiomeType, SanitizedDefinition);
+	}
+
 	UE_LOG(LogBiomeService, Log, TEXT("Updated biome definitions with %d biomes"), BiomeDefinitions.Num());
 }
 
+
+void UBiomeService::SetBiomeRingDefinitions(const TArray<FBiomeRingDefinition>& InBiomeRings)
+{
+	BiomeRingDefinitions = InBiomeRings;
+	BiomeRingDefinitions.Sort([](const FBiomeRingDefinition& A, const FBiomeRingDefinition& B)
+	{
+		if (FMath::IsNearlyEqual(A.InnerRadius, B.InnerRadius))
+		{
+			return A.OuterRadius < B.OuterRadius;
+		}
+		return A.InnerRadius < B.InnerRadius;
+	});
+	
+	UE_LOG(LogBiomeService, Log, TEXT("Updated biome ring definitions with %d entries"), BiomeRingDefinitions.Num());
+}
+
+void UBiomeService::SetRingWorldCenter(const FVector2D& InWorldCenter)
+{
+	RingWorldCenter = InWorldCenter;
+	UE_LOG(LogBiomeService, Verbose, TEXT("Ring world center updated to (%.1f, %.1f)"), RingWorldCenter.X, RingWorldCenter.Y);
+}
 bool UBiomeService::LoadBiomesFromJSON(const FString& ConfigPath)
 {
+	BiomeRingDefinitions.Reset();
 	// Get full path to the config file
 	FString FullPath = FPaths::ProjectDir() / ConfigPath;
 	
@@ -574,6 +677,72 @@ bool UBiomeService::LoadBiomesFromJSON(const FString& ConfigPath)
 	return true;
 }
 
+
+bool UBiomeService::HasRingDefinitions() const
+{
+	return WorldGenSettings.bEnableRings && BiomeRingDefinitions.Num() > 0;
+}
+
+float UBiomeService::ComputeRingWeight(EBiomeType BiomeType, float DistanceFromCenter, const FBiomeRingDefinition** OutRingDefinition) const
+{
+	if (OutRingDefinition)
+	{
+		*OutRingDefinition = nullptr;
+	}
+
+	if (!HasRingDefinitions())
+	{
+		return 1.0f;
+	}
+
+	float BestWeight = 0.0f;
+	const FBiomeRingDefinition* BestRing = nullptr;
+
+	for (const FBiomeRingDefinition& Ring : BiomeRingDefinitions)
+	{
+		if (Ring.BiomeType != BiomeType)
+		{
+			continue;
+		}
+
+		const float BlendWidth = FMath::Max(Ring.BlendWidth, 1.0f);
+		float Weight = 0.0f;
+
+		if (DistanceFromCenter >= Ring.InnerRadius && DistanceFromCenter <= Ring.OuterRadius)
+		{
+			Weight = 1.0f;
+		}
+		else if (DistanceFromCenter >= Ring.InnerRadius - BlendWidth && DistanceFromCenter < Ring.InnerRadius)
+		{
+			const float T = (DistanceFromCenter - (Ring.InnerRadius - BlendWidth)) / BlendWidth;
+			Weight = FMath::Clamp(T, 0.0f, 1.0f);
+		}
+		else if (DistanceFromCenter > Ring.OuterRadius && DistanceFromCenter <= Ring.OuterRadius + BlendWidth)
+		{
+			const float T = ((Ring.OuterRadius + BlendWidth) - DistanceFromCenter) / BlendWidth;
+			Weight = FMath::Clamp(T, 0.0f, 1.0f);
+		}
+
+		if (Weight <= 0.0f)
+		{
+			continue;
+		}
+
+		const float Weighted = FMath::Clamp(Weight * FMath::Max(0.0f, Ring.Weight), 0.0f, 1.0f);
+		if (Weighted > BestWeight)
+		{
+			BestWeight = Weighted;
+			BestRing = &Ring;
+		}
+	}
+
+	if (OutRingDefinition)
+	{
+		*OutRingDefinition = BestRing;
+	}
+
+	return BestRing ? BestWeight : 0.0f;
+}
 bool UBiomeService::SaveBiomesToJSON(const FString& ConfigPath) const
 {
 	// Create the main JSON object

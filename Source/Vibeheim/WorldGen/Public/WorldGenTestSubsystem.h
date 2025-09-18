@@ -50,7 +50,8 @@ private:
 	// Console command management
 	void RegisterConsoleCommands();
 	void UnregisterConsoleCommands();
-	TArray<IConsoleObject*> RegisteredCommands;
+	TArray<FString> RegisteredCommandNames;
+	bool bCommandsRegistered = false;
 
 	// Map validation
 	bool IsValidTestMap() const;
@@ -96,3 +97,4 @@ private:
 	// Test map path constant
 	static const FString TestMapPath;
 };
+

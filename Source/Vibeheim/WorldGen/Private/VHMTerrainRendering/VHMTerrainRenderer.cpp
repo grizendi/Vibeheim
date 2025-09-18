@@ -1084,6 +1084,7 @@ bool UVHMTerrainRenderer::InitializeTerrainMaterialSystem()
     }
 
     TerrainMaterialSystem.SetObject(MaterialSystem);
+    TerrainMaterialSystem.SetInterface(MaterialSystem);
 
     // Initialize material system with biome service and VHM settings
     if (!MaterialSystem->Initialize(BiomeService, VHMSettings))

@@ -56,7 +56,7 @@
 
 ## Phase 3: Biome Ring System
 
-- [ ] 5. Implement biome ring progression in BiomeService
+- [x] 5. Implement biome ring progression in BiomeService
   - Extend BiomeService::CalculateBiomeSuitability method to factor radial distance from world center
   - Implement ring-based biome selection using FBiomeRingDefinition array from UBiomeDefinitionsAsset
   - Add ring bias calculation that weights biome selection based on distance from world center
@@ -65,6 +65,7 @@
   - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5_
   - _Deliverables: Enhanced BiomeService with ring progression_
   - _Acceptance: wg.rings.validate shows per-ring biome distribution within config, monotonicity in 3x3 neighborhoods_
+  - _Status: COMPLETE - Ring-configured biome weights now apply distance-based bands with climate fallback_
 
 ## Phase 4: Enhanced PCG System
 
