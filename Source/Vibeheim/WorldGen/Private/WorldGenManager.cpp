@@ -94,11 +94,9 @@ bool AWorldGenManager::InitializeWorldGenSystems()
     WorldGenSettings->Settings.LoadRadius = 5;
     WorldGenSettings->Settings.ActiveRadius = 3;
     UE_LOG(LogWorldGenManager, Log, TEXT("Applied fixed streaming radii: Generate=9, Load=5, Active=3"));
-
     // Resolve data assets (settings + biome definitions)
     ResolveWorldGenAssets();
-	ReloadWorldGenAssets();
-
+    ReloadWorldGenAssets();
 	// Configure VHM settings for seam prevention
 	if (!WorldGenSettings->VHMSettings.IsSet())
 	{
@@ -149,6 +147,8 @@ bool AWorldGenManager::InitializeWorldGenSystems()
 		UE_LOG(LogWorldGenManager, Error, TEXT("Failed to initialize PCG World Service"));
 		return false;
 	}
+	ReloadWorldGenAssets();
+
 
 	// Initialize POI Service
 	POIService = NewObject<UPOIService>(this);
@@ -369,6 +369,17 @@ void AWorldGenManager::ReloadWorldGenAssets()
         else
         {
             BiomeService->SetBiomeRingDefinitions(TArray<FBiomeRingDefinition>());
+        }
+    }
+    if (PCGWorldService)
+    {
+        if (BiomesAsset)
+        {
+            PCGWorldService->SetBiomeDefinitions(BiomesAsset->Biomes);
+        }
+        else
+        {
+            PCGWorldService->SetBiomeDefinitions(TMap<EBiomeType, FBiomeDefinition>());
         }
     }
 }

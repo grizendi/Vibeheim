@@ -464,10 +464,22 @@ struct VIBEHEIM_API FPCGSpawnParams
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PCG")
 	bool bForceBiome = false;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PCG")
+	float BiomeWeightScale = 1.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PCG")
+	float SlopeResponse = 1.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PCG")
+	float WaterResponse = 1.0f;
+
 	FPCGSpawnParams()
 	{
 		BiomeOverride.Reset();
 		bForceBiome = false;
+		BiomeWeightScale = 1.0f;
+		SlopeResponse = 1.0f;
+		WaterResponse = 1.0f;
 	}
 };
 

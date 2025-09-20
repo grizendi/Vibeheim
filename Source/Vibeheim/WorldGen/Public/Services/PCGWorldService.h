@@ -110,6 +110,18 @@ public:
 	bool LoadTileWithPersistence(FTileCoord TileCoord, EBiomeType BiomeType, const TArray<float>& HeightData);
 
 private:
+	struct FPCGTileMetrics
+	{
+		float AverageHeight = 0.0f;
+		float MinHeight = 0.0f;
+		float MaxHeight = 0.0f;
+		float AverageSlope = 0.0f;
+		float MaxSlope = 0.0f;
+		float WaterCoverageRatio = 0.0f;
+		float AverageAboveWater = 0.0f;
+		float AverageBelowWater = 0.0f;
+		float MinAbsWaterDistance = 0.0f;
+	};
 	UPROPERTY()
 	bool bHeadless = false;
 
@@ -140,6 +152,13 @@ private:
 	UPROPERTY()
 	TObjectPtr<AActor> TileActor;
 
+	UPROPERTY()
+	TMap<EBiomeType, TSoftObjectPtr<UPCGGraph>> BiomePCGGraphs;
+
+#if WITH_PCG
+	TMap<EBiomeType, TWeakObjectPtr<UPCGGraph>> ResolvedBiomeGraphs;
+#endif
+
 	// Performance and LOD settings
 	UPROPERTY()
 	int32 MaxInstancesPerTile;
@@ -164,14 +183,19 @@ private:
 	FPCGGenerationData GenerateContentInternal(FTileCoord TileCoord, EBiomeType BiomeType, const TArray<float>& HeightData);
 
 	/**
+	 * Attempt PCG graph-based content generation; returns true when graph execution succeeds
+	 */
+	bool TryGeneratePCGGraphContent(FTileCoord TileCoord, EBiomeType BiomeType, const TArray<float>& HeightData, const FPCGTileMetrics& TileMetrics, FPCGGenerationData& OutData);
+
+	/**
 	 * Generate content using PCG system
 	 */
-	FPCGGenerationData GeneratePCGContent(FTileCoord TileCoord, EBiomeType BiomeType, const TArray<float>& HeightData, UPCGGraph* PCGGraph);
+	FPCGGenerationData GeneratePCGContent(FTileCoord TileCoord, EBiomeType BiomeType, const TArray<float>& HeightData, UPCGGraph* PCGGraph, const FPCGTileMetrics* TileMetrics);
 
 	/**
 	 * Fallback content generation without PCG
 	 */
-	FPCGGenerationData GenerateFallbackContent(FTileCoord TileCoord, EBiomeType BiomeType, const TArray<float>& HeightData);
+	FPCGGenerationData GenerateFallbackContent(FTileCoord TileCoord, EBiomeType BiomeType, const TArray<float>& HeightData, bool bUsePCGHeuristics = false, const FPCGTileMetrics* TileMetrics = nullptr);
 
 	/**
 	 * Create HISM component for vegetation
@@ -181,12 +205,12 @@ private:
 	/**
 	 * Generate vegetation instances for a tile
 	 */
-	TArray<FPCGInstanceData> GenerateVegetationInstances(FTileCoord TileCoord, const FBiomeDefinition& BiomeDef, const TArray<float>& HeightData);
+	TArray<FPCGInstanceData> GenerateVegetationInstances(FTileCoord TileCoord, const FBiomeDefinition& BiomeDef, const TArray<float>& HeightData, const FPCGTileMetrics* TileMetrics = nullptr, bool bUsePCGHeuristics = false);
 
 	/**
 	 * Generate vegetation instances for a tile with spawn parameters (forced biome mode support)
 	 */
-	TArray<FPCGInstanceData> GenerateVegetationInstances(FTileCoord TileCoord, const FBiomeDefinition& BiomeDef, const TArray<float>& HeightData, const FPCGSpawnParams& SpawnParams);
+	TArray<FPCGInstanceData> GenerateVegetationInstances(FTileCoord TileCoord, const FBiomeDefinition& BiomeDef, const TArray<float>& HeightData, const FPCGSpawnParams& SpawnParams, const FPCGTileMetrics* TileMetrics = nullptr, bool bUsePCGHeuristics = false);
 
 	/**
 	 * Generate POI instances for a tile
@@ -217,6 +241,13 @@ private:
 	 * Generate Poisson disc sample point for better vegetation distribution
 	 */
 	FVector2D GeneratePoissonSample(FRandomStream& RandomStream, FVector2D TileStart, float TileSize, float MinDistance);
+	void GenerateClusteredSamples(FRandomStream& RandomStream, int32 InstanceCount, FVector2D TileStart, float TileSize, float MinDistance, TArray<FVector2D>& OutSamples) const;
+
+	FPCGTileMetrics AnalyzeTileMetrics(const TArray<float>& HeightData) const;
+
+	float ComputeEnvironmentScale(const FPCGTileMetrics& TileMetrics, const FPCGVegetationRule& VegRule) const;
+
+	UPCGGraph* ResolveBiomePCGGraph(EBiomeType BiomeType);
 
 	/**
 	 * Calculate slope at given heightfield position

@@ -118,6 +118,20 @@ bool UWorldGenSettings::ApplyFromAssets(const UWorldGenSettingsAsset* SettingsAs
     if (SettingsAsset)
     {
         // Store full configs for downstream services
+        Settings.Seed = SettingsAsset->CoreSettings.Seed;
+        Settings.WorldGenVersion = SettingsAsset->CoreSettings.WorldGenVersion;
+        Settings.GenerateRadius = SettingsAsset->CoreSettings.GenerateRadius;
+        Settings.LoadRadius = SettingsAsset->CoreSettings.LoadRadius;
+        Settings.ActiveRadius = SettingsAsset->CoreSettings.ActiveRadius;
+        Settings.BiomeScale = SettingsAsset->CoreSettings.BiomeScale;
+        Settings.BiomeBlendDistance = SettingsAsset->CoreSettings.BiomeBlendDistance;
+        Settings.TileGenTargetMs = SettingsAsset->CoreSettings.TileGenTargetMs;
+        Settings.PCGTargetMsPerTile = SettingsAsset->CoreSettings.PCGTargetMsPerTile;
+        Settings.bEnableWater = SettingsAsset->CoreSettings.bEnableWater;
+        Settings.bEnableRivers = SettingsAsset->CoreSettings.bEnableRivers;
+        Settings.bEnableRings = SettingsAsset->CoreSettings.bEnableRings;
+        Settings.bEnablePCGGraphs = SettingsAsset->CoreSettings.bEnablePCGGraphs;
+
         MacroWorldConfig = SettingsAsset->MacroWorld;
         StreamingBudgetsConfig = SettingsAsset->StreamingBudgets;
         RiverSystemConfig = SettingsAsset->RiverSystem;

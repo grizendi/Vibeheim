@@ -14,6 +14,9 @@ class VIBEHEIM_API UWorldGenSettingsAsset : public UPrimaryDataAsset
     GENERATED_BODY()
 
 public:
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "WorldGen", meta = (ShowOnlyInnerProperties))
+    FWorldGenConfig CoreSettings;
+
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "WorldGen")
     FMacroWorldConfig MacroWorld;
 

@@ -78,6 +78,7 @@
   - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5_
   - _Deliverables: Enhanced PCGWorldService with graph support and robust fallback_
   - _Acceptance: PCG graphs work when available, fallback maintains parity, error reporting clear_
+  - _Status: IN PROGRESS - PCGWorldService now resolves biome graphs, applies slope/water heuristics, and upgrades fallback spawning, but real graph execution still falls back to HISM generation_
 
 ## Phase 5: Water System Integration
 

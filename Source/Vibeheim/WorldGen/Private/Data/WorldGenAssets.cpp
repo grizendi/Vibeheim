@@ -16,6 +16,24 @@ bool UWorldGenSettingsAsset::ValidateAsset(TArray<FString>& OutErrors) const
         bOk = false;
     }
 
+    if (CoreSettings.GenerateRadius < 1 || CoreSettings.LoadRadius < 1 || CoreSettings.ActiveRadius < 1)
+    {
+        OutErrors.Add(TEXT("Streaming radii must be >= 1 tile"));
+        bOk = false;
+    }
+
+    if (CoreSettings.LoadRadius > CoreSettings.GenerateRadius)
+    {
+        OutErrors.Add(TEXT("LoadRadius must be <= GenerateRadius"));
+        bOk = false;
+    }
+
+    if (CoreSettings.ActiveRadius > CoreSettings.LoadRadius)
+    {
+        OutErrors.Add(TEXT("ActiveRadius must be <= LoadRadius"));
+        bOk = false;
+    }
+
     // Basic sanity for rivers
     if (RiverSystem.MinRiverWidth > RiverSystem.MaxRiverWidth)
     {
@@ -46,4 +64,3 @@ bool UBiomeDefinitionsAsset::ValidateAsset(TArray<FString>& OutErrors) const
     }
     return bOk;
 }
-

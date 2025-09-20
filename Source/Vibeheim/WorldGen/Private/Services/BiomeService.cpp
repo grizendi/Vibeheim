@@ -697,12 +697,18 @@ float UBiomeService::ComputeRingWeight(EBiomeType BiomeType, float DistanceFromC
 
 	float BestWeight = 0.0f;
 	const FBiomeRingDefinition* BestRing = nullptr;
+	const FBiomeRingDefinition* FirstMatchingRing = nullptr;
 
 	for (const FBiomeRingDefinition& Ring : BiomeRingDefinitions)
 	{
 		if (Ring.BiomeType != BiomeType)
 		{
 			continue;
+		}
+
+		if (!FirstMatchingRing)
+		{
+			FirstMatchingRing = &Ring;
 		}
 
 		const float BlendWidth = FMath::Max(Ring.BlendWidth, 1.0f);
@@ -725,6 +731,7 @@ float UBiomeService::ComputeRingWeight(EBiomeType BiomeType, float DistanceFromC
 
 		if (Weight <= 0.0f)
 		{
+			// Ring exists for this biome but the current position is outside its influence.
 			continue;
 		}
 
@@ -738,11 +745,18 @@ float UBiomeService::ComputeRingWeight(EBiomeType BiomeType, float DistanceFromC
 
 	if (OutRingDefinition)
 	{
-		*OutRingDefinition = BestRing;
+		*OutRingDefinition = BestRing ? BestRing : FirstMatchingRing;
+	}
+
+	if (!FirstMatchingRing)
+	{
+		// No ring data configured for this biome, fall back to pure climate weighting.
+		return 1.0f;
 	}
 
 	return BestRing ? BestWeight : 0.0f;
 }
+
 bool UBiomeService::SaveBiomesToJSON(const FString& ConfigPath) const
 {
 	// Create the main JSON object
@@ -841,3 +855,5 @@ bool UBiomeService::SaveBiomesToJSON(const FString& ConfigPath) const
 		BiomeDefinitions.Num(), *ConfigPath);
 	return true;
 }
+
+

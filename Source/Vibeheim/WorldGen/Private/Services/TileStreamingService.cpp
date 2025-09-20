@@ -74,8 +74,9 @@ bool UTileStreamingService::Initialize(const FWorldGenConfig& Settings,
 	}
 	CurrentBudgets.Clear();
 
-	// Ensure cache size respects configured limits
-	MaxCacheSize = FMath::Max(MaxCacheSize, StreamingBudgets.MaxActiveTiles);
+    // Ensure cache size respects configured limits and requested radii
+    const int32 RequiredTiles = FMath::Square((WorldGenSettings.GenerateRadius * 2) + 1);
+    MaxCacheSize = FMath::Max3(MaxCacheSize, StreamingBudgets.MaxActiveTiles, RequiredTiles);
 
     // Reset performance metrics
     PerformanceMetrics = FTileStreamingMetrics();

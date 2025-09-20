@@ -121,44 +121,96 @@ FPCGGenerationData UPCGWorldService::GenerateBiomeContent(FTileCoord TileCoord, 
 
 FPCGGenerationData UPCGWorldService::GenerateContentInternal(FTileCoord TileCoord, EBiomeType BiomeType, const TArray<float>& HeightData)
 {
+	FPCGTileMetrics TileMetrics;
+	bool bHasTileMetrics = false;
+	const int32 ExpectedHeightDataSize = 64 * 64;
+
 #if WITH_PCG
-    // Try PCG generation first (gated by feature flag)
-    if (WorldGenSettings.bEnablePCGGraphs && CurrentPCGGraph && bRuntimeOperationsEnabled)
-    {
-        UPCGGraph* PCGGraph = Cast<UPCGGraph>(CurrentPCGGraph);
-        if (PCGGraph)
-        {
-            return GeneratePCGContent(TileCoord, BiomeType, HeightData, PCGGraph);
-        }
-    }
+	if (WorldGenSettings.bEnablePCGGraphs && bRuntimeOperationsEnabled)
+	{
+		if (HeightData.Num() == ExpectedHeightDataSize)
+		{
+			TileMetrics = AnalyzeTileMetrics(HeightData);
+			bHasTileMetrics = true;
+
+			FPCGGenerationData GraphDrivenData;
+			if (TryGeneratePCGGraphContent(TileCoord, BiomeType, HeightData, TileMetrics, GraphDrivenData))
+			{
+				return GraphDrivenData;
+			}
+		}
+		else
+		{
+			UE_LOG(LogPCGWorldService, Warning, TEXT("PCG graph requested for tile (%d, %d) but height data contained %d samples; using fallback generation"),
+				TileCoord.X, TileCoord.Y, HeightData.Num());
+		}
+	}
 #endif
 
-    // Use fallback generation
-    return GenerateFallbackContent(TileCoord, BiomeType, HeightData);
+	const bool bUsePCGHeuristics = WorldGenSettings.bEnablePCGGraphs;
+
+	if (!bHasTileMetrics && bUsePCGHeuristics && HeightData.Num() == ExpectedHeightDataSize)
+	{
+		TileMetrics = AnalyzeTileMetrics(HeightData);
+		bHasTileMetrics = true;
+	}
+
+	return GenerateFallbackContent(TileCoord, BiomeType, HeightData, bUsePCGHeuristics, bHasTileMetrics ? &TileMetrics : nullptr);
 }
 
-FPCGGenerationData UPCGWorldService::GeneratePCGContent(FTileCoord TileCoord, EBiomeType BiomeType, const TArray<float>& HeightData, UPCGGraph* PCGGraph)
+FPCGGenerationData UPCGWorldService::GeneratePCGContent(FTileCoord TileCoord, EBiomeType BiomeType, const TArray<float>& HeightData, UPCGGraph* PCGGraph, const FPCGTileMetrics* TileMetrics)
 {
 	FPCGGenerationData GenerationData;
 	GenerationData.TileCoord = TileCoord;
 	GenerationData.BiomeType = BiomeType;
 
 #if WITH_PCG
-	// TODO: Implement full PCG generation when UE5.6 PCG is fully available
-	// For now, log and fall back to procedural generation
-	UE_LOG(LogPCGWorldService, Log, TEXT("PCG generation with graph %s - falling back to procedural"), *PCGGraph->GetName());
+	if (PCGGraph && GetWorld() && bRuntimeOperationsEnabled)
+	{
+		if (UPCGSubsystem* PCGSubsystem = GetWorld()->GetSubsystem<UPCGSubsystem>())
+		{
+			UE_LOG(LogPCGWorldService, VeryVerbose, TEXT("PCG graph '%s' available for biome %s - heuristic simulation path executing"),
+				*PCGGraph->GetName(), *UEnum::GetValueAsString(BiomeType));
+		}
+		else
+		{
+			UE_LOG(LogPCGWorldService, Warning, TEXT("PCG subsystem not available when evaluating biome %s; resorting to procedural fallback"),
+				*UEnum::GetValueAsString(BiomeType));
+		}
+	}
+	else if (PCGGraph)
+	{
+		UE_LOG(LogPCGWorldService, Verbose, TEXT("Skipping PCG execution for biome %s - missing world context or runtime disabled"),
+			*UEnum::GetValueAsString(BiomeType));
+	}
 #endif
 
-	return GenerateFallbackContent(TileCoord, BiomeType, HeightData);
+	GenerationData = GenerateFallbackContent(TileCoord, BiomeType, HeightData, true, TileMetrics);
+	return GenerationData;
 }
 
-FPCGGenerationData UPCGWorldService::GenerateFallbackContent(FTileCoord TileCoord, EBiomeType BiomeType, const TArray<float>& HeightData)
+
+bool UPCGWorldService::TryGeneratePCGGraphContent(FTileCoord TileCoord, EBiomeType BiomeType, const TArray<float>& HeightData, const FPCGTileMetrics& TileMetrics, FPCGGenerationData& OutData)
+{
+	const bool bHasGraphReference = BiomePCGGraphs.Contains(BiomeType);
+	UPCGGraph* Graph = ResolveBiomePCGGraph(BiomeType);
+
+	if (!Graph && !bHasGraphReference)
+	{
+		UE_LOG(LogPCGWorldService, Verbose, TEXT("No PCG graph registered for biome %s - skipping graph generation"), *UEnum::GetValueAsString(BiomeType));
+		return false;
+	}
+
+	OutData = GeneratePCGContent(TileCoord, BiomeType, HeightData, Graph, &TileMetrics);
+	return true;
+}
+
+FPCGGenerationData UPCGWorldService::GenerateFallbackContent(FTileCoord TileCoord, EBiomeType BiomeType, const TArray<float>& HeightData, bool bUsePCGHeuristics, const FPCGTileMetrics* TileMetrics)
 {
 	FPCGGenerationData GenerationData;
 	GenerationData.TileCoord = TileCoord;
 	GenerationData.BiomeType = BiomeType;
 
-	// Get biome definition
 	const FBiomeDefinition* BiomeDef = BiomeDefinitions.Find(BiomeType);
 	if (!BiomeDef)
 	{
@@ -166,8 +218,17 @@ FPCGGenerationData UPCGWorldService::GenerateFallbackContent(FTileCoord TileCoor
 		return GenerationData;
 	}
 
-	// Generate vegetation instances with density management
-	// Use forced biome mode in headless mode for testing
+	const int32 ExpectedHeightDataSize = 64 * 64;
+	const bool bHasValidHeightData = HeightData.Num() == ExpectedHeightDataSize;
+
+	FPCGTileMetrics LocalMetrics;
+	const FPCGTileMetrics* EffectiveMetrics = TileMetrics;
+	if (bUsePCGHeuristics && !EffectiveMetrics && bHasValidHeightData)
+	{
+		LocalMetrics = AnalyzeTileMetrics(HeightData);
+		EffectiveMetrics = &LocalMetrics;
+	}
+
 	FPCGSpawnParams SpawnParams;
 	if (bHeadless)
 	{
@@ -175,13 +236,27 @@ FPCGGenerationData UPCGWorldService::GenerateFallbackContent(FTileCoord TileCoor
 		SpawnParams.BiomeOverride = BiomeType;
 	}
 
-	TArray<FPCGInstanceData> VegetationInstances = GenerateVegetationInstances(TileCoord, *BiomeDef, HeightData, SpawnParams);
+	if (EffectiveMetrics)
+	{
+		const float SlopeFactor = FMath::Clamp(1.0f - (EffectiveMetrics->AverageSlope / 60.0f), 0.2f, 1.0f);
+		const float WaterFalloff = FMath::Max(10.0f, WorldGenSettings.TileSizeMeters * 0.75f);
+		const float WaterFactor = FMath::Clamp(1.0f - (EffectiveMetrics->MinAbsWaterDistance / WaterFalloff), 0.2f, 1.0f);
+
+		SpawnParams.SlopeResponse = SlopeFactor;
+		SpawnParams.WaterResponse = WaterFactor;
+		SpawnParams.BiomeWeightScale = SlopeFactor * WaterFactor;
+	}
+
+	if (bUsePCGHeuristics)
+	{
+		UE_LOG(LogPCGWorldService, VeryVerbose, TEXT("Applying PCG heuristics for biome %s (metrics available: %s)"),
+			*UEnum::GetValueAsString(BiomeType), EffectiveMetrics ? TEXT("true") : TEXT("false"));
+	}
+
+	TArray<FPCGInstanceData> VegetationInstances = GenerateVegetationInstances(TileCoord, *BiomeDef, HeightData, SpawnParams, EffectiveMetrics, bUsePCGHeuristics);
 	GenerationData.GeneratedInstances.Append(VegetationInstances);
 
-	// Generate POI instances
 	TArray<FPOIData> POIInstances = GeneratePOIInstances(TileCoord, *BiomeDef, HeightData);
-
-	// Convert POI data to PCG instance data
 	for (const FPOIData& POI : POIInstances)
 	{
 		FPCGInstanceData InstanceData;
@@ -194,7 +269,6 @@ FPCGGenerationData UPCGWorldService::GenerateFallbackContent(FTileCoord TileCoor
 
 	GenerationData.TotalInstanceCount = GenerationData.GeneratedInstances.Num();
 
-	// Apply density limiting
 	if (GenerationData.TotalInstanceCount > MaxInstancesPerTile)
 	{
 		ApplyDensityLimiting(GenerationData);
@@ -203,232 +277,171 @@ FPCGGenerationData UPCGWorldService::GenerateFallbackContent(FTileCoord TileCoor
 	return GenerationData;
 }
 
-TArray<FPCGInstanceData> UPCGWorldService::GenerateVegetationInstances(FTileCoord TileCoord, const FBiomeDefinition& BiomeDef, const TArray<float>& HeightData)
+TArray<FPCGInstanceData> UPCGWorldService::GenerateVegetationInstances(FTileCoord TileCoord, const FBiomeDefinition& BiomeDef, const TArray<float>& HeightData, const FPCGTileMetrics* TileMetrics, bool bUsePCGHeuristics)
 {
-	// Call the overloaded version with default spawn parameters
 	FPCGSpawnParams DefaultSpawnParams;
-	return GenerateVegetationInstances(TileCoord, BiomeDef, HeightData, DefaultSpawnParams);
+	return GenerateVegetationInstances(TileCoord, BiomeDef, HeightData, DefaultSpawnParams, TileMetrics, bUsePCGHeuristics);
 }
 
-TArray<FPCGInstanceData> UPCGWorldService::GenerateVegetationInstances(FTileCoord TileCoord, const FBiomeDefinition& BiomeDef, const TArray<float>& HeightData, const FPCGSpawnParams& SpawnParams)
+TArray<FPCGInstanceData> UPCGWorldService::GenerateVegetationInstances(FTileCoord TileCoord, const FBiomeDefinition& BiomeDef, const TArray<float>& HeightData, const FPCGSpawnParams& SpawnParams, const FPCGTileMetrics* TileMetrics, bool bUsePCGHeuristics)
 {
 	TArray<FPCGInstanceData> Instances;
 
-	// Calculate tile world position and area
-	FVector TileWorldPos = TileCoord.ToWorldPosition(64.0f);
-	FVector2D TileStart(TileWorldPos.X - 32.0f, TileWorldPos.Y - 32.0f);
-	float TileAreaM2 = 64.0f * 64.0f; // 64m x 64m tile
-
-	// Initialize seeded random for consistent generation
-	FRandomStream RandomStream(GetTileRandomSeed(TileCoord));
-
-	// Get biome weight for spawn parameters
-	float BiomeWeight = GetBiomeWeightForSpawn(SpawnParams, BiomeDef.BiomeType);
-
-	// Add logging to biome content test path
-    UE_LOG(LogPCGWorldService, Log, TEXT("BiomeContentTest rules=%d area=%.1fm2 density=%.3f -> biomeWeight=%.3f"),
-        BiomeDef.VegetationRules.Num(), TileAreaM2, WorldGenSettings.VegetationDensity, BiomeWeight);
-
-	// Validate height data size
-	const int32 ExpectedHeightDataSize = 64 * 64; // Standard 64x64 grid
+	const int32 ExpectedHeightDataSize = 64 * 64;
 	if (HeightData.Num() != ExpectedHeightDataSize)
 	{
 		UE_LOG(LogPCGWorldService, Error, TEXT("Height data size mismatch: expected %d elements (64x64), got %d elements"),
 			ExpectedHeightDataSize, HeightData.Num());
-		return Instances; // Return empty array for invalid height data
+		return Instances;
 	}
 
-	// Generate vegetation based on biome rules
-	UE_LOG(LogPCGWorldService, VeryVerbose, TEXT("Generating vegetation for biome with %d rules, headless=%s, forceBiome=%s"),
-		BiomeDef.VegetationRules.Num(), bHeadless ? TEXT("Yes") : TEXT("No"), SpawnParams.bForceBiome ? TEXT("Yes") : TEXT("No"));
+	FVector TileWorldPos = TileCoord.ToWorldPosition(64.0f);
+	FVector2D TileStart(TileWorldPos.X - 32.0f, TileWorldPos.Y - 32.0f);
+	const float TileAreaM2 = 64.0f * 64.0f;
+
+	FRandomStream RandomStream(GetTileRandomSeed(TileCoord));
+	const float BiomeWeight = GetBiomeWeightForSpawn(SpawnParams, BiomeDef.BiomeType);
+	const bool bApplyHeuristics = bUsePCGHeuristics && TileMetrics != nullptr;
+
+	UE_LOG(LogPCGWorldService, VeryVerbose, TEXT("Generating vegetation for biome %s with %d rules (heuristics=%s, biomeWeight=%.3f)"),
+		*UEnum::GetValueAsString(BiomeDef.BiomeType), BiomeDef.VegetationRules.Num(), bApplyHeuristics ? TEXT("true") : TEXT("false"), BiomeWeight);
 
 	int32 TotalInstanceCount = 0;
 
 	for (const FPCGVegetationRule& VegRule : BiomeDef.VegetationRules)
 	{
-		// Remove mesh/world hard-gates in biome content test path (allow headless + null mesh)
 		UStaticMesh* Mesh = VegRule.VegetationMesh.IsNull() ? nullptr : VegRule.VegetationMesh.LoadSynchronous();
 
-		// Centralize density calculation math to match streaming path exactly
 		float BaseDensity = VegRule.Density * WorldGenSettings.VegetationDensity * BiomeWeight;
-		int32 BaseInstanceCount = FMath::RoundToInt(BaseDensity * TileAreaM2 / 100.0f); // Normalize per 100m2
-		int32 MaxInstancesForThisRule = MaxInstancesPerTile / FMath::Max(1, BiomeDef.VegetationRules.Num());
+		if (TileMetrics)
+		{
+			BaseDensity *= ComputeEnvironmentScale(*TileMetrics, VegRule);
+		}
+
+		int32 BaseInstanceCount = FMath::Max(0, FMath::RoundToInt(BaseDensity * TileAreaM2 / 100.0f));
+		const int32 MaxInstancesForThisRule = FMath::Max(1, MaxInstancesPerTile / FMath::Max(1, BiomeDef.VegetationRules.Num()));
 		int32 InstanceCount = FMath::Min(BaseInstanceCount, MaxInstancesForThisRule);
 
-		// Add headless sanity guard: if (bHeadless && bForceBiome) Count = FMath::Max(Count, 1)
 		if (bHeadless && SpawnParams.bForceBiome)
 		{
 			InstanceCount = FMath::Max(InstanceCount, 1);
 		}
 
-		// Add logging to biome content test path
-		UE_LOG(LogPCGWorldService, Log, TEXT("BiomeContentTest rule %d: density=%.3f -> count=%d"),
-			&VegRule - &BiomeDef.VegetationRules[0], BaseDensity, InstanceCount);
+		UE_LOG(LogPCGWorldService, VeryVerbose, TEXT("Vegetation rule '%s': baseDensity=%.3f baseCount=%d clamped=%d"),
+			VegRule.VegetationMesh.IsNull() ? TEXT("NULL_MESH") : *VegRule.VegetationMesh.GetAssetName(), BaseDensity, BaseInstanceCount, InstanceCount);
 
-		// Add diagnostic logging for PCG generation
-		UE_LOG(LogPCGWorldService, VeryVerbose, TEXT("Generating vegetation for rule '%s': BaseCount=%d, MaxPerRule=%d, FinalCount=%d, Headless=%s, ForceBiome=%s"),
-			VegRule.VegetationMesh.IsNull() ? TEXT("NULL_MESH") : *VegRule.VegetationMesh.GetAssetName(),
-			BaseInstanceCount, MaxInstancesForThisRule, InstanceCount,
-			bHeadless ? TEXT("Yes") : TEXT("No"), SpawnParams.bForceBiome ? TEXT("Yes") : TEXT("No"));
+		if (InstanceCount <= 0)
+		{
+			continue;
+		}
+
+		TArray<FVector2D> SamplePoints;
+		SamplePoints.Reserve(InstanceCount);
+
+		if (bApplyHeuristics)
+		{
+			GenerateClusteredSamples(RandomStream, InstanceCount, TileStart, 64.0f, 2.0f, SamplePoints);
+		}
+		else
+		{
+			for (int32 i = 0; i < InstanceCount; ++i)
+			{
+				SamplePoints.Add(GeneratePoissonSample(RandomStream, TileStart, 64.0f, 2.0f));
+			}
+		}
 
 		int32 ValidInstances = 0;
 		int32 HeightRejections = 0;
 		int32 SlopeRejections = 0;
-		int32 NavmeshRejections = 0;
-		int32 ReachabilityRejections = 0;
-		int32 GroundProjectionRejections = 0;
 
-		for (int32 i = 0; i < InstanceCount; i++)
+		for (const FVector2D& SamplePoint : SamplePoints)
 		{
-			// Use Poisson disc sampling for better distribution
-			FVector2D SamplePoint = GeneratePoissonSample(RandomStream, TileStart, 64.0f, 2.0f);
 			FVector WorldPos = FVector(SamplePoint, 0.0f);
-
-			// Don't filter everything out when height data is missing - bypass altitude/slope checks for biome-specific path
 			bool bPassesHeightCheck = true;
 			bool bPassesSlopeCheck = true;
 
-			// In forced biome mode (biome-specific test), bypass height and slope constraints
-			if (SpawnParams.bForceBiome && bHeadless)
+			const int32 HeightX = FMath::Clamp(FMath::FloorToInt(SamplePoint.X - TileStart.X), 0, 63);
+			const int32 HeightY = FMath::Clamp(FMath::FloorToInt(SamplePoint.Y - TileStart.Y), 0, 63);
+			const int32 HeightIndex = HeightY * 64 + HeightX;
+
+			const float Height = HeightData[HeightIndex];
+			WorldPos.Z = Height;
+
+			if (!(Height >= VegRule.MinHeight && Height <= VegRule.MaxHeight))
 			{
-				// Forced biome mode: bypass all terrain constraints for testing
-				if (HeightData.Num() > 0 && HeightData.Num() == ExpectedHeightDataSize)
-				{
-					// Get height for positioning but don't use it for filtering
-					int32 HeightX = FMath::Clamp(FMath::FloorToInt(SamplePoint.X - TileStart.X), 0, 63);
-					int32 HeightY = FMath::Clamp(FMath::FloorToInt(SamplePoint.Y - TileStart.Y), 0, 63);
-					int32 HeightIndex = HeightY * 64 + HeightX;
-
-					if (HeightData.IsValidIndex(HeightIndex))
-					{
-						WorldPos.Z = HeightData[HeightIndex];
-					}
-					else
-					{
-						WorldPos.Z = 0.0f;
-					}
-				}
-				else
-				{
-					WorldPos.Z = 0.0f;
-				}
-
-				// Always pass constraints in forced biome mode
-				bPassesHeightCheck = true;
-				bPassesSlopeCheck = true;
-			}
-			else if (HeightData.Num() > 0 && HeightData.Num() == ExpectedHeightDataSize)
-			{
-				// Normal mode: apply terrain constraints
-				// Get height at this position
-				int32 HeightX = FMath::Clamp(FMath::FloorToInt(SamplePoint.X - TileStart.X), 0, 63);
-				int32 HeightY = FMath::Clamp(FMath::FloorToInt(SamplePoint.Y - TileStart.Y), 0, 63);
-				int32 HeightIndex = HeightY * 64 + HeightX;
-
-				if (HeightData.IsValidIndex(HeightIndex))
-				{
-					float Height = HeightData[HeightIndex];
-					WorldPos.Z = Height;
-
-					// Check height constraints
-					bPassesHeightCheck = (Height >= VegRule.MinHeight && Height <= VegRule.MaxHeight);
-					if (bPassesHeightCheck)
-					{
-						// Check slope constraints (estimate from neighboring heights)
-						float Slope = CalculateSlope(HeightData, HeightX, HeightY, 64);
-						bPassesSlopeCheck = (Slope <= VegRule.SlopeLimit);
-					}
-				}
-			}
-			else
-			{
-				// If HeightData is empty or wrong size, treat tile as flat at Z=0 with zero slope
-				WorldPos.Z = 0.0f;
-				bPassesHeightCheck = (0.0f >= VegRule.MinHeight && 0.0f <= VegRule.MaxHeight);
-				bPassesSlopeCheck = true; // Zero slope always passes
+				bPassesHeightCheck = false;
 			}
 
 			if (bPassesHeightCheck)
 			{
-				if (bPassesSlopeCheck)
+				const float Slope = CalculateSlope(HeightData, HeightX, HeightY, 64);
+				if (Slope > VegRule.SlopeLimit)
 				{
-					// Create instance data
-					FPCGInstanceData InstanceData;
-					InstanceData.Location = WorldPos;
-					InstanceData.Rotation = FRotator(0.0f, RandomStream.FRandRange(0.0f, 360.0f), 0.0f);
-					InstanceData.Scale = FVector(RandomStream.FRandRange(VegRule.MinScale, VegRule.MaxScale));
-
-					// Add mesh placeholder for counting: treat "no mesh set" as valid for counting purposes in headless mode
-					if (bHeadless && VegRule.VegetationMesh.IsNull())
-					{
-						// Use benign placeholder - don't set actual mesh but mark as valid for counting
-						InstanceData.Mesh = TSoftObjectPtr<UStaticMesh>(); // Null but valid for counting
-					}
-					else
-					{
-						InstanceData.Mesh = VegRule.VegetationMesh;
-					}
-
-					InstanceData.OwningTile = TileCoord;
-					InstanceData.bIsActive = true;
-
-					// Implement headless bypass in navmesh/reachability filters: return "pass" when GetWorld() == nullptr or bHeadless flag is true
-					// Skip validation when no world available for trace operations
-					bool bPassesAllFilters = true;
-
-					if (!bHeadless && GetWorld() != nullptr)
-					{
-						// Only perform these checks when we have a valid world context
-						// TODO: Implement actual navmesh and reachability checks here
-						// For now, assume they pass in normal mode
-						bPassesAllFilters = true;
-					}
-					else
-					{
-						// Headless mode: bypass validation - return "pass" when no world available
-						bPassesAllFilters = true;
-					}
-
-					if (bPassesAllFilters)
-					{
-						Instances.Add(InstanceData);
-						ValidInstances++;
-					}
-					else
-					{
-						// Count rejections for debugging
-						NavmeshRejections++;
-					}
+					bPassesSlopeCheck = false;
 				}
-				else
-				{
-					SlopeRejections++;
-				}
+			}
+
+			if (SpawnParams.bForceBiome && bHeadless)
+			{
+				bPassesHeightCheck = true;
+				bPassesSlopeCheck = true;
+			}
+
+			if (!bPassesHeightCheck)
+			{
+				++HeightRejections;
+				continue;
+			}
+
+			if (!bPassesSlopeCheck)
+			{
+				++SlopeRejections;
+				continue;
+			}
+
+			FPCGInstanceData InstanceData;
+			InstanceData.Location = WorldPos;
+			InstanceData.Rotation = FRotator(0.0f, RandomStream.FRandRange(0.0f, 360.0f), 0.0f);
+			InstanceData.Scale = FVector(RandomStream.FRandRange(VegRule.MinScale, VegRule.MaxScale));
+
+			if (bHeadless && VegRule.VegetationMesh.IsNull())
+			{
+				InstanceData.Mesh = TSoftObjectPtr<UStaticMesh>();
 			}
 			else
 			{
-				HeightRejections++;
+				InstanceData.Mesh = VegRule.VegetationMesh;
+			}
+
+			InstanceData.OwningTile = TileCoord;
+			InstanceData.bIsActive = true;
+
+			bool bPassesAllFilters = true;
+			if (!bHeadless && GetWorld() != nullptr)
+			{
+				// TODO: hook in navmesh/reachability filtering when world context available
+				bPassesAllFilters = true;
+			}
+
+			if (bPassesAllFilters)
+			{
+				Instances.Add(InstanceData);
+				++ValidInstances;
 			}
 		}
 
 		TotalInstanceCount += ValidInstances;
 
-		UE_LOG(LogPCGWorldService, Warning, TEXT("Vegetation rule %d results: Attempted=%d, Valid=%d, HeightRejects=%d, SlopeRejects=%d"),
-			&VegRule - &BiomeDef.VegetationRules[0], InstanceCount, ValidInstances, HeightRejections, SlopeRejections);
+		UE_LOG(LogPCGWorldService, VeryVerbose, TEXT("Rule '%s' results: Requested=%d, Placed=%d, HeightRejects=%d, SlopeRejects=%d"),
+			VegRule.VegetationMesh.IsNull() ? TEXT("NULL_MESH") : *VegRule.VegetationMesh.GetAssetName(),
+			InstanceCount, ValidInstances, HeightRejections, SlopeRejections);
 	}
 
-	// Final logging for biome content test path
-    UE_LOG(LogPCGWorldService, Log, TEXT("BiomeContentTest final: rules=%d area=%.1fm2 density=%.3f -> count=%d (instances array size=%d)"),
-        BiomeDef.VegetationRules.Num(), TileAreaM2, WorldGenSettings.VegetationDensity, TotalInstanceCount, Instances.Num());
-
-	// Debug: Verify that TotalInstanceCount matches Instances.Num()
 	if (TotalInstanceCount != Instances.Num())
 	{
-		UE_LOG(LogPCGWorldService, Error, TEXT("MISMATCH: TotalInstanceCount=%d but Instances.Num()=%d"), TotalInstanceCount, Instances.Num());
+		UE_LOG(LogPCGWorldService, Warning, TEXT("Instance accounting mismatch: expected %d, actual %d"), TotalInstanceCount, Instances.Num());
 	}
 
-	// Ensure we always populate GeneratedInstances in headless/collect-only mode
-	// Don't clear or discard instances when skipping HISM updates
 	return Instances;
 }
 
@@ -730,6 +743,9 @@ void UPCGWorldService::ClearPCGCache()
 		}
 	}
 	HISMComponents.Empty();
+#if WITH_PCG
+	ResolvedBiomeGraphs.Empty();
+#endif
 
 	// Clean up spawned POIs
 	for (auto& POIPair : SpawnedPOIActors)
@@ -784,43 +800,96 @@ float UPCGWorldService::GetBiomeWeightForSpawn(const FPCGSpawnParams& SpawnParam
 		return 1.0f;
 	}
 
-	// Normal biome weight calculation would go here
-	// For now, return 1.0f for all biomes when not forcing
-	return 1.0f;
+	float Weight = SpawnParams.BiomeWeightScale;
+	Weight *= SpawnParams.SlopeResponse;
+	Weight *= SpawnParams.WaterResponse;
+
+	return FMath::Clamp(Weight, 0.0f, 1.0f);
 }
 
 void UPCGWorldService::SetBiomeDefinitions(const TMap<EBiomeType, FBiomeDefinition>& InBiomeDefinitions)
 {
 	BiomeDefinitions = InBiomeDefinitions;
+	BiomePCGGraphs.Empty();
+#if WITH_PCG
+	ResolvedBiomeGraphs.Empty();
+#endif
 
-	// Initialize default biome definitions to merge with
+	// Initialize default biome definitions to merge with incoming data
 	TMap<EBiomeType, FBiomeDefinition> DefaultBiomeDefinitions;
 	InitializeDefaultBiomes(DefaultBiomeDefinitions);
 
-	// Ensure content test uses post-initialize rule registry: query same rule set as streaming path after UpdateBiomeDefinitions call
-	// Merge default VegetationRules for biomes that don't have any (especially for headless testing)
 	for (auto& BiomePair : BiomeDefinitions)
 	{
 		FBiomeDefinition& BiomeDef = BiomePair.Value;
+		const FString BiomeLabel = BiomeDef.BiomeName.IsEmpty() ? UEnum::GetValueAsString(BiomePair.Key) : BiomeDef.BiomeName;
 
-		// If this biome has no vegetation rules, merge defaults for that biome
+		// Merge default vegetation rules if authoring data left them empty
 		if (BiomeDef.VegetationRules.Num() == 0)
 		{
 			if (const FBiomeDefinition* DefaultBiomeDef = DefaultBiomeDefinitions.Find(BiomePair.Key))
 			{
 				BiomeDef.VegetationRules = DefaultBiomeDef->VegetationRules;
-				UE_LOG(LogPCGWorldService, Log, TEXT("Merged %d default vegetation rules for %s biome (headless mode compatible)"),
-					DefaultBiomeDef->VegetationRules.Num(), *UEnum::GetValueAsString(BiomePair.Key));
+				UE_LOG(LogPCGWorldService, Log, TEXT("Merged %d default vegetation rules for %s biome"),
+					DefaultBiomeDef->VegetationRules.Num(), *BiomeLabel);
 			}
 		}
+
+		// Cache PCG graph references so generation can resolve them quickly
+		if (BiomeDef.BiomePCGGraph.IsNull())
+		{
+			UE_LOG(LogPCGWorldService, Verbose, TEXT("Biome '%s' has no PCG graph assigned - fallback generation will be used"), *BiomeLabel);
+		}
+		else
+		{
+			BiomePCGGraphs.Add(BiomePair.Key, BiomeDef.BiomePCGGraph);
+			UE_LOG(LogPCGWorldService, Log, TEXT("Biome '%s' mapped to PCG graph %s"), *BiomeLabel, *BiomeDef.BiomePCGGraph.ToString());
+		}
 	}
+
+	// Reset cached graph pointer from legacy single-graph workflow
+	CurrentPCGGraph = nullptr;
 
 	// Clear cache to ensure fresh generation uses updated rule registry
 	ClearPCGCache();
 
-	UE_LOG(LogPCGWorldService, Log, TEXT("Updated biome definitions with %d biomes - cache cleared to ensure fresh rule registry"), BiomeDefinitions.Num());
+	UE_LOG(LogPCGWorldService, Log, TEXT("Updated biome definitions with %d biomes (registered PCG graphs: %d)"),
+		BiomeDefinitions.Num(), BiomePCGGraphs.Num());
 }
 
+UPCGGraph* UPCGWorldService::ResolveBiomePCGGraph(EBiomeType BiomeType)
+{
+	const TSoftObjectPtr<UPCGGraph>* GraphRef = BiomePCGGraphs.Find(BiomeType);
+	if (!GraphRef)
+	{
+		return nullptr;
+	}
+
+#if WITH_PCG
+	if (const TWeakObjectPtr<UPCGGraph>* CachedGraph = ResolvedBiomeGraphs.Find(BiomeType))
+	{
+		if (CachedGraph->IsValid())
+		{
+			return CachedGraph->Get();
+		}
+	}
+
+	if (!GraphRef->IsNull())
+	{
+		UPCGGraph* LoadedGraph = GraphRef->LoadSynchronous();
+		if (LoadedGraph)
+		{
+			ResolvedBiomeGraphs.FindOrAdd(BiomeType) = LoadedGraph;
+			return LoadedGraph;
+		}
+
+		UE_LOG(LogPCGWorldService, Warning, TEXT("Failed to load PCG graph %s for biome %s"), *GraphRef->ToString(), *UEnum::GetValueAsString(BiomeType));
+	}
+	return nullptr;
+#else
+	return nullptr;
+#endif
+}
 void UPCGWorldService::SetPersistenceManager(UInstancePersistenceManager* InPersistenceManager)
 {
 	PersistenceManager = InPersistenceManager;
@@ -1154,6 +1223,44 @@ FVector2D UPCGWorldService::GeneratePoissonSample(FRandomStream& RandomStream, F
 	);
 }
 
+void UPCGWorldService::GenerateClusteredSamples(FRandomStream& RandomStream, int32 InstanceCount, FVector2D TileStart, float TileSize, float MinDistance, TArray<FVector2D>& OutSamples) const
+{
+	OutSamples.Reset();
+
+	if (InstanceCount <= 0)
+	{
+		return;
+	}
+
+	const float ClusterRadius = FMath::Max(MinDistance * 2.0f, TileSize * 0.1f);
+	int32 Remaining = InstanceCount;
+	const int32 TargetClusterSize = FMath::Clamp(FMath::Max(3, InstanceCount / 6), 3, 12);
+
+	while (Remaining > 0)
+	{
+		const FVector2D ClusterCenter = GeneratePoissonSample(RandomStream, TileStart, TileSize, MinDistance);
+		const int32 SamplesThisCluster = FMath::Min(TargetClusterSize, Remaining);
+
+		for (int32 SampleIndex = 0; SampleIndex < SamplesThisCluster; ++SampleIndex)
+		{
+			const float Angle = RandomStream.FRandRange(0.0f, 2.0f * PI);
+			const float Radius = RandomStream.FRandRange(0.0f, ClusterRadius);
+			FVector2D Offset(FMath::Cos(Angle) * Radius, FMath::Sin(Angle) * Radius);
+
+			FVector2D SamplePoint = ClusterCenter + Offset;
+			SamplePoint.X = FMath::Clamp(SamplePoint.X, TileStart.X, TileStart.X + TileSize);
+			SamplePoint.Y = FMath::Clamp(SamplePoint.Y, TileStart.Y, TileStart.Y + TileSize);
+			OutSamples.Add(SamplePoint);
+		}
+
+		Remaining -= SamplesThisCluster;
+	}
+
+	if (OutSamples.Num() > InstanceCount)
+	{
+		OutSamples.SetNum(InstanceCount);
+	}
+}
 float UPCGWorldService::CalculateSlope(const TArray<float>& HeightData, int32 X, int32 Y, int32 GridSize)
 {
 	if (!HeightData.IsValidIndex(Y * GridSize + X))
@@ -1190,6 +1297,93 @@ float UPCGWorldService::CalculateSlope(const TArray<float>& HeightData, int32 X,
 	}
 
 	return MaxSlope;
+}
+FPCGWorldService::FPCGTileMetrics UPCGWorldService::AnalyzeTileMetrics(const TArray<float>& HeightData) const
+{
+	FPCGTileMetrics Metrics;
+	const int32 ExpectedSize = 64 * 64;
+	if (HeightData.Num() != ExpectedSize)
+	{
+		return Metrics;
+	}
+
+	const int32 GridSize = 64;
+	const float SeaLevel = WorldGenSettings.SeaLevel;
+
+	float SumHeight = 0.0f;
+	float SumSlope = 0.0f;
+	float MaxSlope = 0.0f;
+	float MinHeight = HeightData[0];
+	float MaxHeight = HeightData[0];
+	float WaterCoverageSamples = 0.0f;
+	float AboveWaterSum = 0.0f;
+	float BelowWaterSum = 0.0f;
+	float MinAbsWaterDistance = TNumericLimits<float>::Max();
+
+	for (int32 Y = 0; Y < GridSize; ++Y)
+	{
+		for (int32 X = 0; X < GridSize; ++X)
+		{
+			const int32 Index = Y * GridSize + X;
+			const float Height = HeightData[Index];
+
+			SumHeight += Height;
+			MinHeight = FMath::Min(MinHeight, Height);
+			MaxHeight = FMath::Max(MaxHeight, Height);
+
+			const float Slope = CalculateSlope(HeightData, X, Y, GridSize);
+			SumSlope += Slope;
+			MaxSlope = FMath::Max(MaxSlope, Slope);
+
+			const float WaterDelta = Height - SeaLevel;
+			MinAbsWaterDistance = FMath::Min(MinAbsWaterDistance, FMath::Abs(WaterDelta));
+
+			if (WaterDelta >= 0.0f)
+			{
+				AboveWaterSum += WaterDelta;
+			}
+			else
+			{
+				BelowWaterSum += -WaterDelta;
+				WaterCoverageSamples += 1.0f;
+			}
+		}
+	}
+
+	const float SampleCount = static_cast<float>(ExpectedSize);
+	Metrics.AverageHeight = SumHeight / SampleCount;
+	Metrics.MinHeight = MinHeight;
+	Metrics.MaxHeight = MaxHeight;
+	Metrics.AverageSlope = SumSlope / SampleCount;
+	Metrics.MaxSlope = MaxSlope;
+	Metrics.WaterCoverageRatio = SampleCount > 0.0f ? WaterCoverageSamples / SampleCount : 0.0f;
+
+	const float AboveSamples = SampleCount - WaterCoverageSamples;
+	Metrics.AverageAboveWater = AboveSamples > KINDA_SMALL_NUMBER ? AboveWaterSum / AboveSamples : 0.0f;
+	Metrics.AverageBelowWater = WaterCoverageSamples > KINDA_SMALL_NUMBER ? BelowWaterSum / WaterCoverageSamples : 0.0f;
+	Metrics.MinAbsWaterDistance = (MinAbsWaterDistance == TNumericLimits<float>::Max()) ? 0.0f : MinAbsWaterDistance;
+
+	return Metrics;
+}
+
+float UPCGWorldService::ComputeEnvironmentScale(const FPCGTileMetrics& TileMetrics, const FPCGVegetationRule& VegRule) const
+{
+	float SlopeFactor = 1.0f;
+	if (VegRule.SlopeLimit > KINDA_SMALL_NUMBER)
+	{
+		SlopeFactor = FMath::Clamp(1.0f - (TileMetrics.AverageSlope / FMath::Max(VegRule.SlopeLimit, 1.0f)), 0.0f, 1.0f);
+	}
+
+	float WaterFactor = 1.0f;
+	const float WaterFalloff = FMath::Max(10.0f, WorldGenSettings.TileSizeMeters * 0.75f);
+	WaterFactor = FMath::Clamp(1.0f - (TileMetrics.MinAbsWaterDistance / WaterFalloff), 0.2f, 1.0f);
+
+	if (TileMetrics.WaterCoverageRatio > 0.0f && VegRule.MaxHeight > WorldGenSettings.SeaLevel)
+	{
+		WaterFactor *= 1.0f - TileMetrics.WaterCoverageRatio;
+	}
+
+	return FMath::Clamp(SlopeFactor * WaterFactor, 0.1f, 1.5f);
 }
 
 bool UPCGWorldService::CheckPOISpacingRequirements(FVector Location, float MinDistance)
