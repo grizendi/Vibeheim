@@ -93,11 +93,6 @@ bool AWorldGenManager::InitializeWorldGenSystems()
 		return false;
 	}
 
-    // Apply fixed streaming radii for test world (Generate=9, Load=5, Active=3)
-    WorldGenSettings->Settings.GenerateRadius = 9;
-    WorldGenSettings->Settings.LoadRadius = 5;
-    WorldGenSettings->Settings.ActiveRadius = 3;
-    UE_LOG(LogWorldGenManager, Log, TEXT("Applied fixed streaming radii: Generate=9, Load=5, Active=3"));
     // Resolve data assets (settings + biome definitions)
     ResolveWorldGenAssets();
     ReloadWorldGenAssets();
