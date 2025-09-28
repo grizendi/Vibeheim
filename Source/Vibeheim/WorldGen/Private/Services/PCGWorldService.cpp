@@ -1211,7 +1211,7 @@ uint32 UPCGWorldService::GetTileRandomSeed(FTileCoord TileCoord) const
 	return HashCombine(HashCombine(GetTypeHash(TileCoord.X), GetTypeHash(TileCoord.Y)), GetTypeHash(WorldGenSettings.Seed));
 }
 
-FVector2D UPCGWorldService::GeneratePoissonSample(FRandomStream& RandomStream, FVector2D TileStart, float TileSize, float MinDistance)
+FVector2D UPCGWorldService::GeneratePoissonSample(FRandomStream& RandomStream, FVector2D TileStart, float TileSize, float MinDistance) const
 {
 	// Simple random sample within the tile. For production, implement true Poisson disk
 	// by checking against existing samples and using MinDistance.
@@ -1261,7 +1261,7 @@ void UPCGWorldService::GenerateClusteredSamples(FRandomStream& RandomStream, int
 		OutSamples.SetNum(InstanceCount);
 	}
 }
-float UPCGWorldService::CalculateSlope(const TArray<float>& HeightData, int32 X, int32 Y, int32 GridSize)
+float UPCGWorldService::CalculateSlope(const TArray<float>& HeightData, int32 X, int32 Y, int32 GridSize) const
 {
 	if (!HeightData.IsValidIndex(Y * GridSize + X))
 	{
@@ -1298,7 +1298,7 @@ float UPCGWorldService::CalculateSlope(const TArray<float>& HeightData, int32 X,
 
 	return MaxSlope;
 }
-FPCGWorldService::FPCGTileMetrics UPCGWorldService::AnalyzeTileMetrics(const TArray<float>& HeightData) const
+UPCGWorldService::FPCGTileMetrics UPCGWorldService::AnalyzeTileMetrics(const TArray<float>& HeightData) const
 {
 	FPCGTileMetrics Metrics;
 	const int32 ExpectedSize = 64 * 64;
@@ -1777,3 +1777,4 @@ void UPCGWorldService::InitializeDefaultBiomes(TMap<EBiomeType, FBiomeDefinition
 
 	UE_LOG(LogPCGWorldService, Log, TEXT("Initialized default biome definitions with vegetation rules for %d biomes"), OutDefaultBiomes.Num());
 }
+

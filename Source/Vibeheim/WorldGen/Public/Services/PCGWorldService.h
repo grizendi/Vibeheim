@@ -240,7 +240,7 @@ private:
 	/**
 	 * Generate Poisson disc sample point for better vegetation distribution
 	 */
-	FVector2D GeneratePoissonSample(FRandomStream& RandomStream, FVector2D TileStart, float TileSize, float MinDistance);
+	FVector2D GeneratePoissonSample(FRandomStream& RandomStream, FVector2D TileStart, float TileSize, float MinDistance) const;
 	void GenerateClusteredSamples(FRandomStream& RandomStream, int32 InstanceCount, FVector2D TileStart, float TileSize, float MinDistance, TArray<FVector2D>& OutSamples) const;
 
 	FPCGTileMetrics AnalyzeTileMetrics(const TArray<float>& HeightData) const;
@@ -252,7 +252,7 @@ private:
 	/**
 	 * Calculate slope at given heightfield position
 	 */
-	float CalculateSlope(const TArray<float>& HeightData, int32 X, int32 Y, int32 GridSize);
+	float CalculateSlope(const TArray<float>& HeightData, int32 X, int32 Y, int32 GridSize) const;
 
 	/**
 	 * Check if POI placement meets spacing requirements
@@ -289,3 +289,4 @@ private:
 	 */
 	void ApplyPOITerrainStamp(FVector Location, float Radius);
 };
+
