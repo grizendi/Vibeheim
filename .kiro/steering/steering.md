@@ -61,6 +61,8 @@ Data/config: Prefer existing UDataAsset/settings patterns over inventing new sub
 
 Interfaces: Always define both UYourInterface and IYourInterface.
 
+PCG Integration: Always check the PCG implementation strictly based on the UE 5.6 framework node reference found in: https://dev.epicgames.com/documentation/en-us/unreal-engine/procedural-content-generation-framework-node-reference-in-unreal-engine
+
 ---
 
 ## 4) Minimal Workflow the LLM Should Follow
