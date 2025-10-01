@@ -15,23 +15,226 @@
 // PCG includes (conditional)
 #if WITH_PCG
 #include "PCGComponent.h"
+#include "PCGDataCollection.h"
 #include "PCGGraph.h"
+#include "PCGGraphExecutor.h"
+#include "PCGParamData.h"
+#include "PCGPointData.h"
 #include "PCGSubsystem.h"
+#include "Metadata/PCGMetadata.h"
+#include "Metadata/PCGMetadataAttribute.h"
 #endif
 
 DEFINE_LOG_CATEGORY_STATIC(LogPCGWorldService, Log, All);
 
+#if WITH_PCG
+namespace PCGWorldService::Private
+{
+        static const FName Attribute_StaticMesh(TEXT("StaticMesh"));
+        static const FName Attribute_Mesh(TEXT("Mesh"));
+        static const FName Attribute_InstanceScale(TEXT("InstanceScale"));
+        static const FName Attribute_InstanceRotation(TEXT("InstanceRotation"));
+        static const FName Attribute_IsActive(TEXT("IsActive"));
+        static const FName Attribute_InstanceId(TEXT("InstanceId"));
+        static const FName Attribute_BiomeWeight(TEXT("BiomeWeight"));
+        static const FName Attribute_TileX(TEXT("TileX"));
+        static const FName Attribute_TileY(TEXT("TileY"));
+        static const FName Attribute_TileSeed(TEXT("TileSeed"));
+
+        static UPCGParamData* CreateTileParameterData(UObject* Outer, const UPCGWorldService::FPCGTileMetrics& TileMetrics,
+                FTileCoord TileCoord, EBiomeType BiomeType, const FWorldGenConfig& WorldGenSettings, uint32 TileSeed);
+
+        static UPCGPointData* CreateTilePointData(UObject* Outer, FTileCoord TileCoord, const FWorldGenConfig& WorldGenSettings,
+                const UPCGWorldService::FPCGTileMetrics& TileMetrics);
+
+        static void ExtractInstancesFromPointData(const UPCGPointData* PointData, FTileCoord TileCoord,
+                FPCGGenerationData& OutGenerationData);
+}
+#endif
+
 UPCGWorldService::UPCGWorldService()
 {
-	bRuntimeOperationsEnabled = true;
-	PerformanceStats = FPCGPerformanceStats();
-	CurrentPCGGraph = nullptr;
-	TileActor = nullptr;
-	MaxInstancesPerTile = 10000;
-	LODDistances.Add(500.0f);  // LOD 0-1 transition
-	LODDistances.Add(1500.0f); // LOD 1-2 transition
-	LODDistances.Add(5000.0f); // LOD 2-3 transition
+        bRuntimeOperationsEnabled = true;
+        PerformanceStats = FPCGPerformanceStats();
+        CurrentPCGGraph = nullptr;
+        TileActor = nullptr;
+        MaxInstancesPerTile = 10000;
+        LODDistances.Add(500.0f);  // LOD 0-1 transition
+        LODDistances.Add(1500.0f); // LOD 1-2 transition
+        LODDistances.Add(5000.0f); // LOD 2-3 transition
 }
+
+#if WITH_PCG
+UPCGParamData* PCGWorldService::Private::CreateTileParameterData(UObject* Outer,
+        const UPCGWorldService::FPCGTileMetrics& TileMetrics, FTileCoord TileCoord, EBiomeType BiomeType,
+        const FWorldGenConfig& WorldGenSettings, uint32 TileSeed)
+{
+        UPCGParamData* ParamData = NewObject<UPCGParamData>(Outer ? Outer : GetTransientPackage(), NAME_None, RF_Transient);
+        check(ParamData);
+
+        FPCGMetadata* Metadata = ParamData->MutableMetadata();
+        const FPCGMetadataEntryKey EntryKey = Metadata->AddEntry();
+
+        auto CreateFloatAttribute = [Metadata, EntryKey](const FName& AttributeName, float Value)
+        {
+                if (FPCGMetadataAttribute<float>* Attribute = Metadata->CreateAttribute<float>(AttributeName, Value, true, true))
+                {
+                        Metadata->SetValue(Attribute, EntryKey, Value);
+                }
+        };
+
+        auto CreateIntAttribute = [Metadata, EntryKey](const FName& AttributeName, int32 Value)
+        {
+                if (FPCGMetadataAttribute<int32>* Attribute = Metadata->CreateAttribute<int32>(AttributeName, Value, true, true))
+                {
+                        Metadata->SetValue(Attribute, EntryKey, Value);
+                }
+        };
+
+        auto CreateEnumAttribute = [Metadata, EntryKey](const FName& AttributeName, int32 Value)
+        {
+                if (FPCGMetadataAttribute<int32>* Attribute = Metadata->CreateAttribute<int32>(AttributeName, Value, true, true))
+                {
+                        Metadata->SetValue(Attribute, EntryKey, Value);
+                }
+        };
+
+        CreateFloatAttribute(TEXT("AverageHeight"), TileMetrics.AverageHeight);
+        CreateFloatAttribute(TEXT("MinHeight"), TileMetrics.MinHeight);
+        CreateFloatAttribute(TEXT("MaxHeight"), TileMetrics.MaxHeight);
+        CreateFloatAttribute(TEXT("AverageSlope"), TileMetrics.AverageSlope);
+        CreateFloatAttribute(TEXT("MaxSlope"), TileMetrics.MaxSlope);
+        CreateFloatAttribute(TEXT("WaterCoverage"), TileMetrics.WaterCoverageRatio);
+        CreateFloatAttribute(TEXT("AverageAboveWater"), TileMetrics.AverageAboveWater);
+        CreateFloatAttribute(TEXT("AverageBelowWater"), TileMetrics.AverageBelowWater);
+        CreateFloatAttribute(TEXT("MinWaterDistance"), TileMetrics.MinAbsWaterDistance);
+        CreateFloatAttribute(TEXT("SeaLevel"), WorldGenSettings.SeaLevel);
+        CreateEnumAttribute(TEXT("Biome"), static_cast<int32>(BiomeType));
+        CreateIntAttribute(Attribute_TileSeed, static_cast<int32>(TileSeed));
+        CreateIntAttribute(Attribute_TileX, TileCoord.X);
+        CreateIntAttribute(Attribute_TileY, TileCoord.Y);
+
+        // Provide tile size so graphs can reason about extents
+        CreateFloatAttribute(TEXT("TileSize"), WorldGenSettings.TileSizeMeters);
+        CreateFloatAttribute(Attribute_BiomeWeight, 1.0f);
+        return ParamData;
+}
+
+UPCGPointData* PCGWorldService::Private::CreateTilePointData(UObject* Outer, FTileCoord TileCoord,
+        const FWorldGenConfig& WorldGenSettings, const UPCGWorldService::FPCGTileMetrics& TileMetrics)
+{
+        UPCGPointData* PointData = NewObject<UPCGPointData>(Outer ? Outer : GetTransientPackage(), NAME_None, RF_Transient);
+        check(PointData);
+
+        TArray<FPCGPoint>& Points = PointData->GetMutablePoints();
+        FPCGPoint& TilePoint = Points.AddDefaulted_GetRef();
+
+        const FVector TileCenter = TileCoord.ToWorldPosition(WorldGenSettings.TileSizeMeters);
+        const FVector TileExtent(WorldGenSettings.TileSizeMeters * 0.5f, WorldGenSettings.TileSizeMeters * 0.5f,
+                WorldGenSettings.TileSizeMeters * 0.25f);
+
+        TilePoint.Transform = FTransform(FRotator::ZeroRotator, TileCenter, FVector::OneVector);
+        TilePoint.SetExtents(TileExtent);
+        TilePoint.Density = 1.0f;
+        TilePoint.Seed = GetTypeHash(TileCoord);
+
+        if (FPCGMetadata* Metadata = PointData->MutableMetadata())
+        {
+                const FPCGMetadataEntryKey EntryKey = Metadata->AddEntry();
+                TilePoint.MetadataEntry = EntryKey;
+                Metadata->CreateAttribute<float>(TEXT("AverageSlope"), TileMetrics.AverageSlope, true, true);
+        }
+
+        PointData->InitializeBounds();
+        return PointData;
+}
+
+void PCGWorldService::Private::ExtractInstancesFromPointData(const UPCGPointData* PointData, FTileCoord TileCoord,
+        FPCGGenerationData& OutGenerationData)
+{
+        if (!PointData)
+        {
+                return;
+        }
+
+        const FPCGMetadata* Metadata = PointData->Metadata();
+        const TArray<FPCGPoint>& Points = PointData->GetPoints();
+
+        for (const FPCGPoint& Point : Points)
+        {
+                FPCGInstanceData Instance;
+                Instance.Location = Point.Transform.GetLocation();
+                Instance.Rotation = Point.Transform.Rotator();
+                Instance.Scale = Point.Transform.GetScale3D();
+                Instance.OwningTile = TileCoord;
+
+                if (Metadata)
+                {
+                        const FPCGMetadataEntryKey EntryKey = Point.MetadataEntry;
+
+                        auto TryAssignSoftObject = [Metadata, EntryKey](const FName& AttributeName, TSoftObjectPtr<UStaticMesh>& OutValue)
+                        {
+                                if (!Metadata)
+                                {
+                                        return false;
+                                }
+
+                                FSoftObjectPath MeshPath;
+                                if (Metadata->GetAttribute<FSoftObjectPath>(AttributeName, EntryKey, MeshPath))
+                                {
+                                        if (!MeshPath.IsNull())
+                                        {
+                                                OutValue = TSoftObjectPtr<UStaticMesh>(MeshPath);
+                                                return true;
+                                        }
+                                }
+                                UObject* RawObject = nullptr;
+                                if (Metadata->GetAttribute<UObject*>(AttributeName, EntryKey, RawObject))
+                                {
+                                        if (UStaticMesh* Mesh = Cast<UStaticMesh>(RawObject))
+                                        {
+                                                OutValue = Mesh;
+                                                return true;
+                                        }
+                                }
+                                return false;
+                        };
+
+                        if (!TryAssignSoftObject(Attribute_StaticMesh, Instance.Mesh))
+                        {
+                                TryAssignSoftObject(Attribute_Mesh, Instance.Mesh);
+                        }
+
+                        bool bIsActive = true;
+                        Metadata->GetAttribute<bool>(Attribute_IsActive, EntryKey, bIsActive);
+                        Instance.bIsActive = bIsActive;
+
+                        FVector OverrideScale = Instance.Scale;
+                        if (Metadata->GetAttribute<FVector>(Attribute_InstanceScale, EntryKey, OverrideScale))
+                        {
+                                Instance.Scale = OverrideScale;
+                        }
+
+                        FRotator OverrideRotation = Instance.Rotation;
+                        if (Metadata->GetAttribute<FRotator>(Attribute_InstanceRotation, EntryKey, OverrideRotation))
+                        {
+                                Instance.Rotation = OverrideRotation;
+                        }
+
+                        FGuid InstanceGuid;
+                        if (Metadata->GetAttribute<FGuid>(Attribute_InstanceId, EntryKey, InstanceGuid))
+                        {
+                                if (InstanceGuid.IsValid())
+                                {
+                                        Instance.InstanceId = InstanceGuid;
+                                }
+                        }
+                }
+
+                OutGenerationData.GeneratedInstances.Add(Instance);
+        }
+}
+#endif
 
 bool UPCGWorldService::Initialize(const FWorldGenConfig& Settings)
 {
@@ -160,33 +363,113 @@ FPCGGenerationData UPCGWorldService::GenerateContentInternal(FTileCoord TileCoor
 
 FPCGGenerationData UPCGWorldService::GeneratePCGContent(FTileCoord TileCoord, EBiomeType BiomeType, const TArray<float>& HeightData, UPCGGraph* PCGGraph, const FPCGTileMetrics* TileMetrics)
 {
-	FPCGGenerationData GenerationData;
-	GenerationData.TileCoord = TileCoord;
-	GenerationData.BiomeType = BiomeType;
+        FPCGGenerationData GenerationData;
+        GenerationData.TileCoord = TileCoord;
+        GenerationData.BiomeType = BiomeType;
 
 #if WITH_PCG
-	if (PCGGraph && GetWorld() && bRuntimeOperationsEnabled)
-	{
-		if (UPCGSubsystem* PCGSubsystem = GetWorld()->GetSubsystem<UPCGSubsystem>())
-		{
-			UE_LOG(LogPCGWorldService, VeryVerbose, TEXT("PCG graph '%s' available for biome %s - heuristic simulation path executing"),
-				*PCGGraph->GetName(), *UEnum::GetValueAsString(BiomeType));
-		}
-		else
-		{
-			UE_LOG(LogPCGWorldService, Warning, TEXT("PCG subsystem not available when evaluating biome %s; resorting to procedural fallback"),
-				*UEnum::GetValueAsString(BiomeType));
-		}
-	}
-	else if (PCGGraph)
-	{
-		UE_LOG(LogPCGWorldService, Verbose, TEXT("Skipping PCG execution for biome %s - missing world context or runtime disabled"),
-			*UEnum::GetValueAsString(BiomeType));
-	}
+        if (PCGGraph && GetWorld() && bRuntimeOperationsEnabled)
+        {
+                UWorld* World = GetWorld();
+                UPCGSubsystem* PCGSubsystem = World ? World->GetSubsystem<UPCGSubsystem>() : nullptr;
+
+                if (!PCGSubsystem)
+                {
+                        UE_LOG(LogPCGWorldService, Warning,
+                                TEXT("PCG subsystem not available when evaluating biome %s; resorting to procedural fallback"),
+                                *UEnum::GetValueAsString(BiomeType));
+                }
+                else
+                {
+                        const double GraphStartSeconds = FPlatformTime::Seconds();
+                        const uint32 TileSeed = GetTileRandomSeed(TileCoord);
+
+                        FPCGDataCollection InputCollection;
+
+                        UPCGParamData* ParameterData = Private::CreateTileParameterData(this,
+                                TileMetrics ? *TileMetrics : FPCGTileMetrics(), TileCoord, BiomeType, WorldGenSettings, TileSeed);
+                        if (ParameterData)
+                        {
+                                FPCGTaggedData& ParameterEntry = InputCollection.TaggedData.AddDefaulted_GetRef();
+                                ParameterEntry.Data = ParameterData;
+                                ParameterEntry.Tags.Add(TEXT("TileParameters"));
+                        }
+
+                        UPCGPointData* TilePointData = Private::CreateTilePointData(this, TileCoord, WorldGenSettings,
+                                TileMetrics ? *TileMetrics : FPCGTileMetrics());
+                        if (TilePointData)
+                        {
+                                FPCGTaggedData& TileEntry = InputCollection.TaggedData.AddDefaulted_GetRef();
+                                TileEntry.Data = TilePointData;
+                                TileEntry.Tags.Add(TEXT("Tile"));
+                        }
+
+                        FPCGStack ExecutionStack;
+
+                        const FPCGTaskId TaskId = PCGSubsystem->RunGraph(PCGGraph, InputCollection, ExecutionStack);
+
+                        bool bGeneratedFromGraph = false;
+
+                        if (TaskId != FPCGTaskId())
+                        {
+                                PCGSubsystem->Wait(TaskId);
+
+                                if (const FPCGDataCollection* OutputCollection = PCGSubsystem->GetGraphOutput(TaskId))
+                                {
+                                        for (const FPCGTaggedData& TaggedOutput : OutputCollection->TaggedData)
+                                        {
+                                                if (const UPCGPointData* OutputPointData = Cast<UPCGPointData>(TaggedOutput.Data))
+                                                {
+                                                        Private::ExtractInstancesFromPointData(OutputPointData, TileCoord, GenerationData);
+                                                        bGeneratedFromGraph = true;
+                                                }
+                                        }
+                                }
+
+                                PCGSubsystem->Release(TaskId);
+                        }
+
+                        if (bGeneratedFromGraph)
+                        {
+                                GenerationData.TotalInstanceCount = GenerationData.GeneratedInstances.Num();
+                                GenerationData.GenerationTimeMs = static_cast<float>((FPlatformTime::Seconds() - GraphStartSeconds) * 1000.0);
+
+                                if (GenerationData.TotalInstanceCount > MaxInstancesPerTile)
+                                {
+                                        ApplyDensityLimiting(GenerationData);
+                                }
+
+                                if (GenerationData.TotalInstanceCount == 0)
+                                {
+                                        UE_LOG(LogPCGWorldService, Verbose,
+                                                TEXT("PCG graph '%s' produced no instances for biome %s on tile (%d, %d)"),
+                                                *PCGGraph->GetName(), *UEnum::GetValueAsString(BiomeType), TileCoord.X, TileCoord.Y);
+                                }
+                                else
+                                {
+                                        UE_LOG(LogPCGWorldService, VeryVerbose,
+                                                TEXT("PCG graph '%s' generated %d instances for biome %s on tile (%d, %d)"),
+                                                *PCGGraph->GetName(), GenerationData.TotalInstanceCount,
+                                                *UEnum::GetValueAsString(BiomeType), TileCoord.X, TileCoord.Y);
+                                }
+
+                                return GenerationData;
+                        }
+
+                        UE_LOG(LogPCGWorldService, Warning,
+                                TEXT("PCG graph '%s' failed to generate content for biome %s on tile (%d, %d); using fallback"),
+                                *PCGGraph->GetName(), *UEnum::GetValueAsString(BiomeType), TileCoord.X, TileCoord.Y);
+                }
+        }
+        else if (PCGGraph)
+        {
+                UE_LOG(LogPCGWorldService, Verbose, TEXT("Skipping PCG execution for biome %s - missing world context or runtime disabled"),
+                        *UEnum::GetValueAsString(BiomeType));
+        }
 #endif
 
-	GenerationData = GenerateFallbackContent(TileCoord, BiomeType, HeightData, true, TileMetrics);
-	return GenerationData;
+        GenerationData = GenerateFallbackContent(TileCoord, BiomeType, HeightData, true, TileMetrics);
+        return GenerationData;
 }
 
 
