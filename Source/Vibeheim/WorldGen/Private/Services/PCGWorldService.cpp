@@ -4,6 +4,23 @@
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "Components/HierarchicalInstancedStaticMeshComponent.h"
+#include "Components/SceneComponent.h"
+
+#if __has_include("PCGSubsystem.h")
+#define VIBEHEIM_PCG_ENABLED 1
+#include "PCGComponent.h"
+#include "PCGData.h"
+#include "PCGGraph.h"
+#include "PCGParamData.h"
+#include "Data/PCGPointData.h"
+#include "PCGSubsystem.h"
+#include "Graph/PCGStackContext.h"
+#include "Metadata/PCGMetadata.h"
+#include "Metadata/PCGMetadataAttribute.h"
+#else
+#define VIBEHEIM_PCG_ENABLED 0
+#endif
+
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
 #include "Misc/DateTime.h"
@@ -12,22 +29,10 @@
 #include "Data/InstancePersistence.h"
 #include "Data/SerializationShims.h"
 
-// PCG includes (conditional)
-#if WITH_PCG
-#include "PCGComponent.h"
-#include "PCGDataCollection.h"
-#include "PCGGraph.h"
-#include "PCGGraphExecutor.h"
-#include "PCGParamData.h"
-#include "PCGPointData.h"
-#include "PCGSubsystem.h"
-#include "Metadata/PCGMetadata.h"
-#include "Metadata/PCGMetadataAttribute.h"
-#endif
 
 DEFINE_LOG_CATEGORY_STATIC(LogPCGWorldService, Log, All);
 
-#if WITH_PCG
+#if VIBEHEIM_PCG_ENABLED
 namespace PCGWorldService::Private
 {
         static const FName Attribute_StaticMesh(TEXT("StaticMesh"));
@@ -64,7 +69,7 @@ UPCGWorldService::UPCGWorldService()
         LODDistances.Add(5000.0f); // LOD 2-3 transition
 }
 
-#if WITH_PCG
+#if VIBEHEIM_PCG_ENABLED
 UPCGParamData* PCGWorldService::Private::CreateTileParameterData(UObject* Outer,
         const UPCGWorldService::FPCGTileMetrics& TileMetrics, FTileCoord TileCoord, EBiomeType BiomeType,
         const FWorldGenConfig& WorldGenSettings, uint32 TileSeed)
@@ -253,7 +258,7 @@ bool UPCGWorldService::Initialize(const FWorldGenConfig& Settings)
 			TEXT("Headless mode: PCG running without UWorld; HISM updates will be skipped."));
 	}
 
-#if WITH_PCG
+#if VIBEHEIM_PCG_ENABLED
 	UE_LOG(LogPCGWorldService, Log, TEXT("PCG World Service initialized with PCG support"));
 #else
 	UE_LOG(LogPCGWorldService, Warning, TEXT("PCG World Service initialized without PCG support - using fallback generation"));
@@ -270,8 +275,8 @@ bool UPCGWorldService::InitializePCGGraph(UObject* BiomeGraph)
 		return false;
 	}
 
-#if WITH_PCG
-	// Validate that it's actually a PCG graph when PCG is available
+#if VIBEHEIM_PCG_ENABLED
+	// Validate that its actually a PCG graph when PCG is available
 	UPCGGraph* PCGGraph = Cast<UPCGGraph>(BiomeGraph);
 	if (!PCGGraph)
 	{
@@ -299,7 +304,7 @@ FPCGGenerationData UPCGWorldService::GenerateBiomeContent(FTileCoord TileCoord, 
 		UE_LOG(LogPCGWorldService, Log, TEXT("Forest rules: N=%d"), BiomeDef->VegetationRules.Num());
 	}
 
-	// For biome-specific generation (test path), don't use cache - always generate fresh
+	// For biome-specific generation (test path), dont use cache - always generate fresh
 	// This ensures we use the BiomeType parameter as authoritative rather than tile classification
 
 	// Generate new content using BiomeType as authoritative (not tile classification)
@@ -328,7 +333,7 @@ FPCGGenerationData UPCGWorldService::GenerateContentInternal(FTileCoord TileCoor
 	bool bHasTileMetrics = false;
 	const int32 ExpectedHeightDataSize = 64 * 64;
 
-#if WITH_PCG
+#if VIBEHEIM_PCG_ENABLED
 	if (WorldGenSettings.bEnablePCGGraphs && bRuntimeOperationsEnabled)
 	{
 		if (HeightData.Num() == ExpectedHeightDataSize)
@@ -367,7 +372,7 @@ FPCGGenerationData UPCGWorldService::GeneratePCGContent(FTileCoord TileCoord, EB
         GenerationData.TileCoord = TileCoord;
         GenerationData.BiomeType = BiomeType;
 
-#if WITH_PCG
+#if VIBEHEIM_PCG_ENABLED
         if (PCGGraph && GetWorld() && bRuntimeOperationsEnabled)
         {
                 UWorld* World = GetWorld();
@@ -442,13 +447,13 @@ FPCGGenerationData UPCGWorldService::GeneratePCGContent(FTileCoord TileCoord, EB
                                 if (GenerationData.TotalInstanceCount == 0)
                                 {
                                         UE_LOG(LogPCGWorldService, Verbose,
-                                                TEXT("PCG graph '%s' produced no instances for biome %s on tile (%d, %d)"),
+                                                TEXT("PCG graph %s produced no instances for biome %s on tile (%d, %d)"),
                                                 *PCGGraph->GetName(), *UEnum::GetValueAsString(BiomeType), TileCoord.X, TileCoord.Y);
                                 }
                                 else
                                 {
                                         UE_LOG(LogPCGWorldService, VeryVerbose,
-                                                TEXT("PCG graph '%s' generated %d instances for biome %s on tile (%d, %d)"),
+                                                TEXT("PCG graph %s generated %d instances for biome %s on tile (%d, %d)"),
                                                 *PCGGraph->GetName(), GenerationData.TotalInstanceCount,
                                                 *UEnum::GetValueAsString(BiomeType), TileCoord.X, TileCoord.Y);
                                 }
@@ -457,7 +462,7 @@ FPCGGenerationData UPCGWorldService::GeneratePCGContent(FTileCoord TileCoord, EB
                         }
 
                         UE_LOG(LogPCGWorldService, Warning,
-                                TEXT("PCG graph '%s' failed to generate content for biome %s on tile (%d, %d); using fallback"),
+                                TEXT("PCG graph %s failed to generate content for biome %s on tile (%d, %d); using fallback"),
                                 *PCGGraph->GetName(), *UEnum::GetValueAsString(BiomeType), TileCoord.X, TileCoord.Y);
                 }
         }
@@ -610,7 +615,7 @@ TArray<FPCGInstanceData> UPCGWorldService::GenerateVegetationInstances(FTileCoor
 			InstanceCount = FMath::Max(InstanceCount, 1);
 		}
 
-		UE_LOG(LogPCGWorldService, VeryVerbose, TEXT("Vegetation rule '%s': baseDensity=%.3f baseCount=%d clamped=%d"),
+		UE_LOG(LogPCGWorldService, VeryVerbose, TEXT("Vegetation rule %s: baseDensity=%.3f baseCount=%d clamped=%d"),
 			VegRule.VegetationMesh.IsNull() ? TEXT("NULL_MESH") : *VegRule.VegetationMesh.GetAssetName(), BaseDensity, BaseInstanceCount, InstanceCount);
 
 		if (InstanceCount <= 0)
@@ -715,7 +720,7 @@ TArray<FPCGInstanceData> UPCGWorldService::GenerateVegetationInstances(FTileCoor
 
 		TotalInstanceCount += ValidInstances;
 
-		UE_LOG(LogPCGWorldService, VeryVerbose, TEXT("Rule '%s' results: Requested=%d, Placed=%d, HeightRejects=%d, SlopeRejects=%d"),
+		UE_LOG(LogPCGWorldService, VeryVerbose, TEXT("Rule %s results: Requested=%d, Placed=%d, HeightRejects=%d, SlopeRejects=%d"),
 			VegRule.VegetationMesh.IsNull() ? TEXT("NULL_MESH") : *VegRule.VegetationMesh.GetAssetName(),
 			InstanceCount, ValidInstances, HeightRejections, SlopeRejections);
 	}
@@ -771,7 +776,7 @@ TArray<FPOIData> UPCGWorldService::GeneratePOIInstances(FTileCoord TileCoord, co
 				POIs.Add(POIData);
 				SpawnedPOIs.Add(POIData.POIId, POIData);
 
-				UE_LOG(LogPCGWorldService, Log, TEXT("Generated POI '%s' at (%.1f, %.1f, %.1f) on tile (%d, %d)"),
+				UE_LOG(LogPCGWorldService, Log, TEXT("Generated POI %s at (%.1f, %.1f, %.1f) on tile (%d, %d)"),
 					*POIData.POIName, POILocation.X, POILocation.Y, POILocation.Z, TileCoord.X, TileCoord.Y);
 			}
 		}
@@ -891,11 +896,12 @@ bool UPCGWorldService::UpdateHISMInstances(FTileCoord TileCoord)
 		UHierarchicalInstancedStaticMeshComponent* HISMComp = GetOrCreateHISMComponent(TileCoord, Mesh);
 		if (HISMComp)
 		{
+			HISMComp->SetMobility(EComponentMobility::Movable);
 			// Clear existing instances and add new ones
 			HISMComp->ClearInstances();
 			for (const FTransform& Transform : Transforms)
 			{
-				HISMComp->AddInstance(Transform);
+				HISMComp->AddInstance(Transform, /*bWorldSpace=*/true);
 			}
 
 			// Update performance stats
@@ -1026,7 +1032,7 @@ void UPCGWorldService::ClearPCGCache()
 		}
 	}
 	HISMComponents.Empty();
-#if WITH_PCG
+#if VIBEHEIM_PCG_ENABLED
 	ResolvedBiomeGraphs.Empty();
 #endif
 
@@ -1051,7 +1057,7 @@ bool UPCGWorldService::ValidatePCGGraph(const FString& GraphPath, TArray<FString
 {
 	OutErrors.Empty();
 
-#if WITH_PCG
+#if VIBEHEIM_PCG_ENABLED
 	// Load and validate the PCG graph
 	UObject* GraphObject = LoadObject<UObject>(nullptr, *GraphPath);
 	if (!GraphObject)
@@ -1094,7 +1100,7 @@ void UPCGWorldService::SetBiomeDefinitions(const TMap<EBiomeType, FBiomeDefiniti
 {
 	BiomeDefinitions = InBiomeDefinitions;
 	BiomePCGGraphs.Empty();
-#if WITH_PCG
+#if VIBEHEIM_PCG_ENABLED
 	ResolvedBiomeGraphs.Empty();
 #endif
 
@@ -1121,12 +1127,12 @@ void UPCGWorldService::SetBiomeDefinitions(const TMap<EBiomeType, FBiomeDefiniti
 		// Cache PCG graph references so generation can resolve them quickly
 		if (BiomeDef.BiomePCGGraph.IsNull())
 		{
-			UE_LOG(LogPCGWorldService, Verbose, TEXT("Biome '%s' has no PCG graph assigned - fallback generation will be used"), *BiomeLabel);
+			UE_LOG(LogPCGWorldService, Verbose, TEXT("Biome %s has no PCG graph assigned - fallback generation will be used"), *BiomeLabel);
 		}
 		else
 		{
 			BiomePCGGraphs.Add(BiomePair.Key, BiomeDef.BiomePCGGraph);
-			UE_LOG(LogPCGWorldService, Log, TEXT("Biome '%s' mapped to PCG graph %s"), *BiomeLabel, *BiomeDef.BiomePCGGraph.ToString());
+			UE_LOG(LogPCGWorldService, Log, TEXT("Biome %s mapped to PCG graph %s"), *BiomeLabel, *BiomeDef.BiomePCGGraph.ToString());
 		}
 	}
 
@@ -1148,7 +1154,7 @@ UPCGGraph* UPCGWorldService::ResolveBiomePCGGraph(EBiomeType BiomeType)
 		return nullptr;
 	}
 
-#if WITH_PCG
+#if VIBEHEIM_PCG_ENABLED
 	if (const TWeakObjectPtr<UPCGGraph>* CachedGraph = ResolvedBiomeGraphs.Find(BiomeType))
 	{
 		if (CachedGraph->IsValid())
@@ -1730,18 +1736,25 @@ void UPCGWorldService::CreateHISMComponentsForTile(FTileCoord TileCoord)
 		return;
 	}
 
-	// Create or get tile actor to hold HISM components
 	if (!TileActor)
 	{
 		FVector TileWorldPos = TileCoord.ToWorldPosition(64.0f);
 		FTransform ActorTransform(FRotator::ZeroRotator, TileWorldPos, FVector::OneVector);
-		TileActor = GetWorld()->SpawnActor<AActor>(AActor::StaticClass(), ActorTransform);
+		TileActor = World->SpawnActor<AActor>(AActor::StaticClass(), ActorTransform);
 #if WITH_EDITOR
 		TileActor->SetActorLabel(TEXT("PCGTileActor"));
 #endif
 	}
 
-	// Initialize empty array for this tile
+	if (TileActor && !TileActor->GetRootComponent())
+	{
+		USceneComponent* RootComponent = NewObject<USceneComponent>(TileActor, TEXT("PCGTileRoot"));
+		RootComponent->SetMobility(EComponentMobility::Movable);
+		TileActor->SetRootComponent(RootComponent);
+		RootComponent->SetWorldTransform(TileActor->GetActorTransform());
+		RootComponent->RegisterComponent();
+	}
+
 	FHISMComponentArray ComponentArray;
 	ComponentArray.Components = TArray<UHierarchicalInstancedStaticMeshComponent*>();
 	HISMComponents.Add(TileCoord, ComponentArray);
@@ -1756,7 +1769,6 @@ UHierarchicalInstancedStaticMeshComponent* UPCGWorldService::GetOrCreateHISMComp
 		return nullptr;
 	}
 
-	// Get components for this tile
 	FHISMComponentArray* TileComponentArray = HISMComponents.Find(TileCoord);
 	if (!TileComponentArray)
 	{
@@ -1764,7 +1776,11 @@ UHierarchicalInstancedStaticMeshComponent* UPCGWorldService::GetOrCreateHISMComp
 		TileComponentArray = HISMComponents.Find(TileCoord);
 	}
 
-	// Look for existing component with this mesh
+	if (!TileComponentArray)
+	{
+		return nullptr;
+	}
+
 	for (UHierarchicalInstancedStaticMeshComponent* Component : TileComponentArray->Components)
 	{
 		if (IsValid(Component) && Component->GetStaticMesh() == Mesh)
@@ -1773,26 +1789,44 @@ UHierarchicalInstancedStaticMeshComponent* UPCGWorldService::GetOrCreateHISMComp
 		}
 	}
 
-	// Create new HISM component
 	if (!TileActor)
 	{
-		FVector TileWorldPos = TileCoord.ToWorldPosition(64.0f);
-		FTransform ActorTransform(FRotator::ZeroRotator, TileWorldPos, FVector::OneVector);
-		TileActor = GetWorld()->SpawnActor<AActor>(AActor::StaticClass(), ActorTransform);
-#if WITH_EDITOR
-		TileActor->SetActorLabel(TEXT("PCGTileActor"));
-#endif
+		CreateHISMComponentsForTile(TileCoord);
+	}
+
+	if (!TileActor)
+	{
+		UE_LOG(LogPCGWorldService, Error, TEXT("Cannot create HISM component for tile (%d, %d) - tile actor is invalid"), TileCoord.X, TileCoord.Y);
+		return nullptr;
+	}
+
+	USceneComponent* RootComponent = TileActor->GetRootComponent();
+	if (!RootComponent)
+	{
+		CreateHISMComponentsForTile(TileCoord);
+		RootComponent = TileActor->GetRootComponent();
+	}
+
+	if (!RootComponent)
+	{
+		UE_LOG(LogPCGWorldService, Error, TEXT("Cannot create HISM component for tile (%d, %d) - root component missing"), TileCoord.X, TileCoord.Y);
+		return nullptr;
 	}
 
 	UHierarchicalInstancedStaticMeshComponent* NewComponent = NewObject<UHierarchicalInstancedStaticMeshComponent>(TileActor);
-	NewComponent->SetStaticMesh(Mesh);
-	NewComponent->SetWorldLocation(TileCoord.ToWorldPosition(64.0f));
-	NewComponent->AttachToComponent(TileActor->GetRootComponent(), FAttachmentTransformRules::KeepWorldTransform);
-	NewComponent->RegisterComponent();
+	if (!NewComponent)
+	{
+		UE_LOG(LogPCGWorldService, Error, TEXT("Failed to allocate HISM component for tile (%d, %d)"), TileCoord.X, TileCoord.Y);
+		return nullptr;
+	}
 
-	// Configure HISM settings for performance
+	NewComponent->SetStaticMesh(Mesh);
+	NewComponent->SetMobility(EComponentMobility::Movable);
+	NewComponent->SetCanEverAffectNavigation(false);
+	NewComponent->SetupAttachment(RootComponent);
 	NewComponent->SetCullDistances(LODDistances[0], LODDistances[2]);
-	NewComponent->bUseAsOccluder = false; // Vegetation typically shouldn't occlude
+	NewComponent->bUseAsOccluder = false; // Vegetation typically shouldnt occlude
+	NewComponent->RegisterComponent();
 
 	TileComponentArray->Components.Add(NewComponent);
 
@@ -1937,7 +1971,7 @@ bool UPCGWorldService::FindPOILocationStratified(FTileCoord TileCoord, const FPO
 		return true;
 	}
 
-	UE_LOG(LogPCGWorldService, Verbose, TEXT("Could not find suitable POI location for rule '%s' in tile (%d, %d)"),
+	UE_LOG(LogPCGWorldService, Verbose, TEXT("Could not find suitable POI location for rule %s in tile (%d, %d)"),
 		*POIRule.POIName, TileCoord.X, TileCoord.Y);
 
 	return false;

@@ -457,6 +457,11 @@ void AWorldGenManager::GenerateSurroundingTiles(const TArray<FTileCoord>& TilesT
 			// Generate PCG content for the tile
 			FPCGGenerationData PCGData = PCGWorldService->GenerateBiomeContent(
 				TileCoord, TileBiome, HeightfieldData.HeightData);
+			const bool bInstancesUpdated = PCGWorldService->UpdateHISMInstances(TileCoord);
+			if (!bInstancesUpdated)
+			{
+				UE_LOG(LogWorldGenManager, Warning, TEXT("Failed to update PCG instances for tile (%d, %d)"), TileCoord.X, TileCoord.Y);
+			}
 
 			double TileEndTime = FPlatformTime::Seconds();
 			float TileGenTime = static_cast<float>((TileEndTime - TileStartTime) * 1000.0);

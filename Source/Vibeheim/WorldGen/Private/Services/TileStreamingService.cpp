@@ -572,6 +572,11 @@ bool UTileStreamingService::GenerateSingleTileInternal(const FTileCoord& TileCoo
 		OutPCGMs = static_cast<float>((PCGEnd - PCGStart) * 1000.0);
 		OutTileData.PCGGenerationTimeMs = OutPCGMs;
 		OutTileData.bHasPCGContent = PCGData.TotalInstanceCount > 0;
+		const bool bInstancesUpdated = PCGWorldService->UpdateHISMInstances(TileCoord);
+		if (!bInstancesUpdated)
+		{
+			UE_LOG(LogTileStreaming, Warning, TEXT("Failed to update PCG instances for tile (%d, %d)"), TileCoord.X, TileCoord.Y);
+		}
 		OutTileData.State = ETileState::Generated;
 
 		// Calculate total generation time for rolling metrics (heightfield+biome+pcg)
