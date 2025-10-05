@@ -43,8 +43,20 @@ public class Vibeheim : ModuleRules
             PrivateDependencyModuleNames.Add("AutomationTest");
         }
 
-        // No extra include paths: Source/Vibeheim/Public and /Private are already roots.
-        // No engine-version checks: UE 5.6 ships PCG; your code requires it publicly.
+        // PCG feature flag for server builds
+        // Server targets should disable PCG to use HISM-only path
+        if (Target.Type == TargetType.Server)
+        {
+            PublicDefinitions.Add("VHM_PCG_ENABLED=0");
+        }
+        else
+        {
+            PublicDefinitions.Add("VHM_PCG_ENABLED=1");
+        }
+
+        // Engine version policy: UE 5.6.x only
+        // PCGVersionGuard.h enforces this at compile time with static_assert
+        // See: Source/Vibeheim/WorldGen/Public/PCGVersionGuard.h
     }
 }
 

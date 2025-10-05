@@ -1,6 +1,17 @@
-# Struct Initialization Validation Scripts
+# Vibeheim Validation Scripts
 
-This directory contains static analysis tools to validate UPROPERTY FGuid initialization patterns in Unreal Engine C++ code.
+This directory contains static analysis tools for validating code quality and API usage in the Vibeheim project.
+
+## Available Validators
+
+1. **Struct Initialization Validation** - Validates UPROPERTY FGuid initialization patterns
+2. **PCG API Validation** - Detects legacy PCG API usage (UE 5.6 migration)
+
+---
+
+# Struct Initialization Validation
+
+Validates UPROPERTY FGuid initialization patterns in Unreal Engine C++ code.
 
 ## Overview
 
@@ -216,5 +227,176 @@ python Scripts/validate_struct_initialization.py Source --fail-on-invalid
 
 - Python 3.6 or higher
 - Access to header files in the project
+- (Optional) Git for pre-commit hooks
+- (Optional) GitHub Actions for CI integration
+
+---
+
+# PCG API Validation
+
+Detects legacy pre-UE 5.6 PCG API usage in the WorldGen module to ensure proper migration to the UE 5.6 scheduler-based execution model.
+
+## Overview
+
+The PCG API validation scripts ensure that no legacy PCG APIs are used in the WorldGen module. This is critical for the UE 5.6 migration, which replaces synchronous execution patterns with an async scheduler-based model.
+
+## Files
+
+- `validate_pcg_apis.ps1` - PowerShell validation script
+- `validate_pcg_apis.bat` - Batch file wrapper for Windows
+- `.github/workflows/pcg-legacy-api-detection.yml` - CI workflow
+
+## Quick Start
+
+### Windows (PowerShell)
+```powershell
+# Basic validation
+.\Scripts\validate_pcg_apis.ps1
+
+# Fail on detection (CI mode)
+.\Scripts\validate_pcg_apis.ps1 -FailOnLegacyAPI
+
+# Generate report file
+.\Scripts\validate_pcg_apis.ps1 -FailOnLegacyAPI -OutputFile pcg_validation.txt
+```
+
+### Windows (Command Prompt)
+```cmd
+# Basic validation
+Scripts\validate_pcg_apis.bat
+
+# Fail on detection
+Scripts\validate_pcg_apis.bat -FailOnLegacyAPI
+```
+
+### Cross-Platform (PowerShell Core)
+```bash
+# Linux/Mac with PowerShell Core installed
+pwsh Scripts/validate_pcg_apis.ps1
+```
+
+## Validation Rules
+
+The validator checks for these legacy API patterns:
+
+### ❌ Legacy APIs (Pre-UE 5.6)
+```cpp
+// Legacy synchronous execution
+UPCGSubsystem::RunGraph(...)
+UPCGSubsystem::Wait(...)
+UPCGSubsystem::GetGraphOutput(...)
+UPCGSubsystem::Release(...)
+
+// Legacy data types
+FPCGDataCollection
+FPCGMetadata  // Replaced by UPCGMetadata
+```
+
+### ✅ UE 5.6 Scheduler APIs
+```cpp
+// Async scheduler-based execution
+UPCGSubsystem::ScheduleGraph(...)
+UPCGSubsystem::IsTaskComplete(...)
+UPCGSubsystem::ReleaseTask(...)
+
+// UE 5.6 data types
+FPCGInputSet / FPCGOutputSet  // Wrapper types
+UPCGMetadata  // UObject-based metadata
+```
+
+## Exclusions
+
+The following files are excluded from validation:
+
+- `PCGSchedulerExecutor.cpp` - Internal wrapper may use legacy types for scheduler interop
+- `Intermediate/` and `Binaries/` directories - Build artifacts
+- Third-party/engine code - Not in scope
+
+## CI Integration
+
+The validation is integrated into GitHub Actions via `.github/workflows/pcg-legacy-api-detection.yml`. It runs automatically on:
+- Push to main/develop branches
+- Pull requests to main/develop branches
+- Changes to WorldGen module files
+
+### CI Checks
+
+1. **Legacy API Detection** - Fails if legacy APIs found outside exclusions
+2. **PCGVersionGuard.h Existence** - Verifies version guard header exists
+3. **PCGVersionGuard.h Includes** - Warns if PCG files don't include the guard
+
+## Command Line Options
+
+### PowerShell Script Options
+```
+.\validate_pcg_apis.ps1 [options]
+
+Parameters:
+  -FailOnLegacyAPI        Exit with error code 1 if legacy APIs detected
+  -OutputFile <path>      Write validation report to file
+```
+
+## Examples
+
+### Basic Validation
+```powershell
+# Check for legacy APIs
+.\Scripts\validate_pcg_apis.ps1
+```
+
+### CI/CD Integration
+```powershell
+# Fail build if legacy APIs found
+.\Scripts\validate_pcg_apis.ps1 -FailOnLegacyAPI
+```
+
+### Generate Report
+```powershell
+# Save detailed report to file
+.\Scripts\validate_pcg_apis.ps1 -OutputFile pcg_validation_report.txt
+```
+
+## Migration Guide
+
+If legacy APIs are detected, refer to the migration guide:
+
+**Documentation:** `Docs/PCG-5.6.md`
+
+**Migration Table:**
+
+| Legacy API | UE 5.6 Equivalent | Notes |
+|-----------|-------------------|-------|
+| `RunGraph()` | `ScheduleGraph()` | Async scheduler, requires component context |
+| `Wait()` | Poll `IsTaskComplete()` | Frame-paced polling |
+| `GetGraphOutput()` | `GetTaskOutput()` | Extract via accessor APIs |
+| `Release()` | `ReleaseTask()` | Explicit cleanup |
+| `FPCGDataCollection` | `FPCGInputSet`/`FPCGOutputSet` | Wrapper types |
+| `FPCGMetadata` | `UPCGMetadata` | UObject-based, GC-managed |
+
+## Troubleshooting
+
+### PowerShell Execution Policy
+If you get an execution policy error:
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process
+.\Scripts\validate_pcg_apis.ps1
+```
+
+### False Positives
+If you need to use legacy types in a wrapper implementation:
+1. Name your file `PCGSchedulerExecutor.cpp` (already excluded)
+2. Or update the exclusion list in the CI workflow and validation script
+
+### Pre-commit Hook
+Add to `.git/hooks/pre-commit`:
+```bash
+#!/bin/sh
+pwsh Scripts/validate_pcg_apis.ps1 -FailOnLegacyAPI
+```
+
+## Requirements
+
+- PowerShell 5.1+ (Windows) or PowerShell Core 7+ (cross-platform)
+- Access to WorldGen module source files
 - (Optional) Git for pre-commit hooks
 - (Optional) GitHub Actions for CI integration

@@ -1,0 +1,91 @@
+name: PCG Legacy API Detection
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'Source/Vibeheim/WorldGen/**/*.cpp'
+      - 'Source/Vibeheim/WorldGen/**/*.h'
+      - 'Scripts/validate_pcg_apis.ps1'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'Source/Vibeheim/WorldGen/**/*.cpp'
+      - 'Source/Vibeheim/WorldGen/**/*.h'
+      - 'Scripts/validate_pcg_apis.ps1'
+
+jobs:
+  detect-legacy-pcg-apis:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Run PCG legacy API detection
+      shell: bash
+      run: |
+        echo "=== Checking for legacy PCG APIs in WorldGen module ==="
+        
+        # Define legacy API patterns to detect
+        LEGACY_PATTERNS="RunGraph|GetGraphOutput|FPCGDataCollection|FPCGMetadata"
+        
+        # Search for legacy APIs, excluding the scheduler wrapper
+        RESULTS=$(grep -rn -E "$LEGACY_PATTERNS" Source/Vibeheim/WorldGen \
+          --include="*.cpp" \
+          --include="*.h" \
+          --exclude="PCGSchedulerExecutor.cpp" \
+          --exclude-dir=".git" \
+          --exclude-dir="Intermediate" \
+          --exclude-dir="Binaries" || true)
+        
+        if [ -n "$RESULTS" ]; then
+          echo "❌ FAILED: Legacy PCG APIs detected!"
+          echo ""
+          echo "The following files contain legacy PCG API usage:"
+          echo "$RESULTS"
+          echo ""
+          echo "Legacy APIs (pre-UE 5.6) are not allowed outside PCGSchedulerExecutor.cpp"
+          echo "Please migrate to UE 5.6 scheduler APIs. See Docs/PCG-5.6.md for guidance."
+          exit 1
+        else
+          echo "✅ PASSED: No legacy PCG APIs detected"
+          echo "All PCG code uses UE 5.6 scheduler APIs"
+        fi
+      
+    - name: Verify PCGVersionGuard.h exists
+      shell: bash
+      run: |
+        if [ ! -f "Source/Vibeheim/WorldGen/Public/PCGVersionGuard.h" ]; then
+          echo "❌ FAILED: PCGVersionGuard.h not found!"
+          echo "This header is required for engine version enforcement"
+          exit 1
+        fi
+        echo "✅ PCGVersionGuard.h exists"
+        
+    - name: Check for PCGVersionGuard.h includes
+      shell: bash
+      run: |
+        echo "=== Verifying PCGVersionGuard.h is included in PCG files ==="
+        
+        # Find all files that use PCG APIs
+        PCG_FILES=$(grep -rl "UPCGSubsystem\|UPCGComponent\|UPCGMetadata\|UPCGData" Source/Vibeheim/WorldGen \
+          --include="*.cpp" \
+          --exclude-dir=".git" \
+          --exclude-dir="Intermediate" \
+          --exclude-dir="Binaries" || true)
+        
+        MISSING_GUARD=0
+        for file in $PCG_FILES; do
+          if ! grep -q "PCGVersionGuard.h" "$file"; then
+            echo "⚠️  WARNING: $file uses PCG APIs but doesn't include PCGVersionGuard.h"
+            MISSING_GUARD=1
+          fi
+        done
+        
+        if [ $MISSING_GUARD -eq 1 ]; then
+          echo ""
+          echo "Files using PCG APIs should include PCGVersionGuard.h for version enforcement"
+        else
+          echo "✅ All PCG files include PCGVersionGuard.h"
+        fi

@@ -6,11 +6,19 @@ This implementation plan breaks down the PCG UE 5.6 migration into discrete, man
 
 ## Task List
 
-- [ ] 0. Engine/Plugin Guards & CI Fail-Fast
+- [x] 0. Engine/Plugin Guards & CI Fail-Fast
+
+
+
+
+
+
   - Add engine version check and CI validation
   - _Requirements: All (prerequisite)_
 
-- [ ] 0.1 Add engine version static assertion
+- [x] 0.1 Add engine version static assertion
+
+
   - Create `Source/Vibeheim/WorldGen/Public/PCGVersionGuard.h` with static assertions (included by every TU touching PCG)
   - Add `static_assert(ENGINE_MAJOR_VERSION==5 && ENGINE_MINOR_VERSION==6, "Requires UE 5.6.x only");`
   - Add compile-time API existence check: `#if __has_include("PCGSubsystem.h") && defined(WITH_PCG)`
@@ -20,7 +28,9 @@ This implementation plan breaks down the PCG UE 5.6 migration into discrete, man
   - Document version policy explicitly in `/Docs/PCG-5.6.md`
   - _Requirements: All (prerequisite)_
 
-- [ ] 0.2 Add CI legacy API detection
+- [x] 0.2 Add CI legacy API detection
+
+
   - Add CI step: `grep` fail if `RunGraph|GetGraphOutput|FPCGDataCollection|FPCGMetadata` appear in `Source/Vibeheim/WorldGen` (exclude `PCGSchedulerExecutor.cpp` wrapper)
   - Scope greps to exclude third-party/engine and the scheduler wrapper implementation
   - Add automated check for legacy includes/usages
