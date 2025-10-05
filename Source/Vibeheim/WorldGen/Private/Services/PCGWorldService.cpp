@@ -17,6 +17,7 @@
 #include "Graph/PCGStackContext.h"
 #include "Metadata/PCGMetadata.h"
 #include "Metadata/PCGMetadataAttribute.h"
+#include "Helpers/PCGMetadataHelpers.h"
 #else
 #define VIBEHEIM_PCG_ENABLED 0
 #endif
@@ -24,6 +25,7 @@
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
 #include "Misc/DateTime.h"
+#include "Async/TaskGraphInterfaces.h"
 #include "GameFramework/Actor.h"
 #include "UObject/ConstructorHelpers.h"
 #include "Data/InstancePersistence.h"
@@ -32,6 +34,48 @@
 
 DEFINE_LOG_CATEGORY_STATIC(LogPCGWorldService, Log, All);
 
+#if VIBEHEIM_PCG_ENABLED
+namespace
+{
+	constexpr double GPCGGraphExecutionTimeoutSeconds = 5.0;
+
+	bool PumpPCGTaskUntilComplete(UPCGSubsystem* Subsystem, FPCGTaskId TaskId, FPCGDataCollection& OutData)
+	{
+		if (!Subsystem || TaskId == InvalidPCGTaskId)
+		{
+			return false;
+		}
+
+		static bool bIsPumping = false;
+		const double StartTime = FPlatformTime::Seconds();
+
+		while (true)
+		{
+			if (Subsystem->GetOutputData(TaskId, OutData))
+			{
+				return true;
+			}
+
+			const double Elapsed = FPlatformTime::Seconds() - StartTime;
+			if (Elapsed > GPCGGraphExecutionTimeoutSeconds)
+			{
+				break;
+			}
+
+			if (!bIsPumping)
+			{
+				TGuardValue<bool> PumpGuard(bIsPumping, true);
+				Subsystem->Tick(0.0f);
+			}
+
+			FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GameThread);
+			FPlatformProcess::SleepNoStats(0.0f);
+		}
+
+		return Subsystem->GetOutputData(TaskId, OutData);
+	}
+}
+#endif
 #if VIBEHEIM_PCG_ENABLED
 namespace PCGWorldService::Private
 {
@@ -2094,4 +2138,7 @@ void UPCGWorldService::InitializeDefaultBiomes(TMap<EBiomeType, FBiomeDefinition
 
 	UE_LOG(LogPCGWorldService, Log, TEXT("Initialized default biome definitions with vegetation rules for %d biomes"), OutDefaultBiomes.Num());
 }
+
+
+
 
