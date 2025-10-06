@@ -108,6 +108,23 @@ if (Settings->HasExecutionDependencyPin())
 }
 ```
 
+
+### Vibeheim Wrapper Types
+
+- `FPCGInputSet`, `FPCGOutputSet`, and `FPCGScheduleResult` live in `Source/Vibeheim/WorldGen/Public/Services/PCGWorldServiceTypes.h`. They gate all PCG inputs/outputs behind a stable map-based API and keep the transient data alive with `TStrongObjectPtr` until the scheduler releases the task.
+- `EPCGTaskState` and `FPCGTaskContext` track the scheduler lifecycle (Scheduled -> Completing -> Completed -> Released, or Abandoned). Context stores the owning world/tile plus strong refs so GC does not collect parameter data mid-run.
+- `VHMPCGAttr` namespace centralises attribute `FName` constants (`TileSeed`, `BiomeWeight`, `StaticMesh`, etc.) so call-sites never hardcode literal strings.
+
+### FPCGSchedulerExecutor helper
+
+- Implemented in `Source/Vibeheim/WorldGen/Private/Services/PCGSchedulerExecutor.{h,cpp}`. Wraps `UPCGSubsystem::ScheduleGraph` with validation, task tracking, and synchronous convenience helpers used by `UPCGWorldService`.
+- Validates pin names and data types against the graph input node. If a pin is unmatched it falls back to insertion order and emits a warning so designers know pin renames break determinism.
+- Builds `FPCGScheduleGraphParams` with the biome component as execution source and injects data through a lightweight `FVibeheimPCGInputElement`.
+- Tracks each task in a `TMap<FPCGTaskId, FScheduledTask>` with start time, cached outputs, and abandon/release state guarantees (`ReleaseTask` is idempotent, `AbandonTask` cancels and clears backpressure immediately).
+- Synchronous helper `RunGraphSync` polls with frame-friendly cadence controlled by `vhm.pcg.poll_ms` (default 12 ms) and fails fast after `vhm.pcg.timeout_ms` (default 5000 ms). Both CVars are documented for tuning and logged on timeout.
+- Extraction wraps `Subsystem.GetOutputData` and converts the result into `FPCGOutputSet`, summing point counts and preserving warnings/errors for the caller. CPU profiler markers (`PCG_Schedule`, `PCG_Extract`) bracket scheduler calls for tracing.
+- `UPCGWorldService` anchors execution through a hidden `PCGAnchor` actor and per-biome `UPCGComponent` instances to supply component context to the scheduler and keep hierarchical generation intact.
+
 ## Migration Table: Legacy → UE 5.6
 
 | Legacy API (Pre-5.6) | UE 5.6 Equivalent | Notes |
@@ -436,3 +453,7 @@ return GenerateFallbackContent(TileCoord, BiomeType, HeightData, TileMetrics);
 - **2025-01-05:** Initial UE 5.6 migration documentation
 - Engine version: UE 5.6.x
 - PCG plugin: Engine-bundled version
+
+
+
+

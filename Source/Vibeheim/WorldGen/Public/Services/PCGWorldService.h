@@ -3,18 +3,16 @@
 #include "CoreMinimal.h"
 #include "UObject/NoExportTypes.h"
 #include "Services/IPCGWorldService.h"
+#include "Services/PCGWorldServiceTypes.h"
 #include "Data/WorldGenTypes.h"
 #include "Engine/StaticMesh.h"
 #include "Components/HierarchicalInstancedStaticMeshComponent.h"
 #include "Data/SerializationShims.h"
 #include "PCGWorldService.generated.h"
 
-// Forward declarations
-class UStaticMeshComponent;
+// Forward declarations\r\nclass UStaticMeshComponent;
 class UHierarchicalInstancedStaticMeshComponent;
-class AActor;
-class UPCGGraph;
-class UInstancePersistenceManager;
+class AActor;\r\nclass UPCGGraph;\r\nclass UInstancePersistenceManager;\r\n#if VHM_PCG_ENABLED\r\nclass UPCGComponent;\r\nclass FPCGSchedulerExecutor;\r\n#endif
 
 /**
  * Wrapper struct for HISM components to make it compatible with TMap
@@ -110,18 +108,6 @@ public:
 	bool LoadTileWithPersistence(FTileCoord TileCoord, EBiomeType BiomeType, const TArray<float>& HeightData);
 
 private:
-	struct FPCGTileMetrics
-	{
-		float AverageHeight = 0.0f;
-		float MinHeight = 0.0f;
-		float MaxHeight = 0.0f;
-		float AverageSlope = 0.0f;
-		float MaxSlope = 0.0f;
-		float WaterCoverageRatio = 0.0f;
-		float AverageAboveWater = 0.0f;
-		float AverageBelowWater = 0.0f;
-		float MinAbsWaterDistance = 0.0f;
-	};
 	UPROPERTY()
 	bool bHeadless = false;
 
@@ -289,4 +275,8 @@ private:
 	 */
 	void ApplyPOITerrainStamp(FVector Location, float Radius);
 };
+
+
+
+
 

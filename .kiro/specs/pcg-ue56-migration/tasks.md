@@ -37,11 +37,11 @@ This implementation plan breaks down the PCG UE 5.6 migration into discrete, man
   - Document CI setup and exclusion rules in `/Docs/PCG-5.6.md`
   - _Requirements: 1.4_
 
-- [ ] 1. Phase 1: Foundation - API Inventory & Scheduler Executor
+- [x] 1. Phase 1: Foundation - API Inventory & Scheduler Executor
   - Create API documentation and implement core scheduler helper
   - _Requirements: 1, 2_
 
-- [ ] 1.1 Create PCG 5.6 API inventory document
+- [x] 1.1 Create PCG 5.6 API inventory document
   - Create `/Docs/PCG-5.6.md` documenting public APIs: `UPCGSubsystem::ScheduleGraph`, task handle management, `UPCGMetadata`, `PCGMetadataEntryKey`, attribute accessors
   - Document migration table mapping legacy APIs (`RunGraph`/`Wait`/`GetGraphOutput`/`Release`, `FPCGMetadata`, `FPCGDataCollection`) to 5.6 equivalents
   - Cross-reference all call sites in `PCGWorldService.cpp`, `WorldGenManager.cpp`, `TileStreamingService.cpp`
@@ -50,7 +50,7 @@ This implementation plan breaks down the PCG UE 5.6 migration into discrete, man
   - Note: document only public fields you set on `FPCGScheduleGraphParams` (don't enumerate engine internals)
   - _Requirements: 1.1, 1.2, 1.3, 1.4_
 
-- [ ] 1.2 Create shared types header
+- [x] 1.2 Create shared types header
   - Create `Source/Vibeheim/WorldGen/Public/Services/PCGWorldServiceTypes.h`
   - Move `FPCGTileMetrics` struct from private `.cpp` to shared header
   - Define `FPCGInputSet` struct with optional pin-name mapping: `TMap<FName, TObjectPtr<UPCGData>> Inputs` (prefer map over array for stability)
@@ -62,7 +62,7 @@ This implementation plan breaks down the PCG UE 5.6 migration into discrete, man
   - Document `TileSeed` as `int32` with mixing formula: `Hash(TileX, TileY, BiomeId, GlobalSeed)`
   - _Requirements: 1.2, 3.4_
 
-- [ ] 1.3 Implement FPCGSchedulerExecutor helper class
+- [x] 1.3 Implement FPCGSchedulerExecutor helper class
   - Create `Source/Vibeheim/WorldGen/Private/Services/PCGSchedulerExecutor.h` and `.cpp`
   - Document exact `ScheduleGraph` overload used: `UPCGSubsystem::ScheduleGraph(UPCGComponent*, FPCGTaskId, ...)` with source component for hierarchical/getter behavior
   - Build `FPCGScheduleGraphParams` with frustum culling policy and runtime scheduler settings
@@ -81,7 +81,7 @@ This implementation plan breaks down the PCG UE 5.6 migration into discrete, man
   - Add structured error logging with task ID, graph name, graph asset path, elapsed time
   - _Requirements: 2.1, 2.2, 6.1, 6.2_
 
-- [ ] 1.4 Write unit tests for FPCGSchedulerExecutor (NON-OPTIONAL - safety net)
+- [x] 1.4 Write unit tests for FPCGSchedulerExecutor (NON-OPTIONAL - safety net)
   - Create `Source/Vibeheim/WorldGen/Private/Tests/PCGSchedulerTests.cpp`
   - Use `FPCGInputSet`/`FPCGOutputSet` (not `FPCGDataCollection`)
   - Test `RunGraphSync` with valid graph (success case)
@@ -538,3 +538,4 @@ public:
     }
 };
 ```
+
