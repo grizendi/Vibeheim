@@ -185,11 +185,11 @@ This implementation plan breaks down the PCG UE 5.6 migration into discrete, man
   - Document scope rationale for each attribute
   - _Requirements: 3.4_
 
-- [ ] 3. Phase 3: Runtime Integration - Policies & Component Lifecycle
+- [x] 3. Phase 3: Runtime Integration - Policies & Component Lifecycle
   - Integrate runtime policies and fix component lifecycle
   - _Requirements: 5, 6, 7_
 
-- [ ] 3.1 Add frustum culling settings
+- [x] 3.1 Add frustum culling settings
   - Add `bEnableFrustumCulling` property to `FWorldGenConfig` or `UVibeheimSettings`
   - Add `FrustumCullingMargin` property (default 500.0f)
   - Add `FrustumCullingMarginByLOD` as `TMap<FName, float>` keyed by layer/partition name; fallback order: exact key → biome → global
@@ -200,7 +200,7 @@ This implementation plan breaks down the PCG UE 5.6 migration into discrete, man
   - Expose settings in editor UI with appropriate categories and tooltips
   - _Requirements: 5.2, 5.3_
 
-- [ ] 3.2 Update GeneratePCGContent to use scheduler
+- [x] 3.2 Update GeneratePCGContent to use scheduler
   - Early-out if `!bEnablePCGGraphs` → HISM fallback: `if (!WorldGenSettings.bEnablePCGGraphs) { return GenerateFallbackContent(...); }`
   - Compile-time gate for HISM-only builds: `#if !VHM_PCG_ENABLED`
   - Replace `PCGSubsystem->RunGraph` with `FPCGSchedulerExecutor::ScheduleGraphAsync`
@@ -217,7 +217,7 @@ This implementation plan breaks down the PCG UE 5.6 migration into discrete, man
   - On scheduler failure: log error with graph/biome/tile context, trigger HISM fallback
   - _Requirements: 2.1, 2.2, 2.3, 5.1, 5.4_
 
-- [ ] 3.3 Implement concurrent task tracking with cancellation
+- [x] 3.3 Implement concurrent task tracking with cancellation
   - Add `TMap<FPCGTaskId, FPCGTaskContext> ActiveTasks` member to `PCGWorldService` (tracks world/tile/state/input refs)
   - Implement `CanScheduleNewTask` method: check `ActiveTasks.Num() < MaxConcurrentPCGTasks` (abandoned tasks don't count toward backpressure)
   - Implement `TrackTask` method: add task context with `TStrongObjectPtr` refs to input data, transition to `Scheduled`, `check(IsInGameThread());`
@@ -231,7 +231,7 @@ This implementation plan breaks down the PCG UE 5.6 migration into discrete, man
   - Assert GT for `RegisterComponent()`/`UnregisterComponent()` and any actor/HISM touching
   - _Requirements: 5.3_
 
-- [ ] 3.4 Fix BiomePCGComponents map type
+- [x] 3.4 Fix BiomePCGComponents map type
   - Change `BiomePCGComponents` type from `TMap<EBiomeType, TObjectPtr<UObject>>` to `TMap<EBiomeType, TObjectPtr<UPCGComponent>>`
   - Store `BiomePCGGraphs` as `TSoftObjectPtr<UPCGGraph>`
   - Add "ensure loaded" helper with time budget so async loads don't stall streaming thread
@@ -239,7 +239,7 @@ This implementation plan breaks down the PCG UE 5.6 migration into discrete, man
   - Update all references to use correct type
   - _Requirements: 7.4_
 
-- [ ] 3.5 Implement component lifecycle methods
+- [x] 3.5 Implement component lifecycle methods
   - Spawn dedicated hidden, never-streamed "PCGAnchor" actor in persistent level if `AWorldGenManager` isn't guaranteed persistent
   - Implement `GetOrCreateBiomeComponent` method: use PCGAnchor actor as Outer for `UPCGComponent`, set graph, register with world, cache in map
   - Pass `UPCGComponent*` to scheduler as source component context (required for hierarchical generation, grid level scoping, getters)

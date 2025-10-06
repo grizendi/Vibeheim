@@ -7,9 +7,9 @@
 #include "Engine/EngineTypes.h"
 #include "Components/SceneComponent.h"
 #include "Algo/Sort.h"
+#include "PCGVersionGuard.h"
 
-#if __has_include("PCGSubsystem.h")
-#define VIBEHEIM_PCG_ENABLED 1
+#if VHM_PCG_ENABLED
 #include "PCGComponent.h"
 #include "PCGData.h"
 #include "PCGGraph.h"
@@ -21,23 +21,39 @@
 #include "Metadata/PCGMetadata.h"
 #include "Metadata/PCGMetadataAttribute.h"
 #include "Helpers/PCGMetadataHelpers.h"
-#else
-#define VIBEHEIM_PCG_ENABLED 0
 #endif
 
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
 #include "Misc/DateTime.h"
 #include "Async/TaskGraphInterfaces.h"
+#include "Async/Async.h"
 #include "GameFramework/Actor.h"
 #include "UObject/ConstructorHelpers.h"
 #include "Data/InstancePersistence.h"
 #include "Data/SerializationShims.h"
-#if WITH_EDITOR
 #include "HAL/IConsoleManager.h"
-#endif
 
 UE_DEFINE_LOG_CATEGORY(LogPCGWorldService);
+
+
+static TAutoConsoleVariable<int32> CVarVibeheimPCGMaxConcurrent(
+        TEXT("vhm.pcg.max_concurrent"),
+        4,
+        TEXT("Maximum number of concurrent runtime PCG scheduler tasks."),
+        ECVF_Default);
+
+static TAutoConsoleVariable<int32> CVarVibeheimPCGFrustumEnable(
+        TEXT("vhm.pcg.frustum.enable"),
+        1,
+        TEXT("Enables frustum culling for runtime PCG scheduling."),
+        ECVF_Default);
+
+static TAutoConsoleVariable<float> CVarVibeheimPCGFrustumMargin(
+        TEXT("vhm.pcg.frustum.margin"),
+        500.0f,
+        TEXT("Additional world-space margin added to frustum bounds when scheduling PCG tasks."),
+        ECVF_Default);
 
 
 #if WITH_EDITOR
@@ -67,7 +83,7 @@ namespace PCGWorldService::Editor
 }
 #endif
 
-#if VIBEHEIM_PCG_ENABLED
+#if VHM_PCG_ENABLED
 namespace PCGWorldService::Private
 {
     enum class EAttributeScope : uint8
@@ -228,10 +244,40 @@ UPCGWorldService::UPCGWorldService()
         LODDistances.Add(500.0f);  // LOD 0-1 transition
         LODDistances.Add(1500.0f); // LOD 1-2 transition
         LODDistances.Add(5000.0f); // LOD 2-3 transition
-#if VIBEHEIM_PCG_ENABLED
+#if VHM_PCG_ENABLED
     SchedulerExecutor = MakeUnique<FPCGSchedulerExecutor>();
+    RefreshRuntimeSettingsFromCVars();
+    ConsoleSinkHandle = IConsoleManager::Get().RegisterConsoleVariableSink_Handle(
+            FConsoleCommandDelegate::CreateUObject(this, &UPCGWorldService::HandleConsoleVariablesChanged));
 #endif
-#if VIBEHEIM_PCG_ENABLED
+void UPCGWorldService::BeginDestroy()
+{
+#if VHM_PCG_ENABLED
+    if (WorldCleanupHandle.IsValid())
+    {
+        FWorldDelegates::OnWorldCleanup.Remove(WorldCleanupHandle);
+        WorldCleanupHandle = FDelegateHandle();
+    }
+
+    if (ConsoleSinkHandle.IsValid())
+    {
+        IConsoleManager::Get().UnregisterConsoleVariableSink(ConsoleSinkHandle);
+        ConsoleSinkHandle = FConsoleVariableSinkHandle();
+    }
+
+    if (UWorld* World = GetWorld())
+    {
+        AbandonTasksForWorld(World);
+    }
+
+    ActiveTasks.Reset();
+    CleanupAllComponents();
+#endif
+
+    Super::BeginDestroy();
+}
+
+#if VHM_PCG_ENABLED
 AActor* UPCGWorldService::EnsurePCGAnchor(UWorld* World)
 {
     if (!World)
@@ -268,29 +314,28 @@ AActor* UPCGWorldService::EnsurePCGAnchor(UWorld* World)
     return AnchorActor;
 }
 
-UPCGComponent* UPCGWorldService::EnsureBiomeComponent(EBiomeType BiomeType, UPCGGraph* Graph)
+UPCGComponent* UPCGWorldService::GetOrCreateBiomeComponent(EBiomeType BiomeType, UPCGGraph& Graph)
 {
     check(IsInGameThread());
-    ensure(Graph != nullptr);
-
     UWorld* World = GetWorld();
     if (!World)
     {
         return nullptr;
     }
 
+    if (TObjectPtr<UPCGComponent>* ExistingPtr = BiomePCGComponents.Find(BiomeType))
+    {
+        if (UPCGComponent* ExistingComponent = ExistingPtr->Get())
+        {
+            ExistingComponent->SetGraph(&Graph);
+            return ExistingComponent;
+        }
+    }
+
     AActor* AnchorActor = EnsurePCGAnchor(World);
     if (!AnchorActor)
     {
         return nullptr;
-    }
-
-    if (TWeakObjectPtr<UPCGComponent>* ExistingPtr = BiomeComponents.Find(BiomeType))
-    {
-        if (UPCGComponent* ExistingComponent = ExistingPtr->Get())
-        {
-            return ExistingComponent;
-        }
     }
 
     UPCGComponent* NewComponent = NewObject<UPCGComponent>(AnchorActor, NAME_None, RF_Transient);
@@ -304,16 +349,175 @@ UPCGComponent* UPCGWorldService::EnsureBiomeComponent(EBiomeType BiomeType, UPCG
     NewComponent->SetComponentTickEnabled(false);
     NewComponent->bRuntimeGenerated = true;
     NewComponent->Seed = WorldGenSettings.Seed;
+    NewComponent->SetGraph(&Graph);
 
     AnchorActor->AddInstanceComponent(NewComponent);
     NewComponent->RegisterComponent();
 
-    BiomeComponents.Add(BiomeType, NewComponent);
+    BiomePCGComponents.FindOrAdd(BiomeType) = NewComponent;
     return NewComponent;
 }
-#endif // VIBEHEIM_PCG_ENABLED
 
-#if VIBEHEIM_PCG_ENABLED
+void UPCGWorldService::DestroyBiomeComponent(EBiomeType BiomeType)
+{
+    check(IsInGameThread());
+
+    if (TObjectPtr<UPCGComponent>* ComponentPtr = BiomePCGComponents.Find(BiomeType))
+    {
+        if (UPCGComponent* Component = ComponentPtr->Get())
+        {
+            Component->UnregisterComponent();
+            Component->DestroyComponent();
+        }
+
+        BiomePCGComponents.Remove(BiomeType);
+    }
+}
+
+void UPCGWorldService::CleanupAllComponents()
+{
+    check(IsInGameThread());
+
+    for (TPair<EBiomeType, TObjectPtr<UPCGComponent>>& Entry : BiomePCGComponents)
+    {
+        if (UPCGComponent* Component = Entry.Value.Get())
+        {
+            Component->UnregisterComponent();
+            Component->DestroyComponent();
+        }
+    }
+
+    BiomePCGComponents.Reset();
+    PCGAnchorActor.Reset();
+}
+
+bool UPCGWorldService::CanScheduleNewTask() const
+{
+    const int32 MaxConcurrent = FMath::Max(1, WorldGenSettings.MaxConcurrentPCGTasks);
+    int32 ActiveCount = 0;
+    for (const TPair<FPCGTaskId, FPCGTaskContext>& Entry : ActiveTasks)
+    {
+        if (Entry.Value.State != EPCGTaskState::Abandoned && Entry.Value.State != EPCGTaskState::Released)
+        {
+            ++ActiveCount;
+        }
+    }
+    return ActiveCount < MaxConcurrent;
+}
+
+void UPCGWorldService::TrackTask(const FPCGTaskContext& Context)
+{
+    check(IsInGameThread());
+    ActiveTasks.Add(Context.TaskId, Context);
+}
+
+void UPCGWorldService::ReleaseTrackedTask(FPCGTaskId TaskId)
+{
+    check(IsInGameThread());
+    ActiveTasks.Remove(TaskId);
+}
+
+void UPCGWorldService::HandleConsoleVariablesChanged()
+{
+    if (!IsInGameThread())
+    {
+        TWeakObjectPtr<UPCGWorldService> WeakThis(this);
+        AsyncTask(ENamedThreads::GameThread, [WeakThis]()
+        {
+            if (UPCGWorldService* StrongThis = WeakThis.Get())
+            {
+                StrongThis->RefreshRuntimeSettingsFromCVars();
+            }
+        });
+        return;
+    }
+
+    RefreshRuntimeSettingsFromCVars();
+}
+
+void UPCGWorldService::RefreshRuntimeSettingsFromCVars()
+{
+    check(IsInGameThread());
+
+    WorldGenSettings.MaxConcurrentPCGTasks = FMath::Max(1, CVarVibeheimPCGMaxConcurrent.GetValueOnGameThread());
+    WorldGenSettings.bEnableFrustumCulling = CVarVibeheimPCGFrustumEnable.GetValueOnGameThread() != 0;
+    WorldGenSettings.FrustumCullingMargin = FMath::Max(0.0f, CVarVibeheimPCGFrustumMargin.GetValueOnGameThread());
+}
+
+void UPCGWorldService::AbandonTasksForWorld(UWorld* World)
+{
+    if (!SchedulerExecutor.IsValid() || !World)
+    {
+        ActiveTasks.Reset();
+        return;
+    }
+
+    UPCGSubsystem* PCGSubsystem = World->GetSubsystem<UPCGSubsystem>();
+    if (!PCGSubsystem)
+    {
+        ActiveTasks.Reset();
+        return;
+    }
+
+    TArray<FPCGTaskId> TaskIds;
+    ActiveTasks.GetKeys(TaskIds);
+    for (FPCGTaskId TaskId : TaskIds)
+    {
+        if (FPCGTaskContext* Context = ActiveTasks.Find(TaskId))
+        {
+            if (Context->World == World)
+            {
+                SchedulerExecutor->AbandonTask(*PCGSubsystem, TaskId, *Context, TEXT("World cleanup"));
+                SchedulerExecutor->ReleaseTask(*PCGSubsystem, TaskId, *Context);
+                ReleaseTrackedTask(TaskId);
+            }
+        }
+    }
+}
+
+float UPCGWorldService::ResolveFrustumMargin(const UPCGComponent& Component, EBiomeType BiomeType) const
+{
+    const TMap<FName, float>& Overrides = WorldGenSettings.FrustumCullingMarginByLOD;
+
+    if (const float* Specific = Overrides.Find(Component.GetFName()))
+    {
+        return *Specific;
+    }
+
+    const FName BiomeKey(*UEnum::GetValueAsString(BiomeType));
+    if (const float* BiomeMargin = Overrides.Find(BiomeKey))
+    {
+        return *BiomeMargin;
+    }
+
+    if (const float* GlobalMargin = Overrides.Find(NAME_None))
+    {
+        return *GlobalMargin;
+    }
+
+    return WorldGenSettings.FrustumCullingMargin;
+}
+
+void UPCGWorldService::HandleWorldCleanup(UWorld* World, bool bSessionEnded, bool bCleanupResources)
+{
+    UE_UNUSED(bSessionEnded);
+
+    if (!World)
+    {
+        return;
+    }
+
+    AbandonTasksForWorld(World);
+
+    if (bCleanupResources && World == GetWorld())
+    {
+        CleanupAllComponents();
+    }
+}
+
+#endif // VHM_PCG_ENABLED
+
+#if VHM_PCG_ENABLED
 UPCGParamData* PCGWorldService::Private::CreateTileParameterData(UObject* Outer,
         const FPCGTileMetrics& TileMetrics, FTileCoord TileCoord, EBiomeType BiomeType,
         const FWorldGenConfig& WorldGenSettings, uint32 TileSeed)
@@ -648,7 +852,9 @@ void PCGWorldService::Private::ExtractInstancesFromPointData(const UPCGPointData
 
         OutGenerationData.TotalInstanceCount = OutGenerationData.GeneratedInstances.Num();
         OutGenerationData.InstanceTransformHash = CombinedHash;
-}\r\n\r\nUPCGWorldService::FAttributeValidationResult UPCGWorldService::ValidateInputAttributes(const UPCGParamData* ParameterData, const UPCGPointData* PointData) const
+}
+
+UPCGWorldService::FAttributeValidationResult UPCGWorldService::ValidateInputAttributes(const UPCGParamData* ParameterData, const UPCGPointData* PointData) const
 {
         FAttributeValidationResult Result;
 
@@ -745,33 +951,40 @@ void PCGWorldService::Private::ExtractInstancesFromPointData(const UPCGPointData
         }
 
         return Result;
-}\r\n\r\n
+}
+
+
 #endif
 
 bool UPCGWorldService::Initialize(const FWorldGenConfig& Settings)
 {
-	WorldGenSettings = Settings;
-	MaxInstancesPerTile = Settings.MaxHISMInstances;
-	InitializeDefaultBiomes();
+        WorldGenSettings = Settings;
+        MaxInstancesPerTile = Settings.MaxHISMInstances;
+        InitializeDefaultBiomes();
 
-	WorldGenSettings = Settings;
-	MaxInstancesPerTile = Settings.MaxHISMInstances;
-	InitializeDefaultBiomes();
+        WorldGenSettings = Settings;
+        MaxInstancesPerTile = Settings.MaxHISMInstances;
+        InitializeDefaultBiomes();
 
-	bHeadless = (GetWorld() == nullptr);
-	if (bHeadless)
+        bHeadless = (GetWorld() == nullptr);
+        if (bHeadless)
 	{
 		UE_LOG(LogPCGWorldService, Warning,
 			TEXT("Headless mode: PCG running without UWorld; HISM updates will be skipped."));
 	}
 
-#if VIBEHEIM_PCG_ENABLED
-	UE_LOG(LogPCGWorldService, Log, TEXT("PCG World Service initialized with PCG support"));
+#if VHM_PCG_ENABLED
+        UE_LOG(LogPCGWorldService, Log, TEXT("PCG World Service initialized with PCG support"));
+        RefreshRuntimeSettingsFromCVars();
+        if (!WorldCleanupHandle.IsValid())
+        {
+                WorldCleanupHandle = FWorldDelegates::OnWorldCleanup.AddUObject(this, &UPCGWorldService::HandleWorldCleanup);
+        }
 #else
-	UE_LOG(LogPCGWorldService, Warning, TEXT("PCG World Service initialized without PCG support - using fallback generation"));
+        UE_LOG(LogPCGWorldService, Warning, TEXT("PCG World Service initialized without PCG support - using fallback generation"));
 #endif
 
-	return true;
+        return true;
 }
 
 bool UPCGWorldService::InitializePCGGraph(UObject* BiomeGraph)
@@ -782,7 +995,7 @@ bool UPCGWorldService::InitializePCGGraph(UObject* BiomeGraph)
 		return false;
 	}
 
-#if VIBEHEIM_PCG_ENABLED
+#if VHM_PCG_ENABLED
 	// Validate that its actually a PCG graph when PCG is available
 	UPCGGraph* PCGGraph = Cast<UPCGGraph>(BiomeGraph);
 	if (!PCGGraph)
@@ -840,7 +1053,7 @@ FPCGGenerationData UPCGWorldService::GenerateContentInternal(FTileCoord TileCoor
 	bool bHasTileMetrics = false;
 	const int32 ExpectedHeightDataSize = 64 * 64;
 
-#if VIBEHEIM_PCG_ENABLED
+#if VHM_PCG_ENABLED
 	if (WorldGenSettings.bEnablePCGGraphs && bRuntimeOperationsEnabled)
 	{
 		if (HeightData.Num() == ExpectedHeightDataSize)
@@ -873,147 +1086,242 @@ FPCGGenerationData UPCGWorldService::GenerateContentInternal(FTileCoord TileCoor
 	return GenerateFallbackContent(TileCoord, BiomeType, HeightData, bUsePCGHeuristics, bHasTileMetrics ? &TileMetrics : nullptr);
 }
 
+void UPCGWorldService::AbandonTasksForTile(FTileCoord TileCoord)
+{
+#if VHM_PCG_ENABLED
+    if (!SchedulerExecutor.IsValid())
+    {
+        return;
+    }
+
+    UWorld* World = GetWorld();
+    if (!World)
+    {
+        return;
+    }
+
+    UPCGSubsystem* PCGSubsystem = World->GetSubsystem<UPCGSubsystem>();
+    if (!PCGSubsystem)
+    {
+        return;
+    }
+
+    TArray<FPCGTaskId> TaskIds;
+    ActiveTasks.GetKeys(TaskIds);
+    for (FPCGTaskId TaskId : TaskIds)
+    {
+        if (FPCGTaskContext* Context = ActiveTasks.Find(TaskId))
+        {
+            if (Context->TileCoord == TileCoord)
+            {
+                SchedulerExecutor->AbandonTask(*PCGSubsystem, TaskId, *Context, FString::Printf(TEXT("Tile (%d,%d) unload"), TileCoord.X, TileCoord.Y));
+                SchedulerExecutor->ReleaseTask(*PCGSubsystem, TaskId, *Context);
+                ReleaseTrackedTask(TaskId);
+            }
+        }
+    }
+#else
+    (void)TileCoord;
+#endif
+}
+
+
 FPCGGenerationData UPCGWorldService::GeneratePCGContent(FTileCoord TileCoord, EBiomeType BiomeType, const TArray<float>& HeightData, UPCGGraph* PCGGraph, const FPCGTileMetrics* TileMetrics)
 {
     FPCGGenerationData GenerationData;
     GenerationData.TileCoord = TileCoord;
     GenerationData.BiomeType = BiomeType;
 
-#if VIBEHEIM_PCG_ENABLED
-    bool bSchedulerSucceeded = false;
-
-    if (PCGGraph && SchedulerExecutor.IsValid() && bRuntimeOperationsEnabled)
+#if !VHM_PCG_ENABLED
+    return GenerateFallbackContent(TileCoord, BiomeType, HeightData, true, TileMetrics);
+#else
+    if (!WorldGenSettings.bEnablePCGGraphs || !bRuntimeOperationsEnabled || !PCGGraph)
     {
-        UWorld* World = GetWorld();
-        UPCGSubsystem* PCGSubsystem = World ? World->GetSubsystem<UPCGSubsystem>() : nullptr;
+        return GenerateFallbackContent(TileCoord, BiomeType, HeightData, true, TileMetrics);
+    }
 
-        const FString TileLabel = FString::Printf(TEXT("(%d,%d)"), TileCoord.X, TileCoord.Y);
+    if (!SchedulerExecutor.IsValid())
+    {
+        UE_LOG(LogPCGWorldService, Warning, TEXT("Scheduler executor unavailable; falling back for biome %s on tile (%d,%d)."), *UEnum::GetValueAsString(BiomeType), TileCoord.X, TileCoord.Y);
+        return GenerateFallbackContent(TileCoord, BiomeType, HeightData, true, TileMetrics);
+    }
 
-        if (!World)
+    UWorld* World = GetWorld();
+    if (!World)
+    {
+        UE_LOG(LogPCGWorldService, Warning, TEXT("World context unavailable; falling back for biome %s on tile (%d,%d)."), *UEnum::GetValueAsString(BiomeType), TileCoord.X, TileCoord.Y);
+        return GenerateFallbackContent(TileCoord, BiomeType, HeightData, true, TileMetrics);
+    }
+
+    UPCGSubsystem* PCGSubsystem = World->GetSubsystem<UPCGSubsystem>();
+    if (!PCGSubsystem)
+    {
+        UE_LOG(LogPCGWorldService, Warning, TEXT("PCG subsystem unavailable; falling back for biome %s on tile (%d,%d)."), *UEnum::GetValueAsString(BiomeType), TileCoord.X, TileCoord.Y);
+        return GenerateFallbackContent(TileCoord, BiomeType, HeightData, true, TileMetrics);
+    }
+
+    AActor* AnchorActor = EnsurePCGAnchor(World);
+    if (!AnchorActor)
+    {
+        UE_LOG(LogPCGWorldService, Error, TEXT("Failed to create PCG anchor actor; falling back for tile (%d,%d)."), TileCoord.X, TileCoord.Y);
+        return GenerateFallbackContent(TileCoord, BiomeType, HeightData, true, TileMetrics);
+    }
+
+    UPCGComponent* Component = GetOrCreateBiomeComponent(BiomeType, *PCGGraph);
+    if (!Component)
+    {
+        UE_LOG(LogPCGWorldService, Warning, TEXT("Failed to resolve PCG component; falling back for biome %s on tile (%d,%d)."), *UEnum::GetValueAsString(BiomeType), TileCoord.X, TileCoord.Y);
+        return GenerateFallbackContent(TileCoord, BiomeType, HeightData, true, TileMetrics);
+    }
+
+    if (!CanScheduleNewTask())
+    {
+        UE_LOG(LogPCGWorldService, Warning, TEXT("Reached maximum concurrent PCG tasks (%d); falling back for tile (%d,%d)."), WorldGenSettings.MaxConcurrentPCGTasks, TileCoord.X, TileCoord.Y);
+        return GenerateFallbackContent(TileCoord, BiomeType, HeightData, true, TileMetrics);
+    }
+
+    const int32 ExpectedHeightSamples = 64 * 64;
+    const bool bHasHeightData = HeightData.Num() == ExpectedHeightSamples;
+
+    FPCGTileMetrics LocalMetrics;
+    const FPCGTileMetrics* EffectiveMetrics = TileMetrics;
+    if (!EffectiveMetrics && bHasHeightData)
+    {
+        LocalMetrics = AnalyzeTileMetrics(HeightData);
+        EffectiveMetrics = &LocalMetrics;
+    }
+
+    const uint32 TileSeed = GetTileRandomSeed(TileCoord);
+    UObject* DataOuter = AnchorActor ? static_cast<UObject*>(AnchorActor) : static_cast<UObject*>(this);
+    UPCGParamData* ParameterData = Private::CreateTileParameterData(DataOuter, EffectiveMetrics ? *EffectiveMetrics : FPCGTileMetrics(), TileCoord, BiomeType, WorldGenSettings, TileSeed);
+    UPCGPointData* TilePointData = Private::CreateTilePointData(DataOuter, TileCoord, WorldGenSettings, EffectiveMetrics ? *EffectiveMetrics : FPCGTileMetrics());
+
+    FAttributeValidationResult Validation = ValidateInputAttributes(ParameterData, TilePointData);
+    if (!Validation.bIsValid)
+    {
+        UE_LOG(LogPCGWorldService, Error, TEXT("Input validation failed for biome %s on tile (%d,%d); using fallback generation."), *UEnum::GetValueAsString(BiomeType), TileCoord.X, TileCoord.Y);
+        return GenerateFallbackContent(TileCoord, BiomeType, HeightData, true, TileMetrics);
+    }
+
+    FPCGInputSet InputSet;
+    InputSet.Add(TEXT("TileParameters"), ParameterData);
+    InputSet.Add(TEXT("Tile"), TilePointData);
+
+    const FVector TileCenter = TileCoord.ToWorldPosition(WorldGenSettings.TileSizeMeters);
+    const FVector TileExtent(WorldGenSettings.TileSizeMeters * 0.5f, WorldGenSettings.TileSizeMeters * 0.5f, WorldGenSettings.TileSizeMeters * 0.25f);
+    const FBox ExecutionBounds = FBox::BuildAABB(TileCenter, TileExtent);
+
+    FString DebugLabel = FString::Printf(TEXT("%s:(%d,%d)"), *PCGGraph->GetName(), TileCoord.X, TileCoord.Y);
+
+    TArray<FString> ScheduleWarnings;
+    TArray<FString> ScheduleErrors;
+    FPCGTaskContext TaskContext;
+
+    const bool bEnableFrustum = WorldGenSettings.bEnableFrustumCulling;
+    const float FrustumMargin = ResolveFrustumMargin(*Component, BiomeType);
+
+    const FPCGTaskId TaskId = SchedulerExecutor->ScheduleGraphAsync(*PCGSubsystem, *Component, *PCGGraph, *World, TileCoord, InputSet, DebugLabel, ExecutionBounds, static_cast<int32>(TileSeed), bEnableFrustum, FrustumMargin, TaskContext, ScheduleErrors, ScheduleWarnings);
+    if (TaskId == InvalidPCGTaskId)
+    {
+        for (const FString& Warning : ScheduleWarnings)
         {
-            UE_LOG(LogPCGWorldService, Warning, TEXT("Cannot execute PCG graph %s without a valid world context."), *PCGGraph->GetName());
+            UE_LOG(LogPCGWorldService, Warning, TEXT("PCG scheduler warning (%s): %s"), *DebugLabel, *Warning);
         }
-        else if (!PCGSubsystem)
+        for (const FString& Error : ScheduleErrors)
         {
-            UE_LOG(LogPCGWorldService, Warning, TEXT("PCG subsystem unavailable; falling back for biome %s."), *UEnum::GetValueAsString(BiomeType));
+            UE_LOG(LogPCGWorldService, Error, TEXT("PCG scheduler error (%s): %s"), *DebugLabel, *Error);
         }
-        else
+        return GenerateFallbackContent(TileCoord, BiomeType, HeightData, true, TileMetrics);
+    }
+
+    TrackTask(TaskContext);
+
+    IConsoleVariable* PollVar = IConsoleManager::Get().FindConsoleVariable(TEXT("vhm.pcg.poll_ms"));
+    IConsoleVariable* TimeoutVar = IConsoleManager::Get().FindConsoleVariable(TEXT("vhm.pcg.timeout_ms"));
+    const int32 PollMs = PollVar ? FMath::Max(1, PollVar->GetInt()) : 12;
+    const int32 TimeoutMs = TimeoutVar ? FMath::Max(PollMs, TimeoutVar->GetInt()) : 5000;
+    const double TimeoutSeconds = static_cast<double>(TimeoutMs) / 1000.0;
+    const double StartSeconds = FPlatformTime::Seconds();
+
+    bool bTaskSucceeded = false;
+    double ExecutionTimeMs = 0.0;
+    FPCGOutputSet OutputSet;
+    int32 GeneratedPointCount = 0;
+
+    while (true)
+    {
+        FPCGTaskContext UpdatedContext;
+        if (SchedulerExecutor->IsTaskComplete(*PCGSubsystem, TaskId, UpdatedContext))
         {
-            AActor* AnchorActor = EnsurePCGAnchor(World);
-            if (!AnchorActor)
+            if (FPCGTaskContext* StoredContext = ActiveTasks.Find(TaskId))
             {
-                UE_LOG(LogPCGWorldService, Error, TEXT("Failed to create PCG anchor actor; falling back for tile %s."), *TileLabel);
+                *StoredContext = UpdatedContext;
             }
-            else if (UPCGComponent* Component = EnsureBiomeComponent(BiomeType, PCGGraph))
+
+            TaskContext = UpdatedContext;
+            if (TaskContext.State != EPCGTaskState::Abandoned)
             {
-                const uint32 TileSeed = GetTileRandomSeed(TileCoord);
-                const int32 ExpectedHeightSamples = 64 * 64;
-                const bool bHasHeightData = HeightData.Num() == ExpectedHeightSamples;
-
-                FPCGTileMetrics LocalMetrics;
-                const FPCGTileMetrics* EffectiveMetrics = TileMetrics;
-                if (!EffectiveMetrics && bHasHeightData)
-                {
-                    LocalMetrics = AnalyzeTileMetrics(HeightData);
-                    EffectiveMetrics = &LocalMetrics;
-                }
-
-                UObject* DataOuter = AnchorActor ? static_cast<UObject*>(AnchorActor) : static_cast<UObject*>(this);
-                UPCGParamData* ParameterData = Private::CreateTileParameterData(DataOuter, EffectiveMetrics ? *EffectiveMetrics : FPCGTileMetrics(), TileCoord, BiomeType, WorldGenSettings, TileSeed);
-                UPCGPointData* TilePointData = Private::CreateTilePointData(DataOuter, TileCoord, WorldGenSettings, EffectiveMetrics ? *EffectiveMetrics : FPCGTileMetrics());
-                ValidateInputAttributes(ParameterData, TilePointData);
-
-                FPCGInputSet InputSet;
-                InputSet.Add(TEXT("TileParameters"), ParameterData);
-                InputSet.Add(TEXT("Tile"), TilePointData);
-
-                const FVector TileCenter = TileCoord.ToWorldPosition(WorldGenSettings.TileSizeMeters);
-                const FVector TileExtent(WorldGenSettings.TileSizeMeters * 0.5f, WorldGenSettings.TileSizeMeters * 0.5f, WorldGenSettings.TileSizeMeters * 0.25f);
-                const FBox ExecutionBounds = FBox::BuildAABB(TileCenter, TileExtent);
-
-                FString DebugLabel = FString::Printf(TEXT("%s:%s"), *PCGGraph->GetName(), *TileLabel);
-
-                TArray<FString> ScheduleWarnings;
-                TArray<FString> ScheduleErrors;
-
-                FPCGScheduleResult ScheduleResult = SchedulerExecutor->RunGraphSync(
-                    *PCGSubsystem,
-                    *Component,
-                    *PCGGraph,
-                    *World,
-                    TileCoord,
-                    InputSet,
-                    DebugLabel,
-                    ExecutionBounds,
-                    static_cast<int32>(TileSeed),
-                    ScheduleWarnings,
-                    ScheduleErrors);
-
-                for (const FString& Warning : ScheduleWarnings)
-                {
-                    UE_LOG(LogPCGWorldService, Warning, TEXT("PCG scheduler warning (%s): %s"), *DebugLabel, *Warning);
-                }
-
-                for (const FString& Error : ScheduleErrors)
-                {
-                    UE_LOG(LogPCGWorldService, Error, TEXT("PCG scheduler error (%s): %s"), *DebugLabel, *Error);
-                }
-
-                if (ScheduleResult.bSuccess)
-                {
-                    bSchedulerSucceeded = true;
-                    GenerationData.GenerationTimeMs = static_cast<float>(ScheduleResult.ExecutionTimeMs);
-
-                    for (const TObjectPtr<UPCGData>& OutputDatum : ScheduleResult.Output.Outputs)
-                    {
-                        if (const UPCGPointData* OutputPointData = Cast<UPCGPointData>(OutputDatum.Get()))
-                        {
-                            Private::ExtractInstancesFromPointData(OutputPointData, TileCoord, GenerationData);
-                        }
-                    }
-
-                    GenerationData.TotalInstanceCount = GenerationData.GeneratedInstances.Num();
-
-                    if (GenerationData.TotalInstanceCount > MaxInstancesPerTile)
-                    {
-                        ApplyDensityLimiting(GenerationData);
-                    }
-
-                    if (GenerationData.TotalInstanceCount == 0)
-                    {
-                        UE_LOG(LogPCGWorldService, Verbose, TEXT("PCG graph %s produced no instances for biome %s on tile %s."), *PCGGraph->GetName(), *UEnum::GetValueAsString(BiomeType), *TileLabel);
-                    }
-                }
+                bTaskSucceeded = SchedulerExecutor->GetTaskOutput(*PCGSubsystem, TaskId, TaskContext, OutputSet, GeneratedPointCount, ExecutionTimeMs, ScheduleWarnings, ScheduleErrors);
             }
+            break;
+        }
+
+        const double Elapsed = FPlatformTime::Seconds() - StartSeconds;
+        if (Elapsed > TimeoutSeconds)
+        {
+            FString TimeoutReason = FString::Printf(TEXT("Scheduler timeout after %.2fs waiting for %s"), Elapsed, *DebugLabel);
+            ScheduleErrors.Add(TimeoutReason);
+            SchedulerExecutor->AbandonTask(*PCGSubsystem, TaskId, TaskContext, TimeoutReason);
+            break;
+        }
+
+        FPlatformProcess::SleepNoStats(static_cast<double>(PollMs) / 1000.0);
+    }
+
+    SchedulerExecutor->ReleaseTask(*PCGSubsystem, TaskId, TaskContext);
+    ReleaseTrackedTask(TaskId);
+
+    for (const FString& Warning : ScheduleWarnings)
+    {
+        UE_LOG(LogPCGWorldService, Warning, TEXT("PCG scheduler warning (%s): %s"), *DebugLabel, *Warning);
+    }
+
+    for (const FString& Error : ScheduleErrors)
+    {
+        UE_LOG(LogPCGWorldService, Error, TEXT("PCG scheduler error (%s): %s"), *DebugLabel, *Error);
+    }
+
+    if (!bTaskSucceeded || TaskContext.State == EPCGTaskState::Abandoned)
+    {
+        UE_LOG(LogPCGWorldService, Warning, TEXT("PCG graph %s failed to complete for biome %s on tile (%d,%d); using fallback."), *PCGGraph->GetName(), *UEnum::GetValueAsString(BiomeType), TileCoord.X, TileCoord.Y);
+        return GenerateFallbackContent(TileCoord, BiomeType, HeightData, true, TileMetrics);
+    }
+
+    GenerationData.GenerationTimeMs = static_cast<float>(ExecutionTimeMs);
+
+    for (const TObjectPtr<UPCGData>& OutputDatum : OutputSet.Outputs)
+    {
+        if (const UPCGPointData* OutputPointData = Cast<UPCGPointData>(OutputDatum.Get()))
+        {
+            Private::ExtractInstancesFromPointData(OutputPointData, TileCoord, GenerationData);
         }
     }
 
-    if (bSchedulerSucceeded)
-    {
-        return GenerationData;
-    }
-#endif // VIBEHEIM_PCG_ENABLED
+    GenerationData.TotalInstanceCount = GenerationData.GeneratedInstances.Num();
 
-    GenerationData = GenerateFallbackContent(TileCoord, BiomeType, HeightData, true, TileMetrics);
+    if (GenerationData.TotalInstanceCount > MaxInstancesPerTile)
+    {
+        ApplyDensityLimiting(GenerationData);
+    }
+
+    if (GenerationData.TotalInstanceCount == 0)
+    {
+        UE_LOG(LogPCGWorldService, Verbose, TEXT("PCG graph %s produced no instances for biome %s on tile (%d,%d)."), *PCGGraph->GetName(), *UEnum::GetValueAsString(BiomeType), TileCoord.X, TileCoord.Y);
+    }
+
     return GenerationData;
+#endif // VHM_PCG_ENABLED
 }
-
-                        UE_LOG(LogPCGWorldService, Warning,
-                                TEXT("PCG graph %s failed to generate content for biome %s on tile (%d, %d); using fallback"),
-                                *PCGGraph->GetName(), *UEnum::GetValueAsString(BiomeType), TileCoord.X, TileCoord.Y);
-                }
-        }
-        else if (PCGGraph)
-        {
-                UE_LOG(LogPCGWorldService, Verbose, TEXT("Skipping PCG execution for biome %s - missing world context or runtime disabled"),
-                        *UEnum::GetValueAsString(BiomeType));
-        }
-#endif
-
-        GenerationData = GenerateFallbackContent(TileCoord, BiomeType, HeightData, true, TileMetrics);
-        return GenerationData;
-}
-
 
 bool UPCGWorldService::TryGeneratePCGGraphContent(FTileCoord TileCoord, EBiomeType BiomeType, const TArray<float>& HeightData, const FPCGTileMetrics& TileMetrics, FPCGGenerationData& OutData)
 {
@@ -1569,7 +1877,7 @@ void UPCGWorldService::ClearPCGCache()
 		}
 	}
 	HISMComponents.Empty();
-#if VIBEHEIM_PCG_ENABLED
+#if VHM_PCG_ENABLED
 	ResolvedBiomeGraphs.Empty();
 #endif
 
@@ -1594,7 +1902,7 @@ bool UPCGWorldService::ValidatePCGGraph(const FString& GraphPath, TArray<FString
 {
 	OutErrors.Empty();
 
-#if VIBEHEIM_PCG_ENABLED
+#if VHM_PCG_ENABLED
 	// Load and validate the PCG graph
 	UObject* GraphObject = LoadObject<UObject>(nullptr, *GraphPath);
 	if (!GraphObject)
@@ -1637,7 +1945,7 @@ void UPCGWorldService::SetBiomeDefinitions(const TMap<EBiomeType, FBiomeDefiniti
 {
 	BiomeDefinitions = InBiomeDefinitions;
 	BiomePCGGraphs.Empty();
-#if VIBEHEIM_PCG_ENABLED
+#if VHM_PCG_ENABLED
 	ResolvedBiomeGraphs.Empty();
 #endif
 
@@ -1691,7 +1999,7 @@ UPCGGraph* UPCGWorldService::ResolveBiomePCGGraph(EBiomeType BiomeType)
 		return nullptr;
 	}
 
-#if VIBEHEIM_PCG_ENABLED
+#if VHM_PCG_ENABLED
 	if (const TWeakObjectPtr<UPCGGraph>* CachedGraph = ResolvedBiomeGraphs.Find(BiomeType))
 	{
 		if (CachedGraph->IsValid())

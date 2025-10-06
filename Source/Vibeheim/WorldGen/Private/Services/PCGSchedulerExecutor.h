@@ -18,14 +18,20 @@ class FPCGSchedulerExecutor
 public:
 	FPCGSchedulerExecutor() = default;
 
-	FPCGTaskId ScheduleGraphAsync(UPCGSubsystem& Subsystem,\n\t\tUPCGComponent& SourceComponent,\n\t\tUPCGGraph& Graph,\n\t\tUWorld& ExecutionWorld,\n\t\tconst FTileCoord& TileCoord,
-		const FPCGInputSet& InputSet,
-		const FString& DebugLabel,
-		const FBox& ExecutionBounds,
-		int32 Seed,
-		FPCGTaskContext& OutContext,
-		TArray<FString>& OutErrors,
-		TArray<FString>& OutWarnings);
+        FPCGTaskId ScheduleGraphAsync(UPCGSubsystem& Subsystem,
+                UPCGComponent& SourceComponent,
+                UPCGGraph& Graph,
+                UWorld& ExecutionWorld,
+                const FTileCoord& TileCoord,
+                const FPCGInputSet& InputSet,
+                const FString& DebugLabel,
+                const FBox& ExecutionBounds,
+                int32 Seed,
+                bool bEnableFrustumCulling,
+                float FrustumMargin,
+                FPCGTaskContext& OutContext,
+                TArray<FString>& OutErrors,
+                TArray<FString>& OutWarnings);
 
 	bool IsTaskComplete(UPCGSubsystem& Subsystem, FPCGTaskId TaskId, FPCGTaskContext& InOutContext);
 
@@ -43,20 +49,28 @@ public:
 	void AbandonTask(UPCGSubsystem& Subsystem, FPCGTaskId TaskId, FPCGTaskContext& Context, const FString& Reason);
 
 #if WITH_EDITOR || WITH_AUTOMATION_TESTS
-	FPCGScheduleResult RunGraphSync(UPCGSubsystem& Subsystem,\n\t\tUPCGComponent& SourceComponent,\n\t\tUPCGGraph& Graph,\n\t\tUWorld& ExecutionWorld,\n\t\tconst FTileCoord& TileCoord,
-		const FPCGInputSet& InputSet,
-		const FString& DebugLabel,
-		const FBox& ExecutionBounds,
-		int32 Seed,
-		TArray<FString>& OutWarnings,
-		TArray<FString>& OutErrors);
+        FPCGScheduleResult RunGraphSync(UPCGSubsystem& Subsystem,
+                UPCGComponent& SourceComponent,
+                UPCGGraph& Graph,
+                UWorld& ExecutionWorld,
+                const FTileCoord& TileCoord,
+                const FPCGInputSet& InputSet,
+                const FString& DebugLabel,
+                const FBox& ExecutionBounds,
+                int32 Seed,
+                bool bEnableFrustumCulling,
+                float FrustumMargin,
+                TArray<FString>& OutWarnings,
+                TArray<FString>& OutErrors);
 #endif
 
-private:\r\n\tfriend struct FSchedulerTestHelper;\r\n\tstruct FScheduledTask
-	{
-		FPCGTaskContext Context;
-		TSharedPtr<const FPCGDataCollection> InputCollection;
-		FPCGElementPtr InputElement;
+private:
+        friend struct FSchedulerTestHelper;
+        struct FScheduledTask
+        {
+                FPCGTaskContext Context;
+                TSharedPtr<const FPCGDataCollection> InputCollection;
+                FPCGElementPtr InputElement;
 		TWeakObjectPtr<UPCGComponent> SourceComponent;
 		TWeakObjectPtr<UPCGGraph> Graph;
 		FString DebugName;
@@ -78,13 +92,15 @@ private:\r\n\tfriend struct FSchedulerTestHelper;\r\n\tstruct FScheduledTask
 
 	TSharedPtr<FPCGDataCollection> BuildDataCollection(const TArray<FResolvedInput>& ResolvedInputs) const;
 
-	void CacheOutput(FScheduledTask& TaskInfo, const FPCGDataCollection& OutputData);
+        void CacheOutput(FScheduledTask& TaskInfo, const FPCGDataCollection& OutputData);
+
+        void ApplyFrustumPolicy(FPCGScheduleGraphParams& Params, bool bEnableFrustumCulling, float FrustumMargin);
 
 	FScheduledTask* FindTask(FPCGTaskId TaskId);
-	const FScheduledTask* FindTask(FPCGTaskId TaskId) const;
+        const FScheduledTask* FindTask(FPCGTaskId TaskId) const;
 
 private:
-	TMap<FPCGTaskId, FScheduledTask> ActiveTasks;
+        TMap<FPCGTaskId, FScheduledTask> ActiveTasks;
 };
 
 #endif // VHM_PCG_ENABLED

@@ -670,11 +670,16 @@ void UTileStreamingService::AddTileToCache(const FTileCoord& TileCoord, const FT
 
 void UTileStreamingService::RemoveTileFromCache(const FTileCoord& TileCoord)
 {
-	TileCache.Remove(TileCoord);
+        if (PCGWorldService)
+        {
+                PCGWorldService->AbandonTasksForTile(TileCoord);
+        }
 
-	// Remove from LRU list
-	LRUList.RemoveAll([&TileCoord](const FLRUCacheEntry& Entry) {
-		return Entry.TileCoord == TileCoord;
+        TileCache.Remove(TileCoord);
+
+        // Remove from LRU list
+        LRUList.RemoveAll([&TileCoord](const FLRUCacheEntry& Entry) {
+                return Entry.TileCoord == TileCoord;
 	});
 
 	EnqueuedTiles.Remove(TileCoord);
