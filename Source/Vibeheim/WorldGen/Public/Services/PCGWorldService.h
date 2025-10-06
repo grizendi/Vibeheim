@@ -8,13 +8,23 @@
 #include "Engine/StaticMesh.h"
 #include "Components/HierarchicalInstancedStaticMeshComponent.h"
 #include "Data/SerializationShims.h"
+#include "HAL/IConsoleManager.h"
 #include "PCGWorldService.generated.h"
 
 UE_DECLARE_LOG_CATEGORY_EXTERN(LogPCGWorldService, Log, All);
 
-// Forward declarations\r\nclass UStaticMeshComponent;
+// Forward declarations
+class UStaticMeshComponent;
 class UHierarchicalInstancedStaticMeshComponent;
-class AActor;\r\nclass UPCGGraph;\r\nclass UInstancePersistenceManager;\r\n#if VHM_PCG_ENABLED\r\nclass UPCGComponent;\r\nclass UPCGParamData;\r\nclass UPCGPointData;\r\nclass FPCGSchedulerExecutor;\r\n#endif
+class AActor;
+class UPCGGraph;
+class UInstancePersistenceManager;
+#if VHM_PCG_ENABLED
+class UPCGComponent;
+class UPCGParamData;
+class UPCGPointData;
+class FPCGSchedulerExecutor;
+#endif
 
 /**
  * Wrapper struct for HISM components to make it compatible with TMap
@@ -46,7 +56,9 @@ class VIBEHEIM_API UPCGWorldService : public UObject, public IPCGWorldServiceInt
 	GENERATED_BODY()
 
 public:
-	UPCGWorldService();
+        UPCGWorldService();
+
+        virtual void BeginDestroy() override;
 
 	// IPCGWorldServiceInterface interface
 	virtual bool Initialize(const FWorldGenConfig& Settings) override;
@@ -106,10 +118,21 @@ public:
 	/**
 	 * Load tile with persistence reconciliation
 	 */
-	UFUNCTION(BlueprintCallable, Category = "PCG")
-	bool LoadTileWithPersistence(FTileCoord TileCoord, EBiomeType BiomeType, const TArray<float>& HeightData);
+        UFUNCTION(BlueprintCallable, Category = "PCG")
+        bool LoadTileWithPersistence(FTileCoord TileCoord, EBiomeType BiomeType, const TArray<float>& HeightData);
 
-private:\r\n#if VHM_PCG_ENABLED\r\n\tstruct FAttributeValidationResult\r\n\t{\r\n\t\tbool bIsValid = true;\r\n\t\tTArray<FString> Errors;\r\n\t\tTArray<FString> Warnings;\r\n\t};\r\n#endif\r\n	UPROPERTY()
+        void AbandonTasksForTile(FTileCoord TileCoord);
+
+private:
+#if VHM_PCG_ENABLED
+        struct FAttributeValidationResult
+        {
+                bool bIsValid = true;
+                TArray<FString> Errors;
+                TArray<FString> Warnings;
+        };
+#endif
+	UPROPERTY()
 	bool bHeadless = false;
 
 	UPROPERTY()
@@ -157,17 +180,29 @@ private:\r\n#if VHM_PCG_ENABLED\r\n\tstruct FAttributeValidationResult\r\n\t{\r\
 	UPROPERTY()
 	TObjectPtr<UObject> CurrentPCGGraph; // UPCGGraph* when WITH_PCG is available
 
-	UPROPERTY()
-	TMap<EBiomeType, TObjectPtr<UObject>> BiomePCGComponents; // UPCGComponent* when WITH_PCG is available
+        UPROPERTY()
+#if VHM_PCG_ENABLED
+        TMap<EBiomeType, TObjectPtr<UPCGComponent>> BiomePCGComponents;
+#else
+        TMap<EBiomeType, TObjectPtr<UObject>> BiomePCGComponents;
+#endif
 
 	// Instance persistence manager
-	UPROPERTY()
-	TObjectPtr<UInstancePersistenceManager> PersistenceManager;
+        UPROPERTY()
+        TObjectPtr<UInstancePersistenceManager> PersistenceManager;
 
-	/**
-	 * Generate content using PCG if available, otherwise use fallback
-	 */
-	FPCGGenerationData GenerateContentInternal(FTileCoord TileCoord, EBiomeType BiomeType, const TArray<float>& HeightData);
+#if VHM_PCG_ENABLED
+        TWeakObjectPtr<AActor> PCGAnchorActor;
+        TUniquePtr<FPCGSchedulerExecutor> SchedulerExecutor;
+        TMap<FPCGTaskId, FPCGTaskContext> ActiveTasks;
+        FDelegateHandle WorldCleanupHandle;
+        FConsoleVariableSinkHandle ConsoleSinkHandle;
+#endif
+
+        /**
+         * Generate content using PCG if available, otherwise use fallback
+         */
+        FPCGGenerationData GenerateContentInternal(FTileCoord TileCoord, EBiomeType BiomeType, const TArray<float>& HeightData);
 
 	/**
 	 * Attempt PCG graph-based content generation; returns true when graph execution succeeds
@@ -273,10 +308,25 @@ private:\r\n#if VHM_PCG_ENABLED\r\n\tstruct FAttributeValidationResult\r\n\t{\r\
 	 */
 	bool FindPOILocationStratified(FTileCoord TileCoord, const FPOISpawnRule& POIRule, const TArray<float>& HeightData, FRandomStream& RandomStream, FVector& OutLocation);
 
-	/**
-	 * Apply terrain modification stamp for POI placement
-	 */
-	void ApplyPOITerrainStamp(FVector Location, float Radius);
+        /**
+         * Apply terrain modification stamp for POI placement
+         */
+        void ApplyPOITerrainStamp(FVector Location, float Radius);
+
+#if VHM_PCG_ENABLED
+        AActor* EnsurePCGAnchor(UWorld* World);
+        UPCGComponent* GetOrCreateBiomeComponent(EBiomeType BiomeType, UPCGGraph& Graph);
+        void DestroyBiomeComponent(EBiomeType BiomeType);
+        void CleanupAllComponents();
+        void HandleWorldCleanup(UWorld* World, bool bSessionEnded, bool bCleanupResources);
+        void HandleConsoleVariablesChanged();
+        void RefreshRuntimeSettingsFromCVars();
+        bool CanScheduleNewTask() const;
+        void TrackTask(const FPCGTaskContext& Context);
+        void ReleaseTrackedTask(FPCGTaskId TaskId);
+        void AbandonTasksForWorld(UWorld* World);
+        float ResolveFrustumMargin(const UPCGComponent& Component, EBiomeType BiomeType) const;
+#endif
 };
 
 

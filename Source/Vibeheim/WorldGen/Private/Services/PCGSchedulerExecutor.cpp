@@ -11,7 +11,9 @@
 #include "PCGData.h"
 #include "Async/Async.h"
 #include "Misc/ScopeExit.h"
-#include "HAL/PlatformTime.h"\r\n#include "HAL/IConsoleManager.h"\r\n#include "Trace/Trace.h"
+#include "HAL/PlatformTime.h"
+#include "HAL/IConsoleManager.h"
+#include "Trace/Trace.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogPCGScheduler, Log, All);
 
@@ -49,10 +51,57 @@ static TAutoConsoleVariable<int32> CVarVibeheimPCGTimeoutMs(
 
 namespace
 {
-	FORCEINLINE FString FormatTileLabel(const FTileCoord& TileCoord)
-	{
-		return FString::Printf(TEXT("(%d,%d)"), TileCoord.X, TileCoord.Y);
-	}
+        FORCEINLINE FString FormatTileLabel(const FTileCoord& TileCoord)
+        {
+                return FString::Printf(TEXT("(%d,%d)"), TileCoord.X, TileCoord.Y);
+        }
+
+        template<typename SettingsType>
+        auto SetFrustumEnabled(SettingsType& Settings, bool bEnable, int) -> decltype((void)(Settings.bEnableFrustumCulling), void())
+        {
+                Settings.bEnableFrustumCulling = bEnable;
+        }
+
+        template<typename SettingsType>
+        auto SetFrustumEnabled(SettingsType& Settings, bool bEnable, long) -> decltype((void)(Settings.bEnabled), void())
+        {
+                Settings.bEnabled = bEnable;
+        }
+
+        template<typename SettingsType>
+        void SetFrustumEnabled(SettingsType&, bool, ...)
+        {
+        }
+
+        template<typename SettingsType>
+        auto SetFrustumMargin(SettingsType& Settings, float Margin, int) -> decltype((void)(Settings.CullingMargin), void())
+        {
+                Settings.CullingMargin = Margin;
+        }
+
+        template<typename SettingsType>
+        auto SetFrustumMargin(SettingsType& Settings, float Margin, long) -> decltype((void)(Settings.FrustumCullingMargin), void())
+        {
+                Settings.FrustumCullingMargin = Margin;
+        }
+
+        template<typename SettingsType>
+        void SetFrustumMargin(SettingsType&, float, ...)
+        {
+        }
+
+        template<typename ParamsType>
+        auto ApplyFrustumPolicyInternal(ParamsType& Params, bool bEnableFrustumCulling, float FrustumMargin, int)
+                -> decltype((void)(Params.FrustumSettings), void())
+        {
+                SetFrustumEnabled(Params.FrustumSettings, bEnableFrustumCulling, 0);
+                SetFrustumMargin(Params.FrustumSettings, FrustumMargin, 0);
+        }
+
+        template<typename ParamsType>
+        void ApplyFrustumPolicyInternal(ParamsType&, bool, float, ...)
+        {
+        }
 }
 
 FPCGSchedulerExecutor::FScheduledTask* FPCGSchedulerExecutor::FindTask(FPCGTaskId TaskId)
@@ -206,23 +255,30 @@ TSharedPtr<FPCGDataCollection> FPCGSchedulerExecutor::BuildDataCollection(const 
 
 void FPCGSchedulerExecutor::CacheOutput(FScheduledTask& TaskInfo, const FPCGDataCollection& OutputData)
 {
-	TaskInfo.CachedOutput = MakeShared<FPCGDataCollection>(OutputData);
-	TaskInfo.bOutputCached = true;
-	TaskInfo.Context.State = EPCGTaskState::Completed;
+        TaskInfo.CachedOutput = MakeShared<FPCGDataCollection>(OutputData);
+        TaskInfo.bOutputCached = true;
+        TaskInfo.Context.State = EPCGTaskState::Completed;
+}
+
+void FPCGSchedulerExecutor::ApplyFrustumPolicy(FPCGScheduleGraphParams& Params, bool bEnableFrustumCulling, float FrustumMargin)
+{
+        ApplyFrustumPolicyInternal(Params, bEnableFrustumCulling, FrustumMargin, 0);
 }
 
 FPCGTaskId FPCGSchedulerExecutor::ScheduleGraphAsync(UPCGSubsystem& Subsystem,
-	UPCGComponent& SourceComponent,
-	UPCGGraph& Graph,
-	UWorld& ExecutionWorld,
-	const FTileCoord& TileCoord,
-	const FPCGInputSet& InputSet,
-	const FString& DebugLabel,
-	const FBox& ExecutionBounds,
-	int32 Seed,
-	FPCGTaskContext& OutContext,
-	TArray<FString>& OutErrors,
-	TArray<FString>& OutWarnings)
+        UPCGComponent& SourceComponent,
+        UPCGGraph& Graph,
+        UWorld& ExecutionWorld,
+        const FTileCoord& TileCoord,
+        const FPCGInputSet& InputSet,
+        const FString& DebugLabel,
+        const FBox& ExecutionBounds,
+        int32 Seed,
+        bool bEnableFrustumCulling,
+        float FrustumMargin,
+        FPCGTaskContext& OutContext,
+        TArray<FString>& OutErrors,
+        TArray<FString>& OutWarnings)
 {
 	check(IsInGameThread());
 	TRACE_CPUPROFILER_EVENT_SCOPE(PCG_Schedule);
@@ -244,7 +300,8 @@ FPCGTaskId FPCGSchedulerExecutor::ScheduleGraphAsync(UPCGSubsystem& Subsystem,
 	FPCGElementPtr InputElement = MakeShared<FVibeheimPCGInputElement>(DataCollection.ToSharedRef());
 
 	TArray<FPCGTaskId> Dependencies;
-	FPCGScheduleGraphParams Params(&Graph, &SourceComponent, nullptr, InputElement, Dependencies, nullptr, true);
+        FPCGScheduleGraphParams Params(&Graph, &SourceComponent, nullptr, InputElement, Dependencies, nullptr, true);
+        ApplyFrustumPolicy(Params, bEnableFrustumCulling, FrustumMargin);
 
 	const FPCGTaskId TaskId = Subsystem.ScheduleGraph(Params);
 	if (TaskId == InvalidPCGTaskId)
@@ -311,7 +368,8 @@ bool FPCGSchedulerExecutor::IsTaskComplete(UPCGSubsystem& Subsystem, FPCGTaskId 
 	return false;
 }
 
-bool FPCGSchedulerExecutor::GetTaskOutput(UPCGSubsystem& Subsystem,\r\n\tFPCGTaskId TaskId,
+bool FPCGSchedulerExecutor::GetTaskOutput(UPCGSubsystem& Subsystem,
+        FPCGTaskId TaskId,
 	FPCGTaskContext& Context,
 	FPCGOutputSet& OutOutput,
 	int32& OutPointCount,
@@ -424,23 +482,25 @@ void FPCGSchedulerExecutor::AbandonTask(UPCGSubsystem& Subsystem, FPCGTaskId Tas
 
 #if WITH_EDITOR || WITH_AUTOMATION_TESTS
 FPCGScheduleResult FPCGSchedulerExecutor::RunGraphSync(UPCGSubsystem& Subsystem,
-	UPCGComponent& SourceComponent,
-	UPCGGraph& Graph,
-	UWorld& ExecutionWorld,
-	const FTileCoord& TileCoord,
-	const FPCGInputSet& InputSet,
-	const FString& DebugLabel,
-	const FBox& ExecutionBounds,
-	int32 Seed,
-	TArray<FString>& OutWarnings,
-	TArray<FString>& OutErrors)
+        UPCGComponent& SourceComponent,
+        UPCGGraph& Graph,
+        UWorld& ExecutionWorld,
+        const FTileCoord& TileCoord,
+        const FPCGInputSet& InputSet,
+        const FString& DebugLabel,
+        const FBox& ExecutionBounds,
+        int32 Seed,
+        bool bEnableFrustumCulling,
+        float FrustumMargin,
+        TArray<FString>& OutWarnings,
+        TArray<FString>& OutErrors)
 {
 	check(IsInGameThread());
 
 	FPCGScheduleResult Result;
 
 	FPCGTaskContext TaskContext;
-	const FPCGTaskId TaskId = ScheduleGraphAsync(Subsystem, SourceComponent, Graph, ExecutionWorld, TileCoord, InputSet, DebugLabel, ExecutionBounds, Seed, TaskContext, OutErrors, OutWarnings);
+        const FPCGTaskId TaskId = ScheduleGraphAsync(Subsystem, SourceComponent, Graph, ExecutionWorld, TileCoord, InputSet, DebugLabel, ExecutionBounds, Seed, bEnableFrustumCulling, FrustumMargin, TaskContext, OutErrors, OutWarnings);
 	if (TaskId == InvalidPCGTaskId)
 	{
 		Result.Errors = OutErrors;

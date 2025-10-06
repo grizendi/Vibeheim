@@ -173,6 +173,25 @@ struct VIBEHEIM_API FWorldGenConfig
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PCG")
     int32 MaxHISMInstances = 10000;
 
+    /** Enables runtime frustum culling for the PCG scheduler. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PCG|Scheduler", meta = (DisplayName = "Enable Frustum Culling"))
+    bool bEnableFrustumCulling = true;
+
+    /** Additional margin (in Unreal units) added to the camera frustum when scheduling tiles. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PCG|Scheduler", meta = (ClampMin = "0.0"))
+    float FrustumCullingMargin = 500.0f;
+
+    /**
+     * Optional overrides for frustum margins. Keys support specific component names, biome names,
+     * or NAME_None for a global default. The runtime scheduler resolves values in that order.
+     */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PCG|Scheduler")
+    TMap<FName, float> FrustumCullingMarginByLOD;
+
+    /** Maximum number of concurrent PCG tasks allowed before new requests fall back to HISM generation. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PCG|Scheduler", meta = (ClampMin = "1"))
+    int32 MaxConcurrentPCGTasks = 4;
+
     // Biome noise parameters
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Biomes")
     float BiomeScale = 0.001f;
