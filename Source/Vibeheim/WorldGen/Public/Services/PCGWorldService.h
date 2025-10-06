@@ -10,9 +10,11 @@
 #include "Data/SerializationShims.h"
 #include "PCGWorldService.generated.h"
 
+UE_DECLARE_LOG_CATEGORY_EXTERN(LogPCGWorldService, Log, All);
+
 // Forward declarations\r\nclass UStaticMeshComponent;
 class UHierarchicalInstancedStaticMeshComponent;
-class AActor;\r\nclass UPCGGraph;\r\nclass UInstancePersistenceManager;\r\n#if VHM_PCG_ENABLED\r\nclass UPCGComponent;\r\nclass FPCGSchedulerExecutor;\r\n#endif
+class AActor;\r\nclass UPCGGraph;\r\nclass UInstancePersistenceManager;\r\n#if VHM_PCG_ENABLED\r\nclass UPCGComponent;\r\nclass UPCGParamData;\r\nclass UPCGPointData;\r\nclass FPCGSchedulerExecutor;\r\n#endif
 
 /**
  * Wrapper struct for HISM components to make it compatible with TMap
@@ -107,8 +109,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "PCG")
 	bool LoadTileWithPersistence(FTileCoord TileCoord, EBiomeType BiomeType, const TArray<float>& HeightData);
 
-private:
-	UPROPERTY()
+private:\r\n#if VHM_PCG_ENABLED\r\n\tstruct FAttributeValidationResult\r\n\t{\r\n\t\tbool bIsValid = true;\r\n\t\tTArray<FString> Errors;\r\n\t\tTArray<FString> Warnings;\r\n\t};\r\n#endif\r\n	UPROPERTY()
 	bool bHeadless = false;
 
 	UPROPERTY()
@@ -172,7 +173,9 @@ private:
 	 * Attempt PCG graph-based content generation; returns true when graph execution succeeds
 	 */
 	bool TryGeneratePCGGraphContent(FTileCoord TileCoord, EBiomeType BiomeType, const TArray<float>& HeightData, const FPCGTileMetrics& TileMetrics, FPCGGenerationData& OutData);
-
+#if VHM_PCG_ENABLED
+	FAttributeValidationResult ValidateInputAttributes(const UPCGParamData* ParameterData, const UPCGPointData* PointData) const;
+#endif
 	/**
 	 * Generate content using PCG system
 	 */
@@ -275,6 +278,9 @@ private:
 	 */
 	void ApplyPOITerrainStamp(FVector Location, float Radius);
 };
+
+
+
 
 
 

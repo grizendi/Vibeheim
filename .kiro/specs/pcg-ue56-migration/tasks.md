@@ -96,17 +96,17 @@ This implementation plan breaks down the PCG UE 5.6 migration into discrete, man
   - Test GT marshalling for completion callbacks
   - _Requirements: 10.1_
 
-- [ ]* 1.5 Setup log category and editor commands scaffold
+- [x]* 1.5 Setup log category and editor commands scaffold
   - Add `UE_DECLARE_LOG_CATEGORY_EXTERN(LogPCGWorldService, Log, All);` in header
   - Add `UE_DEFINE_LOG_CATEGORY(LogPCGWorldService);` in cpp
   - Register console commands in `#if WITH_EDITOR` blocks
   - _Requirements: 9.2_
 
-- [ ] 2. Phase 2: Data Contract - Input Assembly & Output Extraction
+- [x] 2. Phase 2: Data Contract - Input Assembly & Output Extraction
   - Update input/output methods to use UE 5.6 metadata APIs
   - _Requirements: 3, 4_
 
-- [ ] 2.1 Update CreateTileParameterData to UPCGMetadata
+- [x] 2.1 Update CreateTileParameterData to UPCGMetadata
   - Modify `PCGWorldService::Private::CreateTileParameterData` signature to use `FPCGTileMetrics` from shared header
   - Replace `FPCGMetadata` usage with `UPCGMetadata`
   - Use `PCGMetadataEntryKey` for entry management
@@ -121,7 +121,7 @@ This implementation plan breaks down the PCG UE 5.6 migration into discrete, man
     - **Float [0..1]**: `BiomeWeight` (if param-level; else move to point-level)
   - _Requirements: 3.1, 3.2_
 
-- [ ] 2.2 Update CreateTilePointData to UPCGMetadata
+- [x] 2.2 Update CreateTilePointData to UPCGMetadata
   - Modify `PCGWorldService::Private::CreateTilePointData` to use `UPCGMetadata` accessor APIs
   - Use `PCGMetadataEntryKey` for point metadata entry creation
   - Create with safe Outer (persistent anchor actor or subsystem), mark `RF_Transient`
@@ -132,7 +132,7 @@ This implementation plan breaks down the PCG UE 5.6 migration into discrete, man
   - If `BiomeWeight` is per-point, set it here (not in param data)
   - _Requirements: 3.1, 3.2_
 
-- [ ] 2.3 Implement input validation helper
+- [x] 2.3 Implement input validation helper
   - Create `ValidateInputAttributes` method in `PCGWorldService`
   - Check attribute names match expected canonical names
   - Check attribute types match expected types (float, int32, FVector, etc.)
@@ -142,7 +142,7 @@ This implementation plan breaks down the PCG UE 5.6 migration into discrete, man
   - Log detailed validation report on failure
   - _Requirements: 3.3, 3.5_
 
-- [ ] 2.4 Update ExtractInstancesFromPointData to 5.6 accessors
+- [x] 2.4 Update ExtractInstancesFromPointData to 5.6 accessors
   - Modify `PCGWorldService::Private::ExtractInstancesFromPointData` to use accessor-based attribute retrieval
   - Use `Metadata->GetAttribute<T>(AttributeName, EntryKey, OutValue)` pattern
   - Add type safety checks: never perform arithmetic on ANY non-numeric attributes (`UObject*`, `FName`, `FString`, `FSoftObjectPath`, etc.)
@@ -156,7 +156,7 @@ This implementation plan breaks down the PCG UE 5.6 migration into discrete, man
   - Extract attributes: `StaticMesh`/`Mesh`, `InstanceScale`, `InstanceRotation`, `IsActive`, `InstanceId`
   - _Requirements: 4.1, 4.2, 4.3, 4.5_
 
-- [ ] 2.5 Document canonical attributes
+- [x] 2.5 Document canonical attributes
   - Create `/Vibeheim/_Assets/Data/PCG/Docs/Attributes.md`
   - Document all canonical attribute names used by the system
   - Document expected types for each attribute (float, int32, FVector, FRotator, FSoftObjectPath, etc.)
@@ -179,7 +179,7 @@ This implementation plan breaks down the PCG UE 5.6 migration into discrete, man
   - Test `ExtractInstancesFromPointData` with type mismatches
   - _Requirements: 10.1_
 
-- [ ] 2.7 Attribute scope audit
+- [x] 2.7 Attribute scope audit
   - Confirm which attributes are Param vs Point in `/Vibeheim/_Assets/Data/PCG/Docs/Attributes.md`
   - Update builders (`CreateTileParameterData`, `CreateTilePointData`) accordingly
   - Document scope rationale for each attribute
@@ -538,4 +538,5 @@ public:
     }
 };
 ```
+
 

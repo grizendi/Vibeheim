@@ -6,6 +6,7 @@
 #include "Components/HierarchicalInstancedStaticMeshComponent.h"
 #include "Engine/EngineTypes.h"
 #include "Components/SceneComponent.h"
+#include "Algo/Sort.h"
 
 #if __has_include("PCGSubsystem.h")
 #define VIBEHEIM_PCG_ENABLED 1
@@ -32,13 +33,180 @@
 #include "UObject/ConstructorHelpers.h"
 #include "Data/InstancePersistence.h"
 #include "Data/SerializationShims.h"
+#if WITH_EDITOR
+#include "HAL/IConsoleManager.h"
+#endif
+
+UE_DEFINE_LOG_CATEGORY(LogPCGWorldService);
 
 
-DEFINE_LOG_CATEGORY_STATIC(LogPCGWorldService, Log, All);
+#if WITH_EDITOR
+namespace PCGWorldService::Editor
+{
+    static void HandlePcgShowDeps(const TArray<FString>& Args)
+    {
+        UE_LOG(LogPCGWorldService, Log, TEXT("wg.pcg.showdeps stub invoked (%d args) - pending Task 4.2 implementation."), Args.Num());
+    }
+
+    static void HandlePcgValidate(const TArray<FString>& Args)
+    {
+        UE_LOG(LogPCGWorldService, Log, TEXT("wg.pcg.validate stub invoked (%d args) - pending Task 4.3 implementation."), Args.Num());
+    }
+
+    static FAutoConsoleCommand GCmdShowDeps(
+        TEXT("wg.pcg.showdeps"),
+        TEXT("Inspect PCG graph dependency wiring (stub for UE 5.6 migration)."),
+        FConsoleCommandWithArgsDelegate::CreateStatic(&HandlePcgShowDeps)
+    );
+
+    static FAutoConsoleCommand GCmdValidate(
+        TEXT("wg.pcg.validate"),
+        TEXT("Validate a PCG graph or biome using PCG World Service (stub)."),
+        FConsoleCommandWithArgsDelegate::CreateStatic(&HandlePcgValidate)
+    );
+}
+#endif
 
 #if VIBEHEIM_PCG_ENABLED
 namespace PCGWorldService::Private
 {
+    enum class EAttributeScope : uint8
+    {
+        Parameter,
+        Point
+    };
+
+    struct FExpectedAttribute
+    {
+        FName Name;
+        TConstArrayView<EPCGMetadataTypes> AllowedTypes;
+        EAttributeScope Scope;
+        bool bRequired;
+        const TCHAR* FriendlyType;
+    };
+
+    inline const TCHAR* GetScopeLabel(EAttributeScope Scope)
+    {
+        return (Scope == EAttributeScope::Parameter) ? TEXT("parameter") : TEXT("point");
+    }
+
+    inline FString MetadataTypeToString(EPCGMetadataTypes MetadataType)
+    {
+        switch (MetadataType)
+        {
+        case EPCGMetadataTypes::Float: return TEXT("float");
+        case EPCGMetadataTypes::Double: return TEXT("double");
+        case EPCGMetadataTypes::Integer32: return TEXT("int32");
+        case EPCGMetadataTypes::Integer64: return TEXT("int64");
+        case EPCGMetadataTypes::Vector2: return TEXT("FVector2D");
+        case EPCGMetadataTypes::Vector: return TEXT("FVector");
+        case EPCGMetadataTypes::Vector4: return TEXT("FVector4");
+        case EPCGMetadataTypes::Quaternion: return TEXT("FQuat");
+        case EPCGMetadataTypes::Transform: return TEXT("FTransform");
+        case EPCGMetadataTypes::String: return TEXT("FString");
+        case EPCGMetadataTypes::Boolean: return TEXT("bool");
+        case EPCGMetadataTypes::Rotator: return TEXT("FRotator");
+        case EPCGMetadataTypes::Name: return TEXT("FName");
+        case EPCGMetadataTypes::SoftObjectPath: return TEXT("FSoftObjectPath");
+        case EPCGMetadataTypes::SoftClassPath: return TEXT("FSoftClassPath");
+        default: return TEXT("unknown");
+        }
+    }
+
+    inline FString AllowedTypesToString(TConstArrayView<EPCGMetadataTypes> Types)
+    {
+        TArray<FString, TInlineAllocator<4>> Labels;
+        for (EPCGMetadataTypes Type : Types)
+        {
+            Labels.Add(MetadataTypeToString(Type));
+        }
+        return FString::Join(Labels, TEXT(" or "));
+    }
+
+    inline const TArray<FExpectedAttribute>& GetCanonicalAttributes()
+    {
+        static constexpr EPCGMetadataTypes FloatType[] = { EPCGMetadataTypes::Float };
+        static constexpr EPCGMetadataTypes Int32Type[] = { EPCGMetadataTypes::Integer32 };
+        static constexpr EPCGMetadataTypes SoftObjectType[] = { EPCGMetadataTypes::SoftObjectPath };
+        static constexpr EPCGMetadataTypes VectorType[] = { EPCGMetadataTypes::Vector };
+        static constexpr EPCGMetadataTypes RotatorType[] = { EPCGMetadataTypes::Rotator };
+        static constexpr EPCGMetadataTypes BoolType[] = { EPCGMetadataTypes::Boolean };
+        static constexpr EPCGMetadataTypes GuidType[] = { EPCGMetadataTypes::String, EPCGMetadataTypes::Name };
+
+        static const TArray<FExpectedAttribute> Attributes = {
+            { VHMPCGAttr::AverageHeight, TConstArrayView<EPCGMetadataTypes>(FloatType, UE_ARRAY_COUNT(FloatType)), EAttributeScope::Parameter, true, TEXT("float") },
+            { VHMPCGAttr::MinHeight, TConstArrayView<EPCGMetadataTypes>(FloatType, UE_ARRAY_COUNT(FloatType)), EAttributeScope::Parameter, true, TEXT("float") },
+            { VHMPCGAttr::MaxHeight, TConstArrayView<EPCGMetadataTypes>(FloatType, UE_ARRAY_COUNT(FloatType)), EAttributeScope::Parameter, true, TEXT("float") },
+            { VHMPCGAttr::AverageSlope, TConstArrayView<EPCGMetadataTypes>(FloatType, UE_ARRAY_COUNT(FloatType)), EAttributeScope::Parameter, true, TEXT("float") },
+            { VHMPCGAttr::MaxSlope, TConstArrayView<EPCGMetadataTypes>(FloatType, UE_ARRAY_COUNT(FloatType)), EAttributeScope::Parameter, true, TEXT("float") },
+            { VHMPCGAttr::WaterCoverage, TConstArrayView<EPCGMetadataTypes>(FloatType, UE_ARRAY_COUNT(FloatType)), EAttributeScope::Parameter, true, TEXT("float") },
+            { VHMPCGAttr::AverageAboveWater, TConstArrayView<EPCGMetadataTypes>(FloatType, UE_ARRAY_COUNT(FloatType)), EAttributeScope::Parameter, true, TEXT("float") },
+            { VHMPCGAttr::AverageBelowWater, TConstArrayView<EPCGMetadataTypes>(FloatType, UE_ARRAY_COUNT(FloatType)), EAttributeScope::Parameter, true, TEXT("float") },
+            { VHMPCGAttr::MinWaterDistance, TConstArrayView<EPCGMetadataTypes>(FloatType, UE_ARRAY_COUNT(FloatType)), EAttributeScope::Parameter, true, TEXT("float") },
+            { VHMPCGAttr::SeaLevel, TConstArrayView<EPCGMetadataTypes>(FloatType, UE_ARRAY_COUNT(FloatType)), EAttributeScope::Parameter, true, TEXT("float") },
+            { VHMPCGAttr::TileSize, TConstArrayView<EPCGMetadataTypes>(FloatType, UE_ARRAY_COUNT(FloatType)), EAttributeScope::Parameter, true, TEXT("float") },
+            { VHMPCGAttr::BiomeWeight, TConstArrayView<EPCGMetadataTypes>(FloatType, UE_ARRAY_COUNT(FloatType)), EAttributeScope::Parameter, true, TEXT("float") },
+            { VHMPCGAttr::BiomeId, TConstArrayView<EPCGMetadataTypes>(Int32Type, UE_ARRAY_COUNT(Int32Type)), EAttributeScope::Parameter, true, TEXT("int32") },
+            { VHMPCGAttr::TileSeed, TConstArrayView<EPCGMetadataTypes>(Int32Type, UE_ARRAY_COUNT(Int32Type)), EAttributeScope::Parameter, true, TEXT("int32") },
+            { VHMPCGAttr::TileX, TConstArrayView<EPCGMetadataTypes>(Int32Type, UE_ARRAY_COUNT(Int32Type)), EAttributeScope::Parameter, true, TEXT("int32") },
+            { VHMPCGAttr::TileY, TConstArrayView<EPCGMetadataTypes>(Int32Type, UE_ARRAY_COUNT(Int32Type)), EAttributeScope::Parameter, true, TEXT("int32") },
+            { VHMPCGAttr::AverageSlope, TConstArrayView<EPCGMetadataTypes>(FloatType, UE_ARRAY_COUNT(FloatType)), EAttributeScope::Point, false, TEXT("float") },
+            { VHMPCGAttr::StaticMesh, TConstArrayView<EPCGMetadataTypes>(SoftObjectType, UE_ARRAY_COUNT(SoftObjectType)), EAttributeScope::Point, false, TEXT("SoftObjectPath") },
+            { VHMPCGAttr::Mesh, TConstArrayView<EPCGMetadataTypes>(SoftObjectType, UE_ARRAY_COUNT(SoftObjectType)), EAttributeScope::Point, false, TEXT("SoftObjectPath") },
+            { VHMPCGAttr::InstanceScale, TConstArrayView<EPCGMetadataTypes>(VectorType, UE_ARRAY_COUNT(VectorType)), EAttributeScope::Point, false, TEXT("FVector") },
+            { VHMPCGAttr::InstanceRotation, TConstArrayView<EPCGMetadataTypes>(RotatorType, UE_ARRAY_COUNT(RotatorType)), EAttributeScope::Point, false, TEXT("FRotator") },
+            { VHMPCGAttr::IsActive, TConstArrayView<EPCGMetadataTypes>(BoolType, UE_ARRAY_COUNT(BoolType)), EAttributeScope::Point, false, TEXT("bool") },
+            { VHMPCGAttr::InstanceId, TConstArrayView<EPCGMetadataTypes>(GuidType, UE_ARRAY_COUNT(GuidType)), EAttributeScope::Point, false, TEXT("FGuid (stored as string/name)") }
+        };
+
+        return Attributes;
+    }
+    static FTransform QuantizeTransformForHash(const FTransform& Transform)
+    {
+        FVector Position = Transform.GetLocation();
+        Position.X = FMath::RoundToFloat(Position.X * 1000.0f) / 1000.0f;
+        Position.Y = FMath::RoundToFloat(Position.Y * 1000.0f) / 1000.0f;
+        Position.Z = FMath::RoundToFloat(Position.Z * 1000.0f) / 1000.0f;
+
+        FQuat Rotation = Transform.GetRotation();
+        Rotation.X = FMath::RoundToFloat(Rotation.X * 10000.0f) / 10000.0f;
+        Rotation.Y = FMath::RoundToFloat(Rotation.Y * 10000.0f) / 10000.0f;
+        Rotation.Z = FMath::RoundToFloat(Rotation.Z * 10000.0f) / 10000.0f;
+        Rotation.W = FMath::RoundToFloat(Rotation.W * 10000.0f) / 10000.0f;
+        Rotation.Normalize();
+
+        FVector Scale = Transform.GetScale3D();
+        Scale.X = FMath::RoundToFloat(Scale.X * 10000.0f) / 10000.0f;
+        Scale.Y = FMath::RoundToFloat(Scale.Y * 10000.0f) / 10000.0f;
+        Scale.Z = FMath::RoundToFloat(Scale.Z * 10000.0f) / 10000.0f;
+
+        return FTransform(Rotation, Position, Scale);
+    }
+
+    static uint64 HashTransform(const FTransform& Transform)
+    {
+        uint64 Hash = 1469598103934665603ull;
+        auto Mix = [&Hash](const void* Data, SIZE_T Size)
+        {
+            const uint8* Bytes = static_cast<const uint8*>(Data);
+            for (SIZE_T Index = 0; Index < Size; ++Index)
+            {
+                Hash ^= Bytes[Index];
+                Hash *= 1099511628211ull;
+            }
+        };
+
+        const FVector Location = Transform.GetLocation();
+        const FQuat Rotation = Transform.GetRotation();
+        const FVector Scale = Transform.GetScale3D();
+
+        Mix(&Location, sizeof(Location));
+        Mix(&Rotation, sizeof(Rotation));
+        Mix(&Scale, sizeof(Scale));
+
+        return Hash;
+    }
+
 static UPCGParamData* CreateTileParameterData(UObject* Outer, const FPCGTileMetrics& TileMetrics,
                 FTileCoord TileCoord, EBiomeType BiomeType, const FWorldGenConfig& WorldGenSettings, uint32 TileSeed);
 
@@ -151,53 +319,58 @@ UPCGParamData* PCGWorldService::Private::CreateTileParameterData(UObject* Outer,
         const FWorldGenConfig& WorldGenSettings, uint32 TileSeed)
 {
         UPCGParamData* ParamData = NewObject<UPCGParamData>(Outer ? Outer : GetTransientPackage(), NAME_None, RF_Transient);
-        check(ParamData);
-
-        FPCGMetadata* Metadata = ParamData->MutableMetadata();
-        const FPCGMetadataEntryKey EntryKey = Metadata->AddEntry();
-
-        auto CreateFloatAttribute = [Metadata, EntryKey](const FName& AttributeName, float Value)
+        if (!ensureMsgf(ParamData, TEXT("Failed to allocate tile parameter data for (%d, %d)"), TileCoord.X, TileCoord.Y))
         {
-                if (FPCGMetadataAttribute<float>* Attribute = Metadata->CreateAttribute<float>(AttributeName, Value, true, true))
+                return nullptr;
+        }
+
+        UPCGMetadata* Metadata = ParamData->MutableMetadata();
+        if (!ensureMsgf(Metadata, TEXT("Tile parameter metadata missing for (%d, %d)"), TileCoord.X, TileCoord.Y))
+        {
+                return ParamData;
+        }
+
+        const auto EntryKey = Metadata->AddEntry();
+
+        auto EnsureAndSetAttribute = [Metadata, EntryKey](const FName& AttributeName, auto&& Value, bool bAllowInterpolation)
+        {
+                using ValueType = typename TDecay<decltype(Value)>::Type;
+
+                FPCGMetadataAttribute<ValueType>* Attribute = Metadata->GetMutableTypedAttribute<ValueType>(AttributeName);
+                if (!Attribute)
                 {
-                        Metadata->SetValue(Attribute, EntryKey, Value);
+                        Attribute = Metadata->CreateAttribute<ValueType>(AttributeName, Value, bAllowInterpolation, true);
+                        if (!Attribute)
+                        {
+                                UE_LOG(LogPCGWorldService, Error, TEXT("Failed to create attribute '%s' on tile parameter metadata"), *AttributeName.ToString());
+                                return;
+                        }
                 }
+
+                Attribute->SetValue(EntryKey, Value);
         };
 
-        auto CreateIntAttribute = [Metadata, EntryKey](const FName& AttributeName, int32 Value)
-        {
-                if (FPCGMetadataAttribute<int32>* Attribute = Metadata->CreateAttribute<int32>(AttributeName, Value, true, true))
-                {
-                        Metadata->SetValue(Attribute, EntryKey, Value);
-                }
-        };
+        const uint32 BiomeSeed = GetTypeHash(static_cast<int32>(BiomeType));
+        const uint32 MixedSeed = HashCombine(TileSeed, BiomeSeed);
+        const int32 TileSeedValue = static_cast<int32>(MixedSeed & 0x7FFFFFFFu);
 
-        auto CreateEnumAttribute = [Metadata, EntryKey](const FName& AttributeName, int32 Value)
-        {
-                if (FPCGMetadataAttribute<int32>* Attribute = Metadata->CreateAttribute<int32>(AttributeName, Value, true, true))
-                {
-                        Metadata->SetValue(Attribute, EntryKey, Value);
-                }
-        };
+        EnsureAndSetAttribute(VHMPCGAttr::AverageHeight, TileMetrics.AverageHeight, true);
+        EnsureAndSetAttribute(VHMPCGAttr::MinHeight, TileMetrics.MinHeight, true);
+        EnsureAndSetAttribute(VHMPCGAttr::MaxHeight, TileMetrics.MaxHeight, true);
+        EnsureAndSetAttribute(VHMPCGAttr::AverageSlope, TileMetrics.AverageSlope, true);
+        EnsureAndSetAttribute(VHMPCGAttr::MaxSlope, TileMetrics.MaxSlope, true);
+        EnsureAndSetAttribute(VHMPCGAttr::WaterCoverage, TileMetrics.WaterCoverageRatio, true);
+        EnsureAndSetAttribute(VHMPCGAttr::AverageAboveWater, TileMetrics.AverageAboveWater, true);
+        EnsureAndSetAttribute(VHMPCGAttr::AverageBelowWater, TileMetrics.AverageBelowWater, true);
+        EnsureAndSetAttribute(VHMPCGAttr::MinWaterDistance, TileMetrics.MinAbsWaterDistance, true);
+        EnsureAndSetAttribute(VHMPCGAttr::SeaLevel, WorldGenSettings.SeaLevel, true);
+        EnsureAndSetAttribute(VHMPCGAttr::BiomeId, static_cast<int32>(BiomeType), false);
+        EnsureAndSetAttribute(VHMPCGAttr::TileSeed, TileSeedValue, false);
+        EnsureAndSetAttribute(VHMPCGAttr::TileX, TileCoord.X, false);
+        EnsureAndSetAttribute(VHMPCGAttr::TileY, TileCoord.Y, false);
+        EnsureAndSetAttribute(VHMPCGAttr::TileSize, WorldGenSettings.TileSizeMeters, true);
+        EnsureAndSetAttribute(VHMPCGAttr::BiomeWeight, 1.0f, true);
 
-        CreateFloatAttribute(VHMPCGAttr::AverageHeight, TileMetrics.AverageHeight);
-        CreateFloatAttribute(VHMPCGAttr::MinHeight, TileMetrics.MinHeight);
-        CreateFloatAttribute(VHMPCGAttr::MaxHeight, TileMetrics.MaxHeight);
-        CreateFloatAttribute(VHMPCGAttr::AverageSlope, TileMetrics.AverageSlope);
-        CreateFloatAttribute(VHMPCGAttr::MaxSlope, TileMetrics.MaxSlope);
-        CreateFloatAttribute(VHMPCGAttr::WaterCoverage, TileMetrics.WaterCoverageRatio);
-        CreateFloatAttribute(VHMPCGAttr::AverageAboveWater, TileMetrics.AverageAboveWater);
-        CreateFloatAttribute(VHMPCGAttr::AverageBelowWater, TileMetrics.AverageBelowWater);
-        CreateFloatAttribute(VHMPCGAttr::MinWaterDistance, TileMetrics.MinAbsWaterDistance);
-        CreateFloatAttribute(VHMPCGAttr::SeaLevel, WorldGenSettings.SeaLevel);
-        CreateEnumAttribute(VHMPCGAttr::Biome, static_cast<int32>(BiomeType));
-        CreateIntAttribute(VHMPCGAttr::TileSeed, static_cast<int32>(TileSeed));
-        CreateIntAttribute(VHMPCGAttr::TileX, TileCoord.X);
-        CreateIntAttribute(VHMPCGAttr::TileY, TileCoord.Y);
-
-        // Provide tile size so graphs can reason about extents
-        CreateFloatAttribute(VHMPCGAttr::TileSize, WorldGenSettings.TileSizeMeters);
-        CreateFloatAttribute(VHMPCGAttr::BiomeWeight, 1.0f);
         return ParamData;
 }
 
@@ -205,7 +378,10 @@ UPCGPointData* PCGWorldService::Private::CreateTilePointData(UObject* Outer, FTi
         const FWorldGenConfig& WorldGenSettings, const FPCGTileMetrics& TileMetrics)
 {
         UPCGPointData* PointData = NewObject<UPCGPointData>(Outer ? Outer : GetTransientPackage(), NAME_None, RF_Transient);
-        check(PointData);
+        if (!ensureMsgf(PointData, TEXT("Failed to allocate tile point data for (%d, %d)"), TileCoord.X, TileCoord.Y))
+        {
+                return nullptr;
+        }
 
         TArray<FPCGPoint>& Points = PointData->GetMutablePoints();
         FPCGPoint& TilePoint = Points.AddDefaulted_GetRef();
@@ -219,75 +395,174 @@ UPCGPointData* PCGWorldService::Private::CreateTilePointData(UObject* Outer, FTi
         TilePoint.Density = 1.0f;
         TilePoint.Seed = GetTypeHash(TileCoord);
 
-        if (FPCGMetadata* Metadata = PointData->MutableMetadata())
+        UPCGMetadata* Metadata = PointData->MutableMetadata();
+        if (!ensureMsgf(Metadata, TEXT("Tile point metadata missing for (%d, %d)"), TileCoord.X, TileCoord.Y))
         {
-                const FPCGMetadataEntryKey EntryKey = Metadata->AddEntry();
-                TilePoint.MetadataEntry = EntryKey;
-                Metadata->CreateAttribute<float>(VHMPCGAttr::AverageSlope, TileMetrics.AverageSlope, true, true);
+                PointData->RecomputeBounds();
+                return PointData;
         }
 
-        PointData->InitializeBounds();
+        const auto EntryKey = Metadata->AddEntry();
+        TilePoint.MetadataEntry = EntryKey;
+
+        auto EnsureAndSetFloat = [Metadata, EntryKey](const FName& AttributeName, float Value)
+        {
+                FPCGMetadataAttribute<float>* Attribute = Metadata->GetMutableTypedAttribute<float>(AttributeName);
+                if (!Attribute)
+                {
+                        Attribute = Metadata->CreateAttribute<float>(AttributeName, Value, true, true);
+                        if (!Attribute)
+                        {
+                                UE_LOG(LogPCGWorldService, Error, TEXT("Failed to create attribute '%s' on tile point metadata"), *AttributeName.ToString());
+                                return;
+                        }
+                }
+
+                Attribute->SetValue(EntryKey, Value);
+        };
+
+        EnsureAndSetFloat(VHMPCGAttr::AverageSlope, TileMetrics.AverageSlope);
+
+        PointData->RecomputeBounds();
         return PointData;
 }
 
 void PCGWorldService::Private::ExtractInstancesFromPointData(const UPCGPointData* PointData, FTileCoord TileCoord,
         FPCGGenerationData& OutGenerationData)
 {
+        OutGenerationData.GeneratedInstances.Reset();
+
         if (!PointData)
         {
+                UE_LOG(LogPCGWorldService, Warning, TEXT("ExtractInstancesFromPointData: null point data for tile (%d, %d)."), TileCoord.X, TileCoord.Y);
+                OutGenerationData.TotalInstanceCount = 0;
+                OutGenerationData.InstanceTransformHash = 0;
                 return;
         }
 
-        const FPCGMetadata* Metadata = PointData->Metadata();
+        const UPCGMetadata* Metadata = PointData->Metadata();
         const TArray<FPCGPoint>& Points = PointData->GetPoints();
 
-        for (const FPCGPoint& Point : Points)
+        if (Points.Num() == 0)
         {
+                UE_LOG(LogPCGWorldService, VeryVerbose, TEXT("PCG graph produced no points for tile (%d, %d)."), TileCoord.X, TileCoord.Y);
+                OutGenerationData.TotalInstanceCount = 0;
+                OutGenerationData.InstanceTransformHash = 0;
+                return;
+        }
+
+        OutGenerationData.GeneratedInstances.Reserve(Points.Num());
+
+        bool bLoggedMissingMetadata = false;
+        TSet<FName> MissingAttributes;
+        TSet<FName> TypeMismatchAttributes;
+
+        const TArray<FExpectedAttribute>& ExpectedAttributes = GetCanonicalAttributes();
+        TMap<FName, const FExpectedAttribute*> ExpectedPointAttributes;
+        for (const FExpectedAttribute& Attribute : ExpectedAttributes)
+        {
+                if (Attribute.Scope == EAttributeScope::Point)
+                {
+                        ExpectedPointAttributes.Add(Attribute.Name, &Attribute);
+                }
+        }
+
+        auto LogMissingAttribute = [&](const FName& AttributeName)
+        {
+                if (!MissingAttributes.Contains(AttributeName))
+                {
+                        MissingAttributes.Add(AttributeName);
+                        UE_LOG(LogPCGWorldService, Warning, TEXT("Tile (%d, %d) missing point attribute '%s'."), TileCoord.X, TileCoord.Y, *AttributeName.ToString());
+                }
+        };
+
+        auto LogTypeMismatch = [&](const FName& AttributeName, EPCGMetadataTypes ActualType, const FExpectedAttribute* Expected)
+        {
+                if (!TypeMismatchAttributes.Contains(AttributeName))
+                {
+                        TypeMismatchAttributes.Add(AttributeName);
+                        const FString ExpectedLabel = Expected ? AllowedTypesToString(Expected->AllowedTypes) : TEXT("unknown");
+                        UE_LOG(LogPCGWorldService, Warning, TEXT("Tile (%d, %d) point attribute '%s' stored as %s but expected %s."),
+                                TileCoord.X, TileCoord.Y, *AttributeName.ToString(), *MetadataTypeToString(ActualType), *ExpectedLabel);
+                }
+        };
+
+        auto ResolveGuidFromString = [](const FString& GuidString, FGuid& OutGuid) -> bool
+        {
+                return FGuid::Parse(GuidString, OutGuid) && OutGuid.IsValid();
+        };
+
+        for (int32 PointIndex = 0; PointIndex < Points.Num(); ++PointIndex)
+        {
+                const FPCGPoint& Point = Points[PointIndex];
+
                 FPCGInstanceData Instance;
                 Instance.Location = Point.Transform.GetLocation();
                 Instance.Rotation = Point.Transform.Rotator();
                 Instance.Scale = Point.Transform.GetScale3D();
                 Instance.OwningTile = TileCoord;
 
-                if (Metadata)
+                const PCGMetadataEntryKey EntryKey = Point.MetadataEntry;
+
+                if (!Metadata)
                 {
-                        const FPCGMetadataEntryKey EntryKey = Point.MetadataEntry;
-
-                        auto TryAssignSoftObject = [Metadata, EntryKey](const FName& AttributeName, TSoftObjectPtr<UStaticMesh>& OutValue)
+                        if (!bLoggedMissingMetadata)
                         {
-                                if (!Metadata)
-                                {
-                                        return false;
-                                }
-
-                                FSoftObjectPath MeshPath;
-                                if (Metadata->GetAttribute<FSoftObjectPath>(AttributeName, EntryKey, MeshPath))
-                                {
-                                        if (!MeshPath.IsNull())
-                                        {
-                                                OutValue = TSoftObjectPtr<UStaticMesh>(MeshPath);
-                                                return true;
-                                        }
-                                }
-                                UObject* RawObject = nullptr;
-                                if (Metadata->GetAttribute<UObject*>(AttributeName, EntryKey, RawObject))
-                                {
-                                        if (UStaticMesh* Mesh = Cast<UStaticMesh>(RawObject))
-                                        {
-                                                OutValue = Mesh;
-                                                return true;
-                                        }
-                                }
-                                return false;
-                        };
-
-                        if (!TryAssignSoftObject(VHMPCGAttr::StaticMesh, Instance.Mesh))
+                                UE_LOG(LogPCGWorldService, Warning, TEXT("Point metadata unavailable for tile (%d, %d); using transform-only instances."), TileCoord.X, TileCoord.Y);
+                                bLoggedMissingMetadata = true;
+                        }
+                }
+                else
+                {
+                        if (EntryKey == PCGInvalidEntryKey)
                         {
-                                TryAssignSoftObject(VHMPCGAttr::Mesh, Instance.Mesh);
+                                LogMissingAttribute(VHMPCGAttr::InstanceId);
                         }
 
-                        bool bIsActive = true;
-                        Metadata->GetAttribute<bool>(VHMPCGAttr::IsActive, EntryKey, bIsActive);
+                        const FExpectedAttribute* StaticMeshExpectation = ExpectedPointAttributes.FindRef(VHMPCGAttr::StaticMesh);
+                        if (const FPCGMetadataAttributeBase* StaticMeshInfo = Metadata->GetConstAttribute(VHMPCGAttr::StaticMesh))
+                        {
+                                if (StaticMeshExpectation && !StaticMeshExpectation->AllowedTypes.Contains(StaticMeshInfo->GetTypeId()))
+                                {
+                                        LogTypeMismatch(VHMPCGAttr::StaticMesh, StaticMeshInfo->GetTypeId(), StaticMeshExpectation);
+                                }
+                        }
+
+                        bool bMeshAssigned = false;
+                        FSoftObjectPath StaticMeshPath;
+                        if (Metadata->GetAttribute<FSoftObjectPath>(VHMPCGAttr::StaticMesh, EntryKey, StaticMeshPath) && !StaticMeshPath.IsNull())
+                        {
+                                Instance.Mesh = TSoftObjectPtr<UStaticMesh>(StaticMeshPath);
+                                bMeshAssigned = true;
+                        }
+                        else if (Metadata->GetAttribute<FSoftObjectPath>(VHMPCGAttr::Mesh, EntryKey, StaticMeshPath) && !StaticMeshPath.IsNull())
+                        {
+                                Instance.Mesh = TSoftObjectPtr<UStaticMesh>(StaticMeshPath);
+                                bMeshAssigned = true;
+                        }
+                        else
+                        {
+                                UObject* RawObject = nullptr;
+                                if (Metadata->GetAttribute<UObject*>(VHMPCGAttr::StaticMesh, EntryKey, RawObject) || Metadata->GetAttribute<UObject*>(VHMPCGAttr::Mesh, EntryKey, RawObject))
+                                {
+                                        if (UStaticMesh* MeshAsset = Cast<UStaticMesh>(RawObject))
+                                        {
+                                                Instance.Mesh = MeshAsset;
+                                                bMeshAssigned = true;
+                                        }
+                                }
+                        }
+
+                        if (!bMeshAssigned)
+                        {
+                                LogMissingAttribute(VHMPCGAttr::StaticMesh);
+                        }
+
+                        bool bIsActive = Instance.bIsActive;
+                        if (!Metadata->GetAttribute<bool>(VHMPCGAttr::IsActive, EntryKey, bIsActive))
+                        {
+                                LogMissingAttribute(VHMPCGAttr::IsActive);
+                        }
                         Instance.bIsActive = bIsActive;
 
                         FVector OverrideScale = Instance.Scale;
@@ -295,26 +570,182 @@ void PCGWorldService::Private::ExtractInstancesFromPointData(const UPCGPointData
                         {
                                 Instance.Scale = OverrideScale;
                         }
+                        else
+                        {
+                                LogMissingAttribute(VHMPCGAttr::InstanceScale);
+                        }
 
                         FRotator OverrideRotation = Instance.Rotation;
                         if (Metadata->GetAttribute<FRotator>(VHMPCGAttr::InstanceRotation, EntryKey, OverrideRotation))
                         {
                                 Instance.Rotation = OverrideRotation;
                         }
+                        else
+                        {
+                                LogMissingAttribute(VHMPCGAttr::InstanceRotation);
+                        }
 
                         FGuid InstanceGuid;
-                        if (Metadata->GetAttribute<FGuid>(VHMPCGAttr::InstanceId, EntryKey, InstanceGuid))
+                        if (Metadata->GetAttribute<FGuid>(VHMPCGAttr::InstanceId, EntryKey, InstanceGuid) && InstanceGuid.IsValid())
                         {
-                                if (InstanceGuid.IsValid())
+                                Instance.InstanceId = InstanceGuid;
+                        }
+                        else
+                        {
+                                FString GuidAsString;
+                                if (Metadata->GetAttribute<FString>(VHMPCGAttr::InstanceId, EntryKey, GuidAsString) && ResolveGuidFromString(GuidAsString, InstanceGuid))
                                 {
                                         Instance.InstanceId = InstanceGuid;
+                                }
+                                else
+                                {
+                                        LogMissingAttribute(VHMPCGAttr::InstanceId);
                                 }
                         }
                 }
 
-                OutGenerationData.GeneratedInstances.Add(Instance);
+                OutGenerationData.GeneratedInstances.Add(MoveTemp(Instance));
         }
-}
+
+        OutGenerationData.GeneratedInstances.Sort([](const FPCGInstanceData& A, const FPCGInstanceData& B)
+        {
+                const bool bAValidGuid = A.InstanceId.IsValid();
+                const bool bBValidGuid = B.InstanceId.IsValid();
+
+                if (bAValidGuid && bBValidGuid)
+                {
+                        if (A.InstanceId.A != B.InstanceId.A) { return A.InstanceId.A < B.InstanceId.A; }
+                        if (A.InstanceId.B != B.InstanceId.B) { return A.InstanceId.B < B.InstanceId.B; }
+                        if (A.InstanceId.C != B.InstanceId.C) { return A.InstanceId.C < B.InstanceId.C; }
+                        return A.InstanceId.D < B.InstanceId.D;
+                }
+
+                if (bAValidGuid != bBValidGuid)
+                {
+                        return bAValidGuid;
+                }
+
+                if (!FMath::IsNearlyEqual(A.Location.X, B.Location.X)) { return A.Location.X < B.Location.X; }
+                if (!FMath::IsNearlyEqual(A.Location.Y, B.Location.Y)) { return A.Location.Y < B.Location.Y; }
+                if (!FMath::IsNearlyEqual(A.Location.Z, B.Location.Z)) { return A.Location.Z < B.Location.Z; }
+
+                return false;
+        });
+
+        uint64 CombinedHash = 0;
+        if (OutGenerationData.GeneratedInstances.Num() > 0)
+        {
+                CombinedHash = 1469598103934665603ull;
+                for (const FPCGInstanceData& Instance : OutGenerationData.GeneratedInstances)
+                {
+                        const FTransform InstanceTransform(Instance.Rotation, Instance.Location, Instance.Scale);
+                        const FTransform QuantizedTransform = QuantizeTransformForHash(InstanceTransform);
+                        const uint64 PerHash = HashTransform(QuantizedTransform);
+                        CombinedHash ^= PerHash;
+                        CombinedHash *= 1099511628211ull;
+                }
+        }
+
+        OutGenerationData.TotalInstanceCount = OutGenerationData.GeneratedInstances.Num();
+        OutGenerationData.InstanceTransformHash = CombinedHash;
+}\r\n\r\nUPCGWorldService::FAttributeValidationResult UPCGWorldService::ValidateInputAttributes(const UPCGParamData* ParameterData, const UPCGPointData* PointData) const
+{
+        FAttributeValidationResult Result;
+
+        using namespace PCGWorldService::Private;
+
+        const UPCGMetadata* ParameterMetadata = ParameterData ? ParameterData->Metadata() : nullptr;
+        const UPCGMetadata* PointMetadata = PointData ? PointData->Metadata() : nullptr;
+
+        const TArray<FExpectedAttribute>& ExpectedAttributes = GetCanonicalAttributes();
+        TSet<FName> ParameterAttributeNames;
+        TSet<FName> PointAttributeNames;
+
+        auto ProcessAttribute = [&](const FExpectedAttribute& Attribute)
+        {
+                TSet<FName>& KnownSet = (Attribute.Scope == EAttributeScope::Parameter) ? ParameterAttributeNames : PointAttributeNames;
+                KnownSet.Add(Attribute.Name);
+
+                const UPCGMetadata* Metadata = (Attribute.Scope == EAttributeScope::Parameter) ? ParameterMetadata : PointMetadata;
+                if (!Metadata)
+                {
+                        if (Attribute.bRequired)
+                        {
+                                Result.Errors.AddUnique(FString::Printf(TEXT("Missing %s metadata when validating attribute '%s'."), GetScopeLabel(Attribute.Scope), *Attribute.Name.ToString()));
+                        }
+                        return;
+                }
+
+                const FPCGMetadataAttributeBase* MetadataAttribute = Metadata->GetConstAttribute(Attribute.Name);
+                if (!MetadataAttribute)
+                {
+                        if (Attribute.bRequired)
+                        {
+                                Result.Errors.AddUnique(FString::Printf(TEXT("Missing required %s attribute '%s'."), GetScopeLabel(Attribute.Scope), *Attribute.Name.ToString()));
+                        }
+                        else
+                        {
+                                Result.Warnings.AddUnique(FString::Printf(TEXT("Optional %s attribute '%s' not provided."), GetScopeLabel(Attribute.Scope), *Attribute.Name.ToString()));
+                        }
+                        return;
+                }
+
+                const EPCGMetadataTypes ActualType = MetadataAttribute->GetTypeId();
+                if (!Attribute.AllowedTypes.Contains(ActualType))
+                {
+                        Result.Errors.AddUnique(FString::Printf(TEXT("%s attribute '%s' is stored as %s but expected %s."), GetScopeLabel(Attribute.Scope), *Attribute.Name.ToString(), *MetadataTypeToString(ActualType), *AllowedTypesToString(Attribute.AllowedTypes)));
+                }
+        };
+
+        for (const FExpectedAttribute& Attribute : ExpectedAttributes)
+        {
+                ProcessAttribute(Attribute);
+        }
+
+        auto FlagUnknown = [&](const UPCGMetadata* Metadata, EAttributeScope Scope, const TSet<FName>& KnownAttributes)
+        {
+                if (!Metadata)
+                {
+                        return;
+                }
+
+                TArray<FName> AttributeNames;
+                TArray<EPCGMetadataTypes> AttributeTypes;
+                Metadata->GetAttributes(AttributeNames, AttributeTypes);
+
+                for (int32 Index = 0; Index < AttributeNames.Num(); ++Index)
+                {
+                        const FName& AttributeName = AttributeNames[Index];
+                        if (!KnownAttributes.Contains(AttributeName))
+                        {
+                                const EPCGMetadataTypes ReportedType = AttributeTypes.IsValidIndex(Index) ? AttributeTypes[Index] : EPCGMetadataTypes::Unknown;
+                                Result.Warnings.AddUnique(FString::Printf(TEXT("Unexpected %s attribute '%s' (type %s)."), GetScopeLabel(Scope), *AttributeName.ToString(), *MetadataTypeToString(ReportedType)));
+                        }
+                }
+        };
+
+        FlagUnknown(ParameterMetadata, EAttributeScope::Parameter, ParameterAttributeNames);
+        FlagUnknown(PointMetadata, EAttributeScope::Point, PointAttributeNames);
+
+        Result.bIsValid = Result.Errors.Num() == 0;
+
+        if (Result.Errors.Num() > 0 || Result.Warnings.Num() > 0)
+        {
+                UE_LOG(LogPCGWorldService, Log, TEXT("ValidateInputAttributes: %d error(s), %d warning(s)."), Result.Errors.Num(), Result.Warnings.Num());
+        }
+
+        for (const FString& ErrorMessage : Result.Errors)
+        {
+                UE_LOG(LogPCGWorldService, Error, TEXT("  %s"), *ErrorMessage);
+        }
+
+        for (const FString& WarningMessage : Result.Warnings)
+        {
+                UE_LOG(LogPCGWorldService, Warning, TEXT("  %s"), *WarningMessage);
+        }
+
+        return Result;
+}\r\n\r\n
 #endif
 
 bool UPCGWorldService::Initialize(const FWorldGenConfig& Settings)
@@ -490,6 +921,7 @@ FPCGGenerationData UPCGWorldService::GeneratePCGContent(FTileCoord TileCoord, EB
                 UObject* DataOuter = AnchorActor ? static_cast<UObject*>(AnchorActor) : static_cast<UObject*>(this);
                 UPCGParamData* ParameterData = Private::CreateTileParameterData(DataOuter, EffectiveMetrics ? *EffectiveMetrics : FPCGTileMetrics(), TileCoord, BiomeType, WorldGenSettings, TileSeed);
                 UPCGPointData* TilePointData = Private::CreateTilePointData(DataOuter, TileCoord, WorldGenSettings, EffectiveMetrics ? *EffectiveMetrics : FPCGTileMetrics());
+                ValidateInputAttributes(ParameterData, TilePointData);
 
                 FPCGInputSet InputSet;
                 InputSet.Add(TEXT("TileParameters"), ParameterData);
@@ -2199,3 +2631,15 @@ void UPCGWorldService::InitializeDefaultBiomes(TMap<EBiomeType, FBiomeDefinition
 
 	UE_LOG(LogPCGWorldService, Log, TEXT("Initialized default biome definitions with vegetation rules for %d biomes"), OutDefaultBiomes.Num());
 }
+
+
+
+
+
+
+
+
+
+
+
+

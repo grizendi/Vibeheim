@@ -28,6 +28,7 @@ namespace VHMPCGAttr
 	inline const FName MinWaterDistance(TEXT("MinWaterDistance"));
 	inline const FName SeaLevel(TEXT("SeaLevel"));
 	inline const FName Biome(TEXT("Biome"));
+	inline const FName BiomeId(TEXT("BiomeId"));
 	inline const FName TileSeed(TEXT("TileSeed")); // Hash(TileX, TileY, BiomeId, GlobalSeed)
 	inline const FName TileX(TEXT("TileX"));
 	inline const FName TileY(TEXT("TileY"));
@@ -150,5 +151,6 @@ struct FPCGTaskContext
 		InputDataRefs.Reset();
 	}
 };
+
 
 
