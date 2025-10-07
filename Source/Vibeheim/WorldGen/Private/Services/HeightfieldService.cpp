@@ -61,27 +61,30 @@ FHeightfieldData UHeightfieldService::GenerateHeightfield(int32 Seed, FTileCoord
 {
 	double StartTime = FPlatformTime::Seconds();
 
-	FHeightfieldData HeightfieldData;
-	HeightfieldData.TileCoord = TileCoord;
-	HeightfieldData.Resolution = 64; // Locked per coordinate system
+        FHeightfieldData HeightfieldData;
+        HeightfieldData.TileCoord = TileCoord;
 
-	// Calculate tile world position
-	FVector TileWorldPos = TileCoord.ToWorldPosition(64.0f);
-	FVector2D TileStart(TileWorldPos.X - 32.0f, TileWorldPos.Y - 32.0f);
+        const float TileSize = WorldGenSettings.TileSizeMeters;
+        const float SampleSpacing = WorldGenSettings.SampleSpacingMeters;
+        const int32 SamplesPerTile = FMath::Clamp(FMath::RoundToInt(TileSize / FMath::Max(SampleSpacing, KINDA_SMALL_NUMBER)), 1, 4096);
+        HeightfieldData.Resolution = SamplesPerTile;
 
-	// Generate height data for 64x64 samples
-	const int32 SamplesPerTile = 64;
-	HeightfieldData.HeightData.Reserve(SamplesPerTile * SamplesPerTile);
+        // Calculate tile world position
+        FVector TileWorldPos = TileCoord.ToWorldPosition(TileSize);
+        FVector2D TileStart(TileWorldPos.X - TileSize * 0.5f, TileWorldPos.Y - TileSize * 0.5f);
 
-	float MinHeight = FLT_MAX;
-	float MaxHeight = -FLT_MAX;
+        // Generate height data for SamplesPerTile x SamplesPerTile samples
+        HeightfieldData.HeightData.Reserve(SamplesPerTile * SamplesPerTile);
 
-	for (int32 Y = 0; Y < SamplesPerTile; Y++)
-	{
-		for (int32 X = 0; X < SamplesPerTile; X++)
-		{
-			FVector2D SampleWorldPos = TileStart + FVector2D(X, Y);
-			float Height = GenerateBaseHeight(SampleWorldPos, Seed);
+        float MinHeight = FLT_MAX;
+        float MaxHeight = -FLT_MAX;
+
+        for (int32 Y = 0; Y < SamplesPerTile; Y++)
+        {
+                for (int32 X = 0; X < SamplesPerTile; X++)
+                {
+                        FVector2D SampleWorldPos = TileStart + FVector2D(X * SampleSpacing, Y * SampleSpacing);
+                        float Height = GenerateBaseHeight(SampleWorldPos, Seed);
 
 			HeightfieldData.HeightData.Add(Height);
 			MinHeight = FMath::Min(MinHeight, Height);
@@ -186,14 +189,17 @@ FHeightfieldData UHeightfieldService::GenerateHeightfieldPristine(int32 Seed, FT
 
     FHeightfieldData HeightfieldData;
     HeightfieldData.TileCoord = TileCoord;
-    HeightfieldData.Resolution = 64; // Locked per coordinate system
+
+    const float TileSize = WorldGenSettings.TileSizeMeters;
+    const float SampleSpacing = WorldGenSettings.SampleSpacingMeters;
+    const int32 SamplesPerTile = FMath::Clamp(FMath::RoundToInt(TileSize / FMath::Max(SampleSpacing, KINDA_SMALL_NUMBER)), 1, 4096);
+    HeightfieldData.Resolution = SamplesPerTile;
 
     // Calculate tile world position
-    FVector TileWorldPos = TileCoord.ToWorldPosition(64.0f);
-    FVector2D TileStart(TileWorldPos.X - 32.0f, TileWorldPos.Y - 32.0f);
+    FVector TileWorldPos = TileCoord.ToWorldPosition(TileSize);
+    FVector2D TileStart(TileWorldPos.X - TileSize * 0.5f, TileWorldPos.Y - TileSize * 0.5f);
 
-    // Generate height data for 64x64 samples
-    const int32 SamplesPerTile = 64;
+    // Generate height data for SamplesPerTile x SamplesPerTile samples
     HeightfieldData.HeightData.Reserve(SamplesPerTile * SamplesPerTile);
 
     float MinHeight = FLT_MAX;
@@ -203,7 +209,7 @@ FHeightfieldData UHeightfieldService::GenerateHeightfieldPristine(int32 Seed, FT
     {
         for (int32 X = 0; X < SamplesPerTile; X++)
         {
-            FVector2D SampleWorldPos = TileStart + FVector2D(X, Y);
+            FVector2D SampleWorldPos = TileStart + FVector2D(X * SampleSpacing, Y * SampleSpacing);
             float Height = GenerateBaseHeight(SampleWorldPos, Seed);
 
             HeightfieldData.HeightData.Add(Height);
@@ -687,7 +693,7 @@ bool UHeightfieldService::ModifyHeightfield(FVector Location, float Radius, floa
 	Modification.Radius = Radius;
 	Modification.Strength = Strength;
 	Modification.Operation = Operation;
-	Modification.AffectedTile = FTileCoord::FromWorldPosition(Location);
+        Modification.AffectedTile = FTileCoord::FromWorldPosition(Location, WorldGenSettings.TileSizeMeters);
 	Modification.Timestamp = FDateTime::Now();
 
 	// Persist derived parameters for bit-for-bit determinism
@@ -697,7 +703,7 @@ bool UHeightfieldService::ModifyHeightfield(FVector Location, float Radius, floa
 	if (Modification.Operation == EHeightfieldOperation::Flatten)
 	{
 		// Sample height at the center location from current heightfield
-		FTileCoord CenterTile = FTileCoord::FromWorldPosition(Location);
+                FTileCoord CenterTile = FTileCoord::FromWorldPosition(Location, WorldGenSettings.TileSizeMeters);
 		if (FHeightfieldData* CachedData = HeightfieldCache.Find(CenterTile))
 		{
 			Modification.FlattenTargetZ = SampleHeightAt(Modification.Center, CachedData->HeightData, CenterTile);
@@ -706,7 +712,7 @@ bool UHeightfieldService::ModifyHeightfield(FVector Location, float Radius, floa
 		else
 		{
 			// If no cached data, generate heightfield to sample from
-			FHeightfieldData TempHeightfield = GenerateHeightfield(0, CenterTile);
+                        FHeightfieldData TempHeightfield = GenerateHeightfield(0, CenterTile);
 			Modification.FlattenTargetZ = SampleHeightAt(Modification.Center, TempHeightfield.HeightData, CenterTile);
 			Modification.bFlattenUsesTarget = true;
 		}
@@ -724,10 +730,12 @@ bool UHeightfieldService::ModifyHeightfield(FVector Location, float Radius, floa
 
 	// Calculate all affected tiles (modifications can span multiple tiles)
 	TSet<FTileCoord> AffectedTiles;
-	FTileCoord CenterTile = FTileCoord::FromWorldPosition(Location);
+        FTileCoord CenterTile = FTileCoord::FromWorldPosition(Location, WorldGenSettings.TileSizeMeters);
 
-	// Calculate radius in tiles
-	int32 TileRadius = FMath::CeilToInt(Radius / 64.0f);
+        const float TileSize = WorldGenSettings.TileSizeMeters;
+
+        // Calculate radius in tiles
+        int32 TileRadius = FMath::CeilToInt(Radius / FMath::Max(TileSize, KINDA_SMALL_NUMBER));
 
 	// Add all potentially affected tiles
 	for (int32 Y = CenterTile.Y - TileRadius; Y <= CenterTile.Y + TileRadius; Y++)
@@ -737,12 +745,12 @@ bool UHeightfieldService::ModifyHeightfield(FVector Location, float Radius, floa
 			FTileCoord TileCoord(X, Y);
 
 			// Check if this tile is actually within the modification radius
-			FVector TileWorldPos = TileCoord.ToWorldPosition(64.0f);
+                        FVector TileWorldPos = TileCoord.ToWorldPosition(TileSize);
 			FVector2D TileCenter(TileWorldPos.X, TileWorldPos.Y);
 			float DistanceToTile = FVector2D::Distance(Modification.Center, TileCenter);
 
 			// Include tile if it's within modification radius plus tile diagonal
-			float TileDiagonal = 64.0f * FMath::Sqrt(2.0f);
+                        float TileDiagonal = TileSize * FMath::Sqrt(2.0f);
 			if (DistanceToTile <= Radius + TileDiagonal)
 			{
 				AffectedTiles.Add(TileCoord);
@@ -795,20 +803,25 @@ float UHeightfieldService::GetHeightAtLocation(FVector2D WorldPos)
 FVector UHeightfieldService::GetNormalAtLocation(FVector2D WorldPos)
 {
 	// Simple implementation - could be improved with proper interpolation
-	FTileCoord TileCoord = FTileCoord::FromWorldPosition(FVector(WorldPos.X, WorldPos.Y, 0.0f));
+        FTileCoord TileCoord = FTileCoord::FromWorldPosition(FVector(WorldPos.X, WorldPos.Y, 0.0f), WorldGenSettings.TileSizeMeters);
 	FHeightfieldData HeightfieldData;
 
-	if (GetCachedHeightfield(TileCoord, HeightfieldData))
-	{
-		// Convert world position to tile-local coordinates
-		FVector TileWorldPos = TileCoord.ToWorldPosition();
-		FVector2D LocalPos = WorldPos - FVector2D(TileWorldPos.X - 32.0f, TileWorldPos.Y - 32.0f);
+        if (GetCachedHeightfield(TileCoord, HeightfieldData))
+        {
+                const float TileSize = WorldGenSettings.TileSizeMeters;
+                const float SampleSpacing = WorldGenSettings.SampleSpacingMeters;
+                const float InvSampleSpacing = 1.0f / FMath::Max(SampleSpacing, KINDA_SMALL_NUMBER);
 
-		int32 X = FMath::Clamp(FMath::FloorToInt(LocalPos.X), 0, 63);
-		int32 Y = FMath::Clamp(FMath::FloorToInt(LocalPos.Y), 0, 63);
+                // Convert world position to tile-local coordinates
+                FVector TileWorldPos = TileCoord.ToWorldPosition(TileSize);
+                FVector2D LocalPos = WorldPos - FVector2D(TileWorldPos.X - TileSize * 0.5f,
+                        TileWorldPos.Y - TileSize * 0.5f);
 
-		return HeightfieldData.GetNormalAtSample(X, Y);
-	}
+                int32 X = FMath::Clamp(FMath::FloorToInt(LocalPos.X * InvSampleSpacing), 0, HeightfieldData.Resolution - 1);
+                int32 Y = FMath::Clamp(FMath::FloorToInt(LocalPos.Y * InvSampleSpacing), 0, HeightfieldData.Resolution - 1);
+
+                return HeightfieldData.GetNormalAtSample(X, Y);
+        }
 
 	return FVector::UpVector;
 }
@@ -818,16 +831,21 @@ float UHeightfieldService::GetSlopeAtLocation(FVector2D WorldPos)
 	FTileCoord TileCoord = FTileCoord::FromWorldPosition(FVector(WorldPos.X, WorldPos.Y, 0.0f));
 	FHeightfieldData HeightfieldData;
 
-	if (GetCachedHeightfield(TileCoord, HeightfieldData))
-	{
-		FVector TileWorldPos = TileCoord.ToWorldPosition();
-		FVector2D LocalPos = WorldPos - FVector2D(TileWorldPos.X - 32.0f, TileWorldPos.Y - 32.0f);
+        if (GetCachedHeightfield(TileCoord, HeightfieldData))
+        {
+                const float TileSize = WorldGenSettings.TileSizeMeters;
+                const float SampleSpacing = WorldGenSettings.SampleSpacingMeters;
+                const float InvSampleSpacing = 1.0f / FMath::Max(SampleSpacing, KINDA_SMALL_NUMBER);
 
-		int32 X = FMath::Clamp(FMath::FloorToInt(LocalPos.X), 0, 63);
-		int32 Y = FMath::Clamp(FMath::FloorToInt(LocalPos.Y), 0, 63);
+                FVector TileWorldPos = TileCoord.ToWorldPosition(TileSize);
+                FVector2D LocalPos = WorldPos - FVector2D(TileWorldPos.X - TileSize * 0.5f,
+                        TileWorldPos.Y - TileSize * 0.5f);
 
-		return HeightfieldData.GetSlopeAtSample(X, Y);
-	}
+                int32 X = FMath::Clamp(FMath::FloorToInt(LocalPos.X * InvSampleSpacing), 0, HeightfieldData.Resolution - 1);
+                int32 Y = FMath::Clamp(FMath::FloorToInt(LocalPos.Y * InvSampleSpacing), 0, HeightfieldData.Resolution - 1);
+
+                return HeightfieldData.GetSlopeAtSample(X, Y);
+        }
 
 	return 0.0f;
 }
@@ -941,20 +959,26 @@ void UHeightfieldService::SetNoiseSystem(UNoiseSystem* InNoiseSystem)
 
 float UHeightfieldService::InterpolateHeight(FVector2D WorldPos) const
 {
-	FTileCoord TileCoord = FTileCoord::FromWorldPosition(FVector(WorldPos.X, WorldPos.Y, 0.0f));
+        FTileCoord TileCoord = FTileCoord::FromWorldPosition(FVector(WorldPos.X, WorldPos.Y, 0.0f), WorldGenSettings.TileSizeMeters);
 
-	if (const FHeightfieldData* CachedData = HeightfieldCache.Find(TileCoord))
-	{
-		FVector TileWorldPos = TileCoord.ToWorldPosition();
-		FVector2D LocalPos = WorldPos - FVector2D(TileWorldPos.X - 32.0f, TileWorldPos.Y - 32.0f);
+        if (const FHeightfieldData* CachedData = HeightfieldCache.Find(TileCoord))
+        {
+                const float TileSize = WorldGenSettings.TileSizeMeters;
+                const float SampleSpacing = WorldGenSettings.SampleSpacingMeters;
+                const float InvSampleSpacing = 1.0f / FMath::Max(SampleSpacing, KINDA_SMALL_NUMBER);
+                const int32 Resolution = CachedData->Resolution;
 
-		int32 X = FMath::Clamp(FMath::FloorToInt(LocalPos.X), 0, 63);
-		int32 Y = FMath::Clamp(FMath::FloorToInt(LocalPos.Y), 0, 63);
+                FVector TileWorldPos = TileCoord.ToWorldPosition(TileSize);
+                FVector2D LocalPos = WorldPos - FVector2D(TileWorldPos.X - TileSize * 0.5f,
+                        TileWorldPos.Y - TileSize * 0.5f);
 
-		return CachedData->GetHeightAtSample(X, Y);
-	}
+                int32 X = FMath::Clamp(FMath::FloorToInt(LocalPos.X * InvSampleSpacing), 0, Resolution - 1);
+                int32 Y = FMath::Clamp(FMath::FloorToInt(LocalPos.Y * InvSampleSpacing), 0, Resolution - 1);
 
-	return 0.0f;
+                return CachedData->GetHeightAtSample(X, Y);
+        }
+
+        return 0.0f;
 }
 
 void UHeightfieldService::ApplyModificationToCache(const FHeightfieldModification& Modification)
@@ -970,9 +994,12 @@ void UHeightfieldService::ApplyModificationToCache(const FHeightfieldModificatio
 	}
 
 	// Calculate tile world bounds
-	FVector TileWorldPos = TileCoord.ToWorldPosition(64.0f);
-	FVector2D TileStart(TileWorldPos.X - 32.0f, TileWorldPos.Y - 32.0f);
-	FVector2D TileEnd(TileWorldPos.X + 32.0f, TileWorldPos.Y + 32.0f);
+        const float TileSize = WorldGenSettings.TileSizeMeters;
+        const float SampleSpacing = WorldGenSettings.SampleSpacingMeters;
+
+        FVector TileWorldPos = TileCoord.ToWorldPosition(TileSize);
+        FVector2D TileStart(TileWorldPos.X - TileSize * 0.5f, TileWorldPos.Y - TileSize * 0.5f);
+        FVector2D TileEnd(TileWorldPos.X + TileSize * 0.5f, TileWorldPos.Y + TileSize * 0.5f);
 
 	// Skip if modification is outside this tile
 	if (Modification.Center.X + Modification.Radius < TileStart.X ||
@@ -983,9 +1010,8 @@ void UHeightfieldService::ApplyModificationToCache(const FHeightfieldModificatio
 		return;
 	}
 
-	const int32 Resolution = CachedData->Resolution;
-	const float SampleSpacing = 1.0f; // 1m per sample
-	bool bDataModified = false;
+        const int32 Resolution = CachedData->Resolution;
+        bool bDataModified = false;
 
 	// For smooth operations, create a snapshot of the current state
 	TArray<float> HeightSnapshot;
@@ -1000,7 +1026,7 @@ void UHeightfieldService::ApplyModificationToCache(const FHeightfieldModificatio
 		for (int32 X = 0; X < Resolution; X++)
 		{
 			// Calculate world position of this sample
-			FVector2D SampleWorldPos = TileStart + FVector2D(X * SampleSpacing, Y * SampleSpacing);
+                        FVector2D SampleWorldPos = TileStart + FVector2D(X * SampleSpacing, Y * SampleSpacing);
 
 			// Calculate distance from modification center
 			float Distance = FVector2D::Distance(SampleWorldPos, Modification.Center);
@@ -1149,8 +1175,8 @@ void UHeightfieldService::ClearVegetationInArea(FVector2D Center, float Radius)
 	// For now, we just log the action as a placeholder for the integration
 
 	// Calculate affected tiles
-	FTileCoord CenterTile = FTileCoord::FromWorldPosition(FVector(Center.X, Center.Y, 0.0f));
-	int32 TileRadius = FMath::CeilToInt(Radius / 64.0f); // 64m per tile
+        FTileCoord CenterTile = FTileCoord::FromWorldPosition(FVector(Center.X, Center.Y, 0.0f), WorldGenSettings.TileSizeMeters);
+        int32 TileRadius = FMath::CeilToInt(Radius / FMath::Max(WorldGenSettings.TileSizeMeters, KINDA_SMALL_NUMBER));
 
 	UE_LOG(LogHeightfieldService, Log, TEXT("Clearing vegetation in area centered at (%.1f, %.1f) with radius %.1f - affects ~%d tiles"),
 		Center.X, Center.Y, Radius, (TileRadius * 2 + 1) * (TileRadius * 2 + 1));
@@ -1551,12 +1577,13 @@ void UHeightfieldService::ApplyModificationsToTile(FTileCoord TileCoord, TArray<
 	UE_LOG(LogHeightfieldService, Log, TEXT("ApplyModificationsToTile: Applying %d modifications to tile (%d, %d), initial checksum: 0x%08X"),
 		ModList->Modifications.Num(), TileCoord.X, TileCoord.Y, InitialChecksum);
 
-	// Calculate tile world bounds
-	FVector TileWorldPos = TileCoord.ToWorldPosition(64.0f);
-	FVector2D TileStart(TileWorldPos.X - 32.0f, TileWorldPos.Y - 32.0f);
+        // Calculate tile world bounds
+        const float TileSize = WorldGenSettings.TileSizeMeters;
+        const float SampleSpacing = WorldGenSettings.SampleSpacingMeters;
+        const int32 Resolution = FMath::Clamp(FMath::RoundToInt(TileSize / FMath::Max(SampleSpacing, KINDA_SMALL_NUMBER)), 1, 4096);
 
-	const int32 Resolution = 64; // Locked per coordinate system
-	const float SampleSpacing = 1.0f; // 1m per sample
+        FVector TileWorldPos = TileCoord.ToWorldPosition(TileSize);
+        FVector2D TileStart(TileWorldPos.X - TileSize * 0.5f, TileWorldPos.Y - TileSize * 0.5f);
 
     // First: GUID-based dedup (preserve first-seen order)
     TArray<FHeightfieldModification> UniqueModifications;
@@ -1629,7 +1656,7 @@ void UHeightfieldService::ApplyModificationsToTile(FTileCoord TileCoord, TArray<
 			for (int32 X = 0; X < Resolution; X++)
 			{
 				// Calculate world position of this sample
-				FVector2D SampleWorldPos = TileStart + FVector2D(X * SampleSpacing, Y * SampleSpacing);
+                        FVector2D SampleWorldPos = TileStart + FVector2D(X * SampleSpacing, Y * SampleSpacing);
 
 				// Calculate distance from modification center
 				float Distance = FVector2D::Distance(SampleWorldPos, Modification.Center);
@@ -1727,12 +1754,13 @@ void UHeightfieldService::ApplyModificationsToTile(FTileCoord TileCoord, TArray<
 
 void UHeightfieldService::ApplyModificationToHeightfield(FHeightfieldData& HeightfieldData, const FHeightfieldModification& Modification)
 {
-	// Calculate tile world bounds
-	FVector TileWorldPos = HeightfieldData.TileCoord.ToWorldPosition(64.0f);
-	FVector2D TileStart(TileWorldPos.X - 32.0f, TileWorldPos.Y - 32.0f);
+        // Calculate tile world bounds
+        const float TileSize = WorldGenSettings.TileSizeMeters;
+        const float SampleSpacing = WorldGenSettings.SampleSpacingMeters;
+        FVector TileWorldPos = HeightfieldData.TileCoord.ToWorldPosition(TileSize);
+        FVector2D TileStart(TileWorldPos.X - TileSize * 0.5f, TileWorldPos.Y - TileSize * 0.5f);
 
-	const int32 Resolution = HeightfieldData.Resolution;
-	const float SampleSpacing = 1.0f; // 1m per sample
+        const int32 Resolution = HeightfieldData.Resolution;
 	bool bDataModified = false;
 
 	// For smooth operations, create a snapshot of the current state
@@ -1859,28 +1887,29 @@ void UHeightfieldService::ApplyModificationToHeightfield(FHeightfieldData& Heigh
 
 float UHeightfieldService::SampleHeightAt(FVector2D WorldXY, const TArray<float>& HeightData, FTileCoord TileCoord) const
 {
-	// Consistent coordinate conversion (cm → sample index)
-	const float SampleSpacing = 100.0f; // 1m per sample in cm
-	const float TileSize = 64.0f * 100.0f; // 64m tile size in cm
-	const int32 GridSize = 64; // Fixed resolution
+        // Consistent coordinate conversion (cm → sample index)
+        const float SampleSpacingCm = WorldGenSettings.SampleSpacingMeters * 100.0f;
+        const float TileSizeCm = WorldGenSettings.TileSizeMeters * 100.0f;
+        const int32 GridSize = FMath::Clamp(FMath::RoundToInt(WorldGenSettings.TileSizeMeters /
+                FMath::Max(WorldGenSettings.SampleSpacingMeters, KINDA_SMALL_NUMBER)), 1, 4096);
 
-	// Calculate tile origin in world coordinates (cm)
-	FVector TileWorldPos = TileCoord.ToWorldPosition(64.0f);
-	FVector2D TileOrigin(TileWorldPos.X * 100.0f - TileSize * 0.5f, TileWorldPos.Y * 100.0f - TileSize * 0.5f);
+        // Calculate tile origin in world coordinates (cm)
+        FVector TileWorldPos = TileCoord.ToWorldPosition(WorldGenSettings.TileSizeMeters);
+        FVector2D TileOrigin(TileWorldPos.X * 100.0f - TileSizeCm * 0.5f, TileWorldPos.Y * 100.0f - TileSizeCm * 0.5f);
 
-	// Convert world position to local tile coordinates
-	FVector2D LocalPos = (WorldXY * 100.0f - TileOrigin) / SampleSpacing;
+        // Convert world position to local tile coordinates
+        FVector2D LocalPos = (WorldXY * 100.0f - TileOrigin) / FMath::Max(SampleSpacingCm, KINDA_SMALL_NUMBER);
 
-	// Clamp to valid sample range
-	float Fx = FMath::Clamp(LocalPos.X, 0.0f, GridSize - 1.0f);
-	float Fy = FMath::Clamp(LocalPos.Y, 0.0f, GridSize - 1.0f);
+        // Clamp to valid sample range
+        float Fx = FMath::Clamp(LocalPos.X, 0.0f, GridSize - 1.0f);
+        float Fy = FMath::Clamp(LocalPos.Y, 0.0f, GridSize - 1.0f);
 
 	// Get integer indices
 	int32 Ix = FMath::FloorToInt(Fx);
 	int32 Iy = FMath::FloorToInt(Fy);
 
 	// Bilinear interpolation for smoother sampling
-	if (Ix < GridSize - 1 && Iy < GridSize - 1)
+        if (Ix < GridSize - 1 && Iy < GridSize - 1)
 	{
 		float FracX = Fx - Ix;
 		float FracY = Fy - Iy;

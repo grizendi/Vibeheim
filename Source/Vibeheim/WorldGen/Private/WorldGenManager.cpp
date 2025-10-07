@@ -141,17 +141,18 @@ bool AWorldGenManager::InitializeWorldGenSystems()
 	ReloadWorldGenAssets();
 
 	// Initialize PCG World Service
-	PCGWorldService = NewObject<UPCGWorldService>(this);
-	if (!PCGWorldService || !PCGWorldService->Initialize(WorldGenSettings->Settings))
-	{
-		UE_LOG(LogWorldGenManager, Error, TEXT("Failed to initialize PCG World Service"));
-		return false;
-	}
-	ReloadWorldGenAssets();
+        PCGWorldService = NewObject<UPCGWorldService>(this);
+        if (!PCGWorldService || !PCGWorldService->Initialize(WorldGenSettings->Settings))
+        {
+                UE_LOG(LogWorldGenManager, Error, TEXT("Failed to initialize PCG World Service"));
+                return false;
+        }
+        PCGWorldService->SetHeightfieldService(HeightfieldService);
+        ReloadWorldGenAssets();
 
 
-	// Initialize POI Service
-	POIService = NewObject<UPOIService>(this);
+        // Initialize POI Service
+        POIService = NewObject<UPOIService>(this);
 	if (!POIService || !POIService->Initialize(WorldGenSettings->Settings))
 	{
 		UE_LOG(LogWorldGenManager, Error, TEXT("Failed to initialize POI Service"));

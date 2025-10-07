@@ -30,11 +30,17 @@ struct VIBEHEIM_API FPCGGenerationData
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PCG")
 	int32 TotalInstanceCount = 0;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PCG")
-	uint64 InstanceTransformHash = 0;
+        UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PCG")
+        uint64 InstanceTransformHash = 0;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PCG")
-	float GenerationTimeMs = 0.0f;
+        UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PCG")
+        float GenerationTimeMs = 0.0f;
+
+        UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PCG")
+        float DensityScale = 1.0f;
+
+        UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PCG")
+        float EstimatedWorkUnits = 0.0f;
 };
 
 UINTERFACE(MinimalAPI, Blueprintable)

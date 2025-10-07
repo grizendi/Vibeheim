@@ -19,6 +19,7 @@ class UBlueprint;
 // Forward declare PCG classes (optional dependency)
 class UPCGGraph;
 class UCurveFloat;
+struct FWorldGenConfig;
 
 /**
  * Tile coordinate structure for world partitioning
@@ -39,24 +40,34 @@ struct VIBEHEIM_API FTileCoord
 	FTileCoord(int32 InX, int32 InY) : X(InX), Y(InY) {}
 	FTileCoord(FIntVector2 InCoord) : X(InCoord.X), Y(InCoord.Y) {}
 
-	// Convert world position to tile coordinate
-	static FTileCoord FromWorldPosition(FVector WorldPos, float TileSize = 64.0f)
-	{
-		return FTileCoord(
-			FMath::FloorToInt(WorldPos.X / TileSize),
-			FMath::FloorToInt(WorldPos.Y / TileSize)
-		);
-	}
+        // Convert world position to tile coordinate
+        static FTileCoord FromWorldPosition(FVector WorldPos, float TileSize = 64.0f)
+        {
+                return FTileCoord(
+                        FMath::FloorToInt(WorldPos.X / TileSize),
+                        FMath::FloorToInt(WorldPos.Y / TileSize)
+                );
+        }
 
-	// Convert tile coordinate to world position (center of tile)
-	FVector ToWorldPosition(float TileSize = 64.0f) const
-	{
-		return FVector(
-			(X + 0.5f) * TileSize,
-			(Y + 0.5f) * TileSize,
-			0.0f
-		);
-	}
+        static FTileCoord FromWorldPosition(const FVector& WorldPos, const FWorldGenConfig& Config)
+        {
+                return FromWorldPosition(WorldPos, Config.TileSizeMeters);
+        }
+
+        // Convert tile coordinate to world position (center of tile)
+        FVector ToWorldPosition(float TileSize = 64.0f) const
+        {
+                return FVector(
+                        (X + 0.5f) * TileSize,
+                        (Y + 0.5f) * TileSize,
+                        0.0f
+                );
+        }
+
+        FVector ToWorldPosition(const FWorldGenConfig& Config) const
+        {
+                return ToWorldPosition(Config.TileSizeMeters);
+        }
 
 	// Hash function for use in TMap
 	friend uint32 GetTypeHash(const FTileCoord& Coord);
