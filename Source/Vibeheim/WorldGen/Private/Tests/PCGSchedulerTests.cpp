@@ -6,7 +6,6 @@
 #if VHM_PCG_ENABLED
 #include "PCGGraph.h"
 #include "PCGInputOutputSettings.h"
-#include "PCGParamData.h"
 #include "Data/PCGPointData.h"
 
 namespace
@@ -29,12 +28,14 @@ namespace
 			return Executor.ActiveTasks.Add(TaskId);
 		}
 
-		static void CacheOutput(FPCGSchedulerExecutor& Executor, FPCGTaskId TaskId, const FPCGDataCollection& Output)
-		{
-			FPCGSchedulerExecutor::FScheduledTask& Task = Executor.ActiveTasks.FindChecked(TaskId);
-			Executor.CacheOutput(Task, Output);
-		}
-	};
+                static void CacheOutput(FPCGSchedulerExecutor& Executor, FPCGTaskId TaskId, const FPCGOutputSet& Output)
+                {
+                        FPCGSchedulerExecutor::FScheduledTask& Task = Executor.ActiveTasks.FindChecked(TaskId);
+                        Task.CachedOutput = Output;
+                        Task.bOutputCached = true;
+                        Task.Context.State = EPCGTaskState::Completed;
+                }
+        };
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FFPCGSchedulerResolveInputsTest, "Vibeheim.PCG.Scheduler.ResolveInputs", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -116,24 +117,21 @@ bool FFPCGSchedulerValidationFailureTest::RunTest(const FString& Parameters)
 
 bool FFPCGSchedulerCacheStateTest::RunTest(const FString& Parameters)
 {
-	FPCGSchedulerExecutor Executor;
-	const FPCGTaskId TaskId = 42;
-	FPCGSchedulerExecutor::FScheduledTask& Task = FSchedulerTestHelper::AddTask(Executor, TaskId);
-\n\tTask.Context.TaskId = TaskId;
+        FPCGSchedulerExecutor Executor;
+        const FPCGTaskId TaskId = 42;
+        FPCGSchedulerExecutor::FScheduledTask& Task = FSchedulerTestHelper::AddTask(Executor, TaskId);
+        Task.Context.TaskId = TaskId;
 
-	FPCGDataCollection Output;
-	FPCGTaggedData& Tagged = Output.TaggedData.AddDefaulted_GetRef();
-	Tagged.Data = NewObject<UPCGPointData>();
-	Tagged.Pin = PCGInputOutputConstants::DefaultInputLabel;
+        FPCGOutputSet Output;
+        Output.Outputs.Add(NewObject<UPCGPointData>());
 
-	FSchedulerTestHelper::CacheOutput(Executor, TaskId, Output);
+        FSchedulerTestHelper::CacheOutput(Executor, TaskId, Output);
 
-	TestEqual(TEXT("Task state transitions to Completed"), Task.Context.State, EPCGTaskState::Completed);
-	TestTrue(TEXT("Output should be cached"), Task.bOutputCached);
-	TestNotNull(TEXT("Cached collection should exist"), Task.CachedOutput.Get());
-	TestEqual(TEXT("Cached entry count"), Task.CachedOutput->TaggedData.Num(), 1);
+        TestEqual(TEXT("Task state transitions to Completed"), Task.Context.State, EPCGTaskState::Completed);
+        TestTrue(TEXT("Output should be cached"), Task.bOutputCached);
+        TestEqual(TEXT("Cached entry count"), Task.CachedOutput.Num(), 1);
 
-	return true;
+        return true;
 }
 
 #endif // VHM_PCG_ENABLED

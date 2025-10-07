@@ -71,17 +71,17 @@ private:
                 FPCGTaskContext Context;
                 TSharedPtr<const FPCGDataCollection> InputCollection;
                 FPCGElementPtr InputElement;
-		TWeakObjectPtr<UPCGComponent> SourceComponent;
-		TWeakObjectPtr<UPCGGraph> Graph;
-		FString DebugName;
-		double StartSeconds = 0.0;
-		bool bUsedFallback = false;
-		bool bOutputCached = false;
-		bool bAbandoned = false;
-		TSharedPtr<FPCGDataCollection> CachedOutput;
-	};
+                TWeakObjectPtr<UPCGComponent> SourceComponent;
+                TWeakObjectPtr<UPCGGraph> Graph;
+                FString DebugName;
+                double StartSeconds = 0.0;
+                bool bUsedFallback = false;
+                bool bOutputCached = false;
+                bool bAbandoned = false;
+                FPCGOutputSet CachedOutput;
+        };
 
-	using FResolvedInput = TPair<FName, UPCGData*>;
+        using FResolvedInput = TPair<FName, UPCGData*>;
 
 	bool ResolveInputs(UPCGGraph& Graph,
 		const FPCGInputSet& InputSet,

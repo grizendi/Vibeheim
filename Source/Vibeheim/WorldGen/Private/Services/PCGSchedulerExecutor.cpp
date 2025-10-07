@@ -255,7 +255,17 @@ TSharedPtr<FPCGDataCollection> FPCGSchedulerExecutor::BuildDataCollection(const 
 
 void FPCGSchedulerExecutor::CacheOutput(FScheduledTask& TaskInfo, const FPCGDataCollection& OutputData)
 {
-        TaskInfo.CachedOutput = MakeShared<FPCGDataCollection>(OutputData);
+        TaskInfo.CachedOutput.Reset();
+        TaskInfo.CachedOutput.Outputs.Reserve(OutputData.TaggedData.Num());
+
+        for (const FPCGTaggedData& Tagged : OutputData.TaggedData)
+        {
+                if (UPCGData* const TaggedData = Tagged.Data.Get())
+                {
+                        TaskInfo.CachedOutput.Outputs.Add(TaggedData);
+                }
+        }
+
         TaskInfo.bOutputCached = true;
         TaskInfo.Context.State = EPCGTaskState::Completed;
 }
@@ -398,26 +408,22 @@ bool FPCGSchedulerExecutor::GetTaskOutput(UPCGSubsystem& Subsystem,
 		CacheOutput(*Task, Output);
 	}
 
-	OutOutput.Reset();
-	OutPointCount = 0;
+        OutOutput = Task->CachedOutput;
+        OutPointCount = 0;
 
-	if (Task->CachedOutput.IsValid())
-	{
-		for (const FPCGTaggedData& Tagged : Task->CachedOutput->TaggedData)
-		{
-			if (!Tagged.Data)
-			{
-				continue;
-			}
+        for (const TObjectPtr<UPCGData>& OutputData : Task->CachedOutput.Outputs)
+        {
+                UPCGData* const Data = OutputData.Get();
+                if (!Data)
+                {
+                        continue;
+                }
 
-			OutOutput.Outputs.Add(Tagged.Data.Get());
-
-			if (const UPCGPointData* PointData = Cast<UPCGPointData>(Tagged.Data.Get()))
-			{
-				OutPointCount += PointData->GetPoints().Num();
-			}
-		}
-	}
+                if (const UPCGPointData* PointData = Cast<UPCGPointData>(Data))
+                {
+                        OutPointCount += PointData->GetPoints().Num();
+                }
+        }
 
 	const double ElapsedSeconds = FPlatformTime::Seconds() - Task->StartSeconds;
 	OutElapsedMs = ElapsedSeconds * 1000.0;
