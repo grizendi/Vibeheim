@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "UObject/Interface.h"
 #include "Data/WorldGenTypes.h"
+#include "Services/PCGWorldServiceTypes.h"
 #include "IPCGWorldService.generated.h"
 
 // Forward declarations (always declared for compatibility)
@@ -94,10 +95,10 @@ public:
 	/**
 	 * Clear all cached PCG data
 	 */
-	virtual void ClearPCGCache() = 0;
+        virtual void ClearPCGCache() = 0;
 
-	/**
-	 * Validate PCG graph compatibility
-	 */
-	virtual bool ValidatePCGGraph(const FString& GraphPath, TArray<FString>& OutErrors) = 0;
+        /**
+         * Validate PCG graph compatibility
+         */
+        virtual FPCGGraphValidationResult ValidatePCGGraph(const FString& GraphPath) = 0;
 };

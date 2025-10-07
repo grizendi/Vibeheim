@@ -71,8 +71,8 @@ public:
 	virtual bool RemoveContentInArea(FBox Area) override;
 	virtual FPCGPerformanceStats GetPerformanceStats() override;
 	virtual void SetRuntimeOperationsEnabled(bool bEnabled) override;
-	virtual void ClearPCGCache() override;
-	virtual bool ValidatePCGGraph(const FString& GraphPath, TArray<FString>& OutErrors) override;
+        virtual void ClearPCGCache() override;
+        virtual FPCGGraphValidationResult ValidatePCGGraph(const FString& GraphPath) override;
 
 	/**
 	 * Get biome weight for spawn parameters (returns 1.0f when bForceBiome = true)
@@ -123,6 +123,8 @@ public:
 
         void AbandonTasksForTile(FTileCoord TileCoord);
 
+        FString GetBiomeGraphAssetPath(EBiomeType BiomeType) const;
+
 private:
 #if VHM_PCG_ENABLED
         struct FAttributeValidationResult
@@ -132,8 +134,11 @@ private:
                 TArray<FString> Warnings;
         };
 #endif
-	UPROPERTY()
-	bool bHeadless = false;
+        UPROPERTY()
+        bool bHeadless = false;
+
+        UPROPERTY()
+        bool bDedicatedServer = false;
 
 	UPROPERTY()
 	FWorldGenConfig WorldGenSettings;
@@ -195,6 +200,11 @@ private:
         TWeakObjectPtr<AActor> PCGAnchorActor;
         TUniquePtr<FPCGSchedulerExecutor> SchedulerExecutor;
         TMap<FPCGTaskId, FPCGTaskContext> ActiveTasks;
+        TMap<FPCGTaskId, FPCGTaskTelemetry> ActiveTelemetry;
+        TMap<EBiomeType, TArray<double>> BiomeLatencySamples;
+        TMap<FString, TArray<double>> GraphLatencySamples;
+        bool bTelemetryCsvHeaderWritten = false;
+        double LastTelemetryFlushSeconds = 0.0;
         FDelegateHandle WorldCleanupHandle;
         FConsoleVariableSinkHandle ConsoleSinkHandle;
 #endif
@@ -314,6 +324,15 @@ private:
         void ApplyPOITerrainStamp(FVector Location, float Radius);
 
 #if VHM_PCG_ENABLED
+        void RegisterTelemetry(FPCGTaskId TaskId, EBiomeType BiomeType, const UPCGGraph& Graph, const FTileCoord& TileCoord);
+        void MarkTelemetryStart(FPCGTaskId TaskId);
+        void MarkTelemetryCompletion(FPCGTaskId TaskId, bool bSuccess, int32 PointsGenerated, double ExecutionTimeMs, bool bFallback, const FString& StatusLabel);
+        void MarkTelemetryFallback(FPCGTaskId TaskId, const FString& Reason, const UPCGGraph* Graph, EBiomeType BiomeType, const FTileCoord& TileCoord);
+        void EmitTelemetryLog(const FPCGTaskTelemetry& Telemetry, const FString& StatusLabel, const FString& Reason = FString());
+        void UpdateLatencySamples(const FString& GraphKey, EBiomeType BiomeType, double DurationMs);
+        double ComputePercentile(const TArray<double>& Samples, double Percent) const;
+        void FlushTelemetryCsv();
+        void AppendTelemetryCsvRow(const FPCGTaskTelemetry& Telemetry, const FString& StatusLabel, const FString& Reason);
         AActor* EnsurePCGAnchor(UWorld* World);
         UPCGComponent* GetOrCreateBiomeComponent(EBiomeType BiomeType, UPCGGraph& Graph);
         void DestroyBiomeComponent(EBiomeType BiomeType);
