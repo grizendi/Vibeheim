@@ -1,0 +1,77 @@
+{
+  "Graph": "PG_Test_Meadows",
+  "Biome": "Meadows",
+  "Description": "Simple grass scatter that modulates density by BiomeWeight and encodes per-point slope.",
+  "Inputs": {
+    "TileParameters": ["TileSeed", "BiomeId", "BiomeWeight", "AverageSlope", "TileSize"],
+    "TilePoints": ["Transform", "AverageSlope", "BiomeWeight"]
+  },
+  "Nodes": [
+    {
+      "Id": "InputParameters",
+      "Type": "PCGGraphInput",
+      "Outputs": ["TileParameters"]
+    },
+    {
+      "Id": "InputPoints",
+      "Type": "PCGGraphInput",
+      "Outputs": ["TilePoints"]
+    },
+    {
+      "Id": "DensityFromWeight",
+      "Type": "PCGAttributeMath",
+      "Settings": {
+        "Operation": "Multiply",
+        "Attribute": "BiomeWeight",
+        "Constant": 0.5,
+        "OutputAttribute": "DensityWeight"
+      },
+      "Inputs": {
+        "Primary": "TilePoints",
+        "Dependency": "TileParameters"
+      },
+      "Outputs": ["WeightedPoints"]
+    },
+    {
+      "Id": "Scatter",
+      "Type": "PCGPointScatter",
+      "Settings": {
+        "PointsPerSquareMeter": 0.1,
+        "DensityAttribute": "DensityWeight",
+        "SeedSource": "TileSeed"
+      },
+      "Inputs": {
+        "Primary": "WeightedPoints",
+        "Dependency": "TileParameters"
+      },
+      "Outputs": ["ScatteredPoints"]
+    },
+    {
+      "Id": "SetAttributes",
+      "Type": "PCGSetAttributes",
+      "Settings": {
+        "StaticMesh": "TestMeshes/SM_GrassClump_01",
+        "InstanceScale": [0.8, 1.2],
+        "IsActive": true
+      },
+      "Inputs": {
+        "Primary": "ScatteredPoints",
+        "Dependency": "TileParameters"
+      },
+      "Outputs": ["OutputPoints"]
+    }
+  ],
+  "Outputs": {
+    "Points": "OutputPoints"
+  },
+  "Attributes": {
+    "Required": [
+      { "Name": "StaticMesh", "Type": "FSoftObjectPath" },
+      { "Name": "InstanceScale", "Type": "FVector" },
+      { "Name": "InstanceRotation", "Type": "FRotator", "Default": "ZeroRotator" },
+      { "Name": "IsActive", "Type": "bool" },
+      { "Name": "InstanceId", "Type": "FGuid", "Source": "Scatter" },
+      { "Name": "BiomeWeight", "Type": "float", "Source": "WeightedPoints" }
+    ]
+  }
+}

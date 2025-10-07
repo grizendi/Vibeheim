@@ -1,0 +1,75 @@
+{
+  "Graph": "PG_Test_Ocean",
+  "Biome": "Ocean",
+  "Description": "Shoreline prop placement driven by water coverage and active flag toggles.",
+  "Inputs": {
+    "TileParameters": ["TileSeed", "BiomeId", "WaterCoverage", "MinWaterDistance", "TileSize"],
+    "TilePoints": ["Transform", "AverageSlope", "MinWaterDistance"]
+  },
+  "Nodes": [
+    {
+      "Id": "InputParameters",
+      "Type": "PCGGraphInput",
+      "Outputs": ["TileParameters"]
+    },
+    {
+      "Id": "InputPoints",
+      "Type": "PCGGraphInput",
+      "Outputs": ["TilePoints"]
+    },
+    {
+      "Id": "WaterBand",
+      "Type": "PCGAttributeFilter",
+      "Settings": {
+        "Attribute": "MinWaterDistance",
+        "Min": 0.0,
+        "Max": 500.0
+      },
+      "Inputs": {
+        "Primary": "TilePoints",
+        "Dependency": "TileParameters"
+      },
+      "Outputs": ["ShorelinePoints"]
+    },
+    {
+      "Id": "Scatter",
+      "Type": "PCGPointScatter",
+      "Settings": {
+        "PointsPerSquareMeter": 0.02,
+        "SeedSource": "TileSeed"
+      },
+      "Inputs": {
+        "Primary": "ShorelinePoints",
+        "Dependency": "TileParameters"
+      },
+      "Outputs": ["ScatteredPoints"]
+    },
+    {
+      "Id": "SetAttributes",
+      "Type": "PCGSetAttributes",
+      "Settings": {
+        "StaticMesh": "TestMeshes/SM_Driftwood_01",
+        "InstanceScale": [0.7, 1.3],
+        "IsActive": true
+      },
+      "Inputs": {
+        "Primary": "ScatteredPoints",
+        "Dependency": "TileParameters"
+      },
+      "Outputs": ["OutputPoints"]
+    }
+  ],
+  "Outputs": {
+    "Points": "OutputPoints"
+  },
+  "Attributes": {
+    "Required": [
+      { "Name": "StaticMesh", "Type": "FSoftObjectPath" },
+      { "Name": "InstanceScale", "Type": "FVector" },
+      { "Name": "InstanceRotation", "Type": "FRotator", "Default": "ZeroRotator" },
+      { "Name": "IsActive", "Type": "bool" },
+      { "Name": "InstanceId", "Type": "FGuid", "Source": "Scatter" },
+      { "Name": "MinWaterDistance", "Type": "float", "Source": "ShorelinePoints" }
+    ]
+  }
+}

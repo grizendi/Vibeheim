@@ -1,0 +1,73 @@
+{
+  "Graph": "PG_Test_Forest",
+  "Biome": "Forest",
+  "Description": "Minimal partition-ready graph scattering four pine instances with deterministic seeds.",
+  "Inputs": {
+    "TileParameters": ["TileSeed", "BiomeId", "AverageSlope", "WaterCoverage", "TileSize"],
+    "TilePoints": ["Transform", "AverageSlope"]
+  },
+  "Nodes": [
+    {
+      "Id": "InputParameters",
+      "Type": "PCGGraphInput",
+      "Outputs": ["TileParameters"]
+    },
+    {
+      "Id": "InputPoints",
+      "Type": "PCGGraphInput",
+      "Outputs": ["TilePoints"]
+    },
+    {
+      "Id": "FilterSlope",
+      "Type": "PCGSlopeFilter",
+      "Settings": {
+        "MinSlope": 0.0,
+        "MaxSlope": 25.0
+      },
+      "Inputs": {
+        "Primary": "TilePoints",
+        "Dependency": "TileParameters"
+      },
+      "Outputs": ["FilteredPoints"]
+    },
+    {
+      "Id": "Scatter",
+      "Type": "PCGPointScatter",
+      "Settings": {
+        "PointsPerSquareMeter": 0.04,
+        "SeedSource": "TileSeed"
+      },
+      "Inputs": {
+        "Primary": "FilteredPoints",
+        "Dependency": "TileParameters"
+      },
+      "Outputs": ["ScatteredPoints"]
+    },
+    {
+      "Id": "SetAttributes",
+      "Type": "PCGSetAttributes",
+      "Settings": {
+        "StaticMesh": "TestMeshes/SM_Pine_01",
+        "InstanceScale": [0.9, 1.1],
+        "IsActive": true
+      },
+      "Inputs": {
+        "Primary": "ScatteredPoints",
+        "Dependency": "TileParameters"
+      },
+      "Outputs": ["OutputPoints"]
+    }
+  ],
+  "Outputs": {
+    "Points": "OutputPoints"
+  },
+  "Attributes": {
+    "Required": [
+      { "Name": "StaticMesh", "Type": "FSoftObjectPath" },
+      { "Name": "InstanceScale", "Type": "FVector" },
+      { "Name": "InstanceRotation", "Type": "FRotator", "Default": "ZeroRotator" },
+      { "Name": "IsActive", "Type": "bool" },
+      { "Name": "InstanceId", "Type": "FGuid", "Source": "Scatter" }
+    ]
+  }
+}

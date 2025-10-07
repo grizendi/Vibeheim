@@ -81,6 +81,16 @@ Use the exact casing shown.
 - **Determinism:** Set both the PCG component seed and the metadata `TileSeed`. Use the provided
   hash helper when authoring blueprint utilities to avoid divergent seeds between runs.
 
+## Rollout Controls
+
+- Runtime execution is guarded by **Enable PCG Graphs** in the Vibeheim project
+  settings (`bEnablePCGGraphs`). Leave this enabled for dev/editor builds and
+  stage production rollouts biome-by-biome.
+- Use `wg.settings set pcggraphs 0|1` to toggle during playtests. The change is
+  immediate and persists until settings are reloaded.
+- When the flag is off, graphs continue to cook and validate but execution
+  falls back to the HISM generator—plan designer reviews accordingly.
+
 ## Example Authoring Patterns
 
 1. **Biome Vegetation Pass**
@@ -125,6 +135,18 @@ Designers can adjust runtime behaviour without recompiling:
 
 Use the project settings panel to author default values; the CVars provide temporary overrides for
 playtest sessions.
+
+### Mirroring Project Settings
+
+- Defaults live in `UVibeheimSettings::FWorldGenConfig`. Whenever the editor
+  starts or settings are hot-reloaded, the subsystem mirrors the struct values
+  into the corresponding CVars so command-line overrides remain transient.
+- Changing CVars at runtime triggers the `OnChanged` handlers and updates
+  `WorldGenSettings` in memory. Designers can therefore prototype tweaks via
+  console commands and bake the final numbers into project settings once
+  satisfied.
+- Remember to check in updated settings assets after adjusting defaults so the
+  build farm and packaged builds inherit the tuned values.
 
 ## Validation Workflow
 
