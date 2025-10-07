@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "PCGVersionGuard.h"
 #include "Data/WorldGenTypes.h"
+#include "Misc/DateTime.h"
 #include "UObject/StrongObjectPtr.h"
 
 #if VHM_PCG_ENABLED
@@ -94,7 +95,7 @@ struct FPCGInputSet
 /** Output bundle returned from scheduler extraction. */
 struct FPCGOutputSet
 {
-	TArray<TObjectPtr<UPCGData>> Outputs;
+        TArray<TObjectPtr<UPCGData>> Outputs;
 
 	void Reset()
 	{
@@ -104,7 +105,48 @@ struct FPCGOutputSet
 	int32 Num() const
 	{
 		return Outputs.Num();
-	}
+        }
+};
+
+/** Validation report returned from graph validation tooling. */
+struct FPCGGraphValidationResult
+{
+        bool bIsValid = false;
+        FString GraphPath;
+        FString GraphName;
+        TArray<FString> Errors;
+        TArray<FString> Warnings;
+        TArray<FName> MissingAttributes;
+        TArray<FString> UnwiredDependencyNodes;
+        TArray<FString> Suggestions;
+};
+
+/** High-level lifecycle states recorded for telemetry logging. */
+enum class EPCGTaskTelemetryStatus : uint8
+{
+        Scheduled,
+        Running,
+        Completed,
+        Failed,
+        Fallback
+};
+
+/** Structured telemetry captured for each scheduled PCG task. */
+struct FPCGTaskTelemetry
+{
+        EBiomeType Biome = EBiomeType::None;
+        FString GraphAssetPath;
+        FTileCoord Tile;
+        FPCGTaskId TaskId = InvalidPCGTaskId;
+        FDateTime SubmitTimestamp = FDateTime::MinValue();
+        FDateTime StartTimestamp = FDateTime::MinValue();
+        FDateTime DoneTimestamp = FDateTime::MinValue();
+        EPCGTaskTelemetryStatus Status = EPCGTaskTelemetryStatus::Scheduled;
+        int32 PointsOut = 0;
+        int32 NodesExecutedProxy = 0;
+        int32 NodesCachedProxy = 0;
+        bool bFallbackUsed = false;
+        double ElapsedMs = 0.0;
 };
 
 /** Result container for synchronous scheduler helpers (editor/tests). */

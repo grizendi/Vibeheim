@@ -52,11 +52,13 @@ public:
      */
     UFUNCTION(BlueprintCallable, Category = "World Generation")
     void GetWorldGenPerformanceStats(
-        UPARAM(ref) float& OutTileGenerationTimeMs, 
-        UPARAM(ref) float& OutPCGGenerationTimeMs, 
-        UPARAM(ref) int32& OutLoadedTiles, 
+        UPARAM(ref) float& OutTileGenerationTimeMs,
+        UPARAM(ref) float& OutPCGGenerationTimeMs,
+        UPARAM(ref) int32& OutLoadedTiles,
         UPARAM(ref) int32& OutPendingLoads
     );
+
+    UPCGWorldService* GetPCGWorldService() const { return PCGWorldService; }
 
     /**
      * Handle world generation error fallback

@@ -258,11 +258,11 @@ This implementation plan breaks down the PCG UE 5.6 migration into discrete, man
   - Test multiple biome components can coexist
   - _Requirements: 10.1_
 
-- [ ] 4. Phase 4: Validation & Diagnostics
+- [x] 4. Phase 4: Validation & Diagnostics
   - Enhance validation and add diagnostic tooling
   - _Requirements: 8, 9_
 
-- [ ] 4.1 Enhance ValidatePCGGraph method
+- [x] 4.1 Enhance ValidatePCGGraph method
   - Gate editor-only checks with `#if WITH_EDITOR` (graph traversal is editor-facing)
   - Check PCG subsystem is initialized
   - Check graph asset is valid and loaded
@@ -280,7 +280,7 @@ This implementation plan breaks down the PCG UE 5.6 migration into discrete, man
   - Return `FPCGGraphValidationResult` with errors, warnings, missing attributes, unwired dependency nodes
   - _Requirements: 9.1_
 
-- [ ] 4.2 Implement wg.pcg.showdeps console command
+- [x] 4.2 Implement wg.pcg.showdeps console command
   - Wrap in `#if WITH_EDITOR`
   - Register console command `wg.pcg.showdeps <GraphPath>` (accept loaded object path or asset path)
   - Print resolved graph name and asset path at top (screenshots are self-contained)
@@ -292,7 +292,7 @@ This implementation plan breaks down the PCG UE 5.6 migration into discrete, man
   - Print one-line summary footer: "Total Nodes: N, Dep Pins: D, Unwired: U"
   - _Requirements: 2.4, 9.1_
 
-- [ ] 4.3 Implement wg.pcg.validate console command
+- [x] 4.3 Implement wg.pcg.validate console command
   - Wrap in `#if WITH_EDITOR`
   - Register console command `wg.pcg.validate <Biome|GraphPath>`
   - If biome specified, resolve graph for that biome
@@ -301,7 +301,7 @@ This implementation plan breaks down the PCG UE 5.6 migration into discrete, man
   - Print remediation steps for each error/warning
   - _Requirements: 9.2_
 
-- [ ] 4.4 Add structured telemetry logging
+- [x] 4.4 Add structured telemetry logging
   - Add telemetry struct: `{Biome, GraphAssetPath, Tile, TaskId, SubmitTs, StartTs, DoneTs, Status, PointsOut, NodesExecuted, NodesCached, FallbackUsed}`
   - Add `TRACE_CPUPROFILER_EVENT_SCOPE(PCG_TileGenerate)` around schedule/extract for Insights workflows
   - Emit `{Biome, Graph, Tile, TaskId}` counters and a latency histogram
@@ -317,7 +317,7 @@ This implementation plan breaks down the PCG UE 5.6 migration into discrete, man
   - Aggregate telemetry per biome/graph for performance analysis
   - _Requirements: 9.5_
 
-- [ ] 4.5 Implement headless/fallback detection
+- [x] 4.5 Implement headless/fallback detection
   - Detect headless context: `GetWorld() == nullptr`
   - Detect dedicated server: `WITH_SERVER_CODE && !IsRunningClient()`
   - Detect missing PCG subsystem: `World->GetSubsystem<UPCGSubsystem>() == nullptr`
