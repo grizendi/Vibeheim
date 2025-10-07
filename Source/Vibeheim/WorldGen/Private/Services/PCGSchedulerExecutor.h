@@ -18,7 +18,7 @@ class FPCGSchedulerExecutor
 public:
 	FPCGSchedulerExecutor() = default;
 
-        FPCGTaskId ScheduleGraphAsync(UPCGSubsystem& Subsystem,
+        virtual FPCGTaskId ScheduleGraphAsync(UPCGSubsystem& Subsystem,
                 UPCGComponent& SourceComponent,
                 UPCGGraph& Graph,
                 UWorld& ExecutionWorld,
@@ -33,23 +33,23 @@ public:
                 TArray<FString>& OutErrors,
                 TArray<FString>& OutWarnings);
 
-	bool IsTaskComplete(UPCGSubsystem& Subsystem, FPCGTaskId TaskId, FPCGTaskContext& InOutContext);
+        virtual bool IsTaskComplete(UPCGSubsystem& Subsystem, FPCGTaskId TaskId, FPCGTaskContext& InOutContext);
 
-	bool GetTaskOutput(UPCGSubsystem& Subsystem,
-		FPCGTaskId TaskId,
-		FPCGTaskContext& Context,
-		FPCGOutputSet& OutOutput,
-		int32& OutPointCount,
-		double& OutElapsedMs,
-		TArray<FString>& OutWarnings,
-		TArray<FString>& OutErrors);
+        virtual bool GetTaskOutput(UPCGSubsystem& Subsystem,
+                FPCGTaskId TaskId,
+                FPCGTaskContext& Context,
+                FPCGOutputSet& OutOutput,
+                int32& OutPointCount,
+                double& OutElapsedMs,
+                TArray<FString>& OutWarnings,
+                TArray<FString>& OutErrors);
 
-	void ReleaseTask(UPCGSubsystem& Subsystem, FPCGTaskId TaskId, FPCGTaskContext& Context);
+        virtual void ReleaseTask(UPCGSubsystem& Subsystem, FPCGTaskId TaskId, FPCGTaskContext& Context);
 
-	void AbandonTask(UPCGSubsystem& Subsystem, FPCGTaskId TaskId, FPCGTaskContext& Context, const FString& Reason);
+        virtual void AbandonTask(UPCGSubsystem& Subsystem, FPCGTaskId TaskId, FPCGTaskContext& Context, const FString& Reason);
 
 #if WITH_EDITOR || WITH_AUTOMATION_TESTS
-        FPCGScheduleResult RunGraphSync(UPCGSubsystem& Subsystem,
+        virtual FPCGScheduleResult RunGraphSync(UPCGSubsystem& Subsystem,
                 UPCGComponent& SourceComponent,
                 UPCGGraph& Graph,
                 UWorld& ExecutionWorld,
