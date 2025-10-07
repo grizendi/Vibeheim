@@ -389,6 +389,37 @@ return GenerateFallbackContent(TileCoord, BiomeType, HeightData, TileMetrics);
 - Streaming behavior
 - Deterministic output
 
+## Feature Flag Rollout
+
+- Runtime execution is gated by **`bEnablePCGGraphs`** in
+  `UVibeheimSettings::FWorldGenConfig` and mirrored at runtime through the
+  `wg.settings` console surface. All scheduler entry points short-circuit to
+  `GenerateFallbackContent` when the flag is disabled.
+- For validation, run targeted automation once with the flag **on** and once
+  **off** to ensure the scheduler path and HISM fallback both stay healthy.
+- Gradual rollout strategy:
+  1. Enable on internal test maps only.
+  2. Expand biome-by-biome while monitoring `pcg_tasks.csv` latency and
+     fallback counters.
+  3. Flip the flag for shipping builds after two green release cycles.
+- Document toggles in release notes so QA can replicate the configuration used
+  in each milestone build.
+
+## Test Asset Pack
+
+- Lightweight graphs for automation live in
+  `Vibeheim/_Assets/Data/PCG/Tests`:
+  - `PG_Test_Forest.pcg.json`
+  - `PG_Test_Meadows.pcg.json`
+  - `PG_Test_Mountains.pcg.json`
+  - `PG_Test_Ocean.pcg.json`
+- Each graph is partition-ready (single tile input), scatters a handful of
+  points, and exposes the canonical attributes required by validation tests.
+- Import the JSON assets via the PCG editor's **Import Graph** function or use
+  them as authoring references when creating equivalent `.uasset` graphs.
+- Automation harnesses should depend on these assets instead of production
+  graphs to minimize load times and isolate regressions.
+
 ## Testing & Validation
 
 ### Test Coverage

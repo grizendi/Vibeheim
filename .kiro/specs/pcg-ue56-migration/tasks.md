@@ -395,21 +395,21 @@ This implementation plan breaks down the PCG UE 5.6 migration into discrete, man
   - Document common pitfalls and how to avoid them
   - _Requirements: 11.2_
 
-- [ ] 5.7 Create verification checklist
+- [x] 5.7 Create verification checklist
   - Create checklist document: compile → PIE smoke test → `wg.pcg.validate` → budget/perf validation
   - Document expected results for each verification step
   - Document how to interpret validation errors and warnings
   - Document performance benchmarks and acceptable ranges
   - _Requirements: 11.3_
 
-- [ ] 5.8 Create rollback plan documentation
+- [x] 5.8 Create rollback plan documentation
   - Document rollback procedure: set `bEnablePCGGraphs = false`, restart editor/game
   - Document verification steps: confirm tile generation continues with HISM, confirm no scheduler errors in logs
   - Document that graphs/components remain loadable but inactive
   - Document that no data loss or corruption occurs during rollback
   - _Requirements: 11.4, 11.5_
 
-- [ ] 5.9 Stage rollout behind feature flag
+- [x] 5.9 Stage rollout behind feature flag
   - Ensure `bEnablePCGGraphs` flag is properly wired to all scheduler code paths
   - Test with flag enabled: scheduler path active
   - Test with flag disabled: HISM fallback active, no scheduler calls
@@ -417,7 +417,7 @@ This implementation plan breaks down the PCG UE 5.6 migration into discrete, man
   - Plan gradual rollout: enable per map/biome, monitor for issues
   - _Requirements: 11.1_
 
-- [ ]* 5.10 Write comprehensive test suite documentation
+- [x]* 5.10 Write comprehensive test suite documentation
   - Document all test files and their coverage
   - Document how to run tests (unit, integration, performance)
   - Document expected test results and how to interpret failures
@@ -435,14 +435,14 @@ This implementation plan breaks down the PCG UE 5.6 migration into discrete, man
 - The implementation can proceed linearly through phases, or tasks within a phase can be parallelized if multiple developers are available
 
 
-- [ ] 5.11 Document CVars and settings
+- [x] 5.11 Document CVars and settings
   - Add CVar/Settings documentation to `/Docs/PCG-5.6-Designer-Guide.md`
   - List all CVars: `vhm.pcg.max_concurrent`, `vhm.pcg.frustum.enable`, `vhm.pcg.frustum.margin`
   - Document defaults and how they mirror project settings
   - Document live tuning workflow
   - _Requirements: 11.2_
 
-- [ ] 5.12 Create test assets pack
+- [x] 5.12 Create test assets pack
   - Create one minimal partitioned PCG graph per biome
   - Create tiny heightmap/actor set for testing
   - Ensure tests don't depend on big content

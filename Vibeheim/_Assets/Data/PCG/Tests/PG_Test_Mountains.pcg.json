@@ -1,0 +1,73 @@
+{
+  "Graph": "PG_Test_Mountains",
+  "Biome": "Mountains",
+  "Description": "Sparse boulder placement that respects high slope thresholds and tags instance IDs.",
+  "Inputs": {
+    "TileParameters": ["TileSeed", "BiomeId", "AverageSlope", "MaxSlope", "TileSize"],
+    "TilePoints": ["Transform", "AverageSlope"]
+  },
+  "Nodes": [
+    {
+      "Id": "InputParameters",
+      "Type": "PCGGraphInput",
+      "Outputs": ["TileParameters"]
+    },
+    {
+      "Id": "InputPoints",
+      "Type": "PCGGraphInput",
+      "Outputs": ["TilePoints"]
+    },
+    {
+      "Id": "HighSlopeFilter",
+      "Type": "PCGSlopeFilter",
+      "Settings": {
+        "MinSlope": 20.0,
+        "MaxSlope": 60.0
+      },
+      "Inputs": {
+        "Primary": "TilePoints",
+        "Dependency": "TileParameters"
+      },
+      "Outputs": ["FilteredPoints"]
+    },
+    {
+      "Id": "Downsample",
+      "Type": "PCGPointSampler",
+      "Settings": {
+        "NumPoints": 6,
+        "SeedSource": "TileSeed"
+      },
+      "Inputs": {
+        "Primary": "FilteredPoints",
+        "Dependency": "TileParameters"
+      },
+      "Outputs": ["SampledPoints"]
+    },
+    {
+      "Id": "SetAttributes",
+      "Type": "PCGSetAttributes",
+      "Settings": {
+        "StaticMesh": "TestMeshes/SM_Rock_01",
+        "InstanceScale": [1.0, 1.4],
+        "IsActive": true
+      },
+      "Inputs": {
+        "Primary": "SampledPoints",
+        "Dependency": "TileParameters"
+      },
+      "Outputs": ["OutputPoints"]
+    }
+  ],
+  "Outputs": {
+    "Points": "OutputPoints"
+  },
+  "Attributes": {
+    "Required": [
+      { "Name": "StaticMesh", "Type": "FSoftObjectPath" },
+      { "Name": "InstanceScale", "Type": "FVector" },
+      { "Name": "InstanceRotation", "Type": "FRotator", "Default": "ZeroRotator" },
+      { "Name": "IsActive", "Type": "bool" },
+      { "Name": "InstanceId", "Type": "FGuid", "Source": "Downsample" }
+    ]
+  }
+}
