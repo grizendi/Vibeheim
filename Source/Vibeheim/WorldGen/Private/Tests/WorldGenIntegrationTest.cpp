@@ -986,10 +986,11 @@ bool UWorldGenIntegrationTest::InitializeServices()
 		{
 			// Initialize PCGWorldService with dependencies
 			bool bPCGInitialized = PCGService->Initialize(WorldGenSettings->Settings);
-			if (bPCGInitialized)
-			{
-				PCGService->SetBiomeDefinitions(BiomeService->GetBiomeDefinitions());
-			}
+                        if (bPCGInitialized)
+                        {
+                                PCGService->SetBiomeDefinitions(BiomeService->GetBiomeDefinitions());
+                                PCGService->SetBiomeService(BiomeService);
+                        }
 			
 			if (bPCGInitialized)
 			{

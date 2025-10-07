@@ -131,6 +131,7 @@ bool UWorldGenSettings::ApplyFromAssets(const UWorldGenSettingsAsset* SettingsAs
         Settings.bEnableRivers = SettingsAsset->CoreSettings.bEnableRivers;
         Settings.bEnableRings = SettingsAsset->CoreSettings.bEnableRings;
         Settings.bEnablePCGGraphs = SettingsAsset->CoreSettings.bEnablePCGGraphs;
+        Settings.bAllowHeadlessLogicalInstances = SettingsAsset->CoreSettings.bAllowHeadlessLogicalInstances;
 
         MacroWorldConfig = SettingsAsset->MacroWorld;
         StreamingBudgetsConfig = SettingsAsset->StreamingBudgets;
@@ -259,10 +260,15 @@ bool UWorldGenSettings::ParseJSONObject(const TSharedPtr<FJsonObject>& JsonObjec
 		Settings.POIDensity = static_cast<float>(JsonObject->GetNumberField(TEXT("POIDensity")));
 	}
 	
-	if (JsonObject->HasField(TEXT("MaxHISMInstances")))
-	{
-		Settings.MaxHISMInstances = static_cast<int32>(JsonObject->GetNumberField(TEXT("MaxHISMInstances")));
-	}
+        if (JsonObject->HasField(TEXT("MaxHISMInstances")))
+        {
+                Settings.MaxHISMInstances = static_cast<int32>(JsonObject->GetNumberField(TEXT("MaxHISMInstances")));
+        }
+
+        if (JsonObject->HasField(TEXT("bAllowHeadlessLogicalInstances")))
+        {
+                Settings.bAllowHeadlessLogicalInstances = JsonObject->GetBoolField(TEXT("bAllowHeadlessLogicalInstances"));
+        }
 
 	// Parse biome settings
 	if (JsonObject->HasField(TEXT("BiomeScale")))
@@ -336,6 +342,10 @@ bool UWorldGenSettings::ParseJSONObject(const TSharedPtr<FJsonObject>& JsonObjec
             if (Features->HasField(TEXT("EnablePCGGraphs")))
             {
                 Settings.bEnablePCGGraphs = Features->GetBoolField(TEXT("EnablePCGGraphs"));
+            }
+            if (Features->HasField(TEXT("AllowHeadlessLogicalInstances")))
+            {
+                Settings.bAllowHeadlessLogicalInstances = Features->GetBoolField(TEXT("AllowHeadlessLogicalInstances"));
             }
         }
     }
@@ -454,12 +464,14 @@ TSharedPtr<FJsonObject> UWorldGenSettings::CreateJSONObject() const
     JsonObject->SetBoolField(TEXT("bEnableRivers"), Settings.bEnableRivers);
     JsonObject->SetBoolField(TEXT("bEnableRings"), Settings.bEnableRings);
     JsonObject->SetBoolField(TEXT("bEnablePCGGraphs"), Settings.bEnablePCGGraphs);
+    JsonObject->SetBoolField(TEXT("bAllowHeadlessLogicalInstances"), Settings.bAllowHeadlessLogicalInstances);
 
     TSharedPtr<FJsonObject> Features = MakeShareable(new FJsonObject);
     Features->SetBoolField(TEXT("EnableWater"), Settings.bEnableWater);
     Features->SetBoolField(TEXT("EnableRivers"), Settings.bEnableRivers);
     Features->SetBoolField(TEXT("EnableRings"), Settings.bEnableRings);
     Features->SetBoolField(TEXT("EnablePCGGraphs"), Settings.bEnablePCGGraphs);
+    Features->SetBoolField(TEXT("AllowHeadlessLogicalInstances"), Settings.bAllowHeadlessLogicalInstances);
     JsonObject->SetObjectField(TEXT("Features"), Features);
 
 	// VHM settings (nested object)
