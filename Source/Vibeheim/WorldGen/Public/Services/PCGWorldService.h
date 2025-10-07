@@ -53,9 +53,13 @@ struct FHISMComponentArray
 UCLASS(BlueprintType)
 class VIBEHEIM_API UPCGWorldService : public UObject, public IPCGWorldServiceInterface
 {
-	GENERATED_BODY()
+        GENERATED_BODY()
 
 public:
+#if WITH_AUTOMATION_TESTS
+        friend struct FPCGWorldServiceTestAccessor;
+#endif
+
         UPCGWorldService();
 
         virtual void BeginDestroy() override;
@@ -207,6 +211,10 @@ private:
         double LastTelemetryFlushSeconds = 0.0;
         FDelegateHandle WorldCleanupHandle;
         FConsoleVariableSinkHandle ConsoleSinkHandle;
+#if WITH_AUTOMATION_TESTS
+        TWeakObjectPtr<UWorld> TestWorldOverride;
+        TWeakObjectPtr<UPCGSubsystem> TestSubsystemOverride;
+#endif
 #endif
 
         /**

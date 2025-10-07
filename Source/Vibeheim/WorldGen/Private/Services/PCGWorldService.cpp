@@ -1445,7 +1445,18 @@ bool UPCGWorldService::Initialize(const FWorldGenConfig& Settings)
         MaxInstancesPerTile = Settings.MaxHISMInstances;
         InitializeDefaultBiomes();
 
+#if WITH_AUTOMATION_TESTS && VHM_PCG_ENABLED
+        if (TestWorldOverride.IsValid())
+        {
+                bHeadless = false;
+        }
+        else
+        {
+                bHeadless = (GetWorld() == nullptr);
+        }
+#else
         bHeadless = (GetWorld() == nullptr);
+#endif
         if (bHeadless)
         {
                 UE_LOG(LogPCGWorldService, Warning,
@@ -1453,6 +1464,12 @@ bool UPCGWorldService::Initialize(const FWorldGenConfig& Settings)
         }
 
         bDedicatedServer = IsRunningDedicatedServer();
+#if WITH_AUTOMATION_TESTS && VHM_PCG_ENABLED
+        if (TestWorldOverride.IsValid())
+        {
+                bDedicatedServer = false;
+        }
+#endif
         if (bDedicatedServer)
         {
                 UE_LOG(LogPCGWorldService, Warning,
@@ -1647,6 +1664,12 @@ FPCGGenerationData UPCGWorldService::GeneratePCGContent(FTileCoord TileCoord, EB
     }
 
     UWorld* World = GetWorld();
+#if WITH_AUTOMATION_TESTS && VHM_PCG_ENABLED
+    if (!World && TestWorldOverride.IsValid())
+    {
+        World = TestWorldOverride.Get();
+    }
+#endif
     if (!World)
     {
         UE_LOG(LogPCGWorldService, Warning, TEXT("World context unavailable; falling back for biome %s on tile (%d,%d)."), *UEnum::GetValueAsString(BiomeType), TileCoord.X, TileCoord.Y);
@@ -1655,6 +1678,12 @@ FPCGGenerationData UPCGWorldService::GeneratePCGContent(FTileCoord TileCoord, EB
     }
 
     UPCGSubsystem* PCGSubsystem = World->GetSubsystem<UPCGSubsystem>();
+#if WITH_AUTOMATION_TESTS && VHM_PCG_ENABLED
+    if (!PCGSubsystem && TestSubsystemOverride.IsValid())
+    {
+        PCGSubsystem = TestSubsystemOverride.Get();
+    }
+#endif
     if (!PCGSubsystem)
     {
         UE_LOG(LogPCGWorldService, Warning, TEXT("PCG subsystem unavailable; falling back for biome %s on tile (%d,%d)."), *UEnum::GetValueAsString(BiomeType), TileCoord.X, TileCoord.Y);

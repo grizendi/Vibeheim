@@ -351,7 +351,7 @@ This implementation plan breaks down the PCG UE 5.6 migration into discrete, man
   - Ensure all tests pass with new scheduler path
   - _Requirements: 10.1_
 
-- [ ] 5.2 Add integration tests for end-to-end generation
+- [x] 5.2 Add integration tests for end-to-end generation
   - Test full tile generation with scheduler path
   - Test fallback trigger on forced scheduler failure
   - Test fallback trigger on forced timeout
@@ -359,7 +359,7 @@ This implementation plan breaks down the PCG UE 5.6 migration into discrete, man
   - Test frustum culling integration (on vs off comparison)
   - _Requirements: 10.2_
 
-- [ ] 5.3 Add performance validation tests
+- [x] 5.3 Add performance validation tests
   - Warm-up once before measuring to avoid shader compile skew
   - Test CRC caching reduces re-gen time on partial graph edits
   - Measure and log scheduling overhead vs legacy baseline
@@ -369,14 +369,14 @@ This implementation plan breaks down the PCG UE 5.6 migration into discrete, man
   - Save perf artifacts to CSV per run (map/biome columns) for trend tracking
   - _Requirements: 10.3_
 
-- [ ] 5.4 Add regression test for Difference + GetActorData
+- [x] 5.4 Add regression test for Difference + GetActorData
   - Create test graph using Difference node with GetActorData input
   - Test if Difference node correctly culls points in 5.6
   - If regression detected, implement attribute-mask workaround: project cull volumes to float mask, filter via attribute
   - Validate workaround produces correct results
   - _Requirements: 10.4_
 
-- [ ] 5.5 Add determinism test for dependency pin wiring
+- [x] 5.5 Add determinism test for dependency pin wiring
   - Create test graph with input-less getters (Get Landscape Data, Get Actor Data)
   - Test without dependency pin wiring: verify non-deterministic or incorrect results
   - Test with dependency pin wiring: verify deterministic, correct results
@@ -385,7 +385,7 @@ This implementation plan breaks down the PCG UE 5.6 migration into discrete, man
   - Validate `wg.pcg.showdeps` detects unwired pins
   - _Requirements: 2.2, 2.4_
 
-- [ ] 5.6 Write designer migration notes
+- [x] 5.6 Write designer migration notes
   - Create `/Docs/PCG-5.6-Designer-Guide.md`
   - Document when/why to wire Execution Dependency pin (especially for getters and timed sequences)
   - Include "before/after" graph wiring diagram for Execution-Dependency pins
