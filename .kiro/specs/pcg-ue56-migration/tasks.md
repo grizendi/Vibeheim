@@ -343,7 +343,7 @@ This implementation plan breaks down the PCG UE 5.6 migration into discrete, man
   - Port tests, add performance validation, write migration notes
   - _Requirements: 10, 11_
 
-- [ ] 5.1 Port existing PCG tests to scheduler
+- [x] 5.1 Port existing PCG tests to scheduler
   - Identify all existing PCG tests in `Source/Vibeheim/WorldGen/Private/Tests`
   - Update tests to use `FPCGSchedulerExecutor::RunGraphSync` instead of legacy APIs
   - Replace any `FPCGDataCollection` usage with `FPCGInputSet`/`FPCGOutputSet`
