@@ -33,14 +33,16 @@ namespace VHMPCGAttr
 	inline const FName TileSeed(TEXT("TileSeed")); // Hash(TileX, TileY, BiomeId, GlobalSeed)
 	inline const FName TileX(TEXT("TileX"));
 	inline const FName TileY(TEXT("TileY"));
-	inline const FName TileSize(TEXT("TileSize"));
-	inline const FName BiomeWeight(TEXT("BiomeWeight"));
-	inline const FName StaticMesh(TEXT("StaticMesh"));
-	inline const FName Mesh(TEXT("Mesh"));
-	inline const FName InstanceScale(TEXT("InstanceScale"));
-	inline const FName InstanceRotation(TEXT("InstanceRotation"));
-	inline const FName IsActive(TEXT("IsActive"));
-	inline const FName InstanceId(TEXT("InstanceId"));
+        inline const FName TileSize(TEXT("TileSize"));
+        inline const FName BiomeWeight(TEXT("BiomeWeight"));
+        inline const FName DensityScale(TEXT("DensityScale"));
+        inline const FName StaticMesh(TEXT("StaticMesh"));
+        inline const FName Mesh(TEXT("Mesh"));
+        inline const FName InstanceScale(TEXT("InstanceScale"));
+        inline const FName InstanceRotation(TEXT("InstanceRotation"));
+        inline const FName IsActive(TEXT("IsActive"));
+        inline const FName InstanceId(TEXT("InstanceId"));
+        inline const FName RespectGraphZ(TEXT("RespectGraphZ"));
 }
 
 /** Aggregated tile metrics computed prior to scheduling PCG graphs. */

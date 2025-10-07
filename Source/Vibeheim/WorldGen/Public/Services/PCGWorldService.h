@@ -19,6 +19,7 @@ class UHierarchicalInstancedStaticMeshComponent;
 class AActor;
 class UPCGGraph;
 class UInstancePersistenceManager;
+class UHeightfieldService;
 #if VHM_PCG_ENABLED
 class UPCGComponent;
 class UPCGParamData;
@@ -86,11 +87,11 @@ public:
 	/**
 	 * Set biome definitions for PCG generation
 	 */
-	UFUNCTION(BlueprintCallable, Category = "PCG")
-	void SetBiomeDefinitions(const TMap<EBiomeType, FBiomeDefinition>& InBiomeDefinitions);
+        UFUNCTION(BlueprintCallable, Category = "PCG")
+        void SetBiomeDefinitions(const TMap<EBiomeType, FBiomeDefinition>& InBiomeDefinitions);
 
-	/**
-	 * Set instance persistence manager for saving/loading modifications
+        /**
+         * Set instance persistence manager for saving/loading modifications
 	 */
 	UFUNCTION(BlueprintCallable, Category = "PCG")
 	void SetPersistenceManager(UInstancePersistenceManager* InPersistenceManager);
@@ -110,18 +111,24 @@ public:
 	/**
 	 * Remove specific POI and persist the change
 	 */
-	UFUNCTION(BlueprintCallable, Category = "PCG")
-	bool RemovePOI(FGuid POIId);
+        UFUNCTION(BlueprintCallable, Category = "PCG")
+        bool RemovePOI(FGuid POIId);
 
-	/**
-	 * Add new POI and persist the change
-	 */
-	UFUNCTION(BlueprintCallable, Category = "PCG")
-	bool AddPOI(const FPOIData& POIData);
+        /**
+         * Add new POI and persist the change
+         */
+        UFUNCTION(BlueprintCallable, Category = "PCG")
+        bool AddPOI(const FPOIData& POIData);
 
-	/**
-	 * Load tile with persistence reconciliation
-	 */
+        /**
+         * Provide the heightfield service used for terrain sampling.
+         */
+        UFUNCTION(BlueprintCallable, Category = "PCG")
+        void SetHeightfieldService(UHeightfieldService* InHeightfieldService);
+
+        /**
+         * Load tile with persistence reconciliation
+         */
         UFUNCTION(BlueprintCallable, Category = "PCG")
         bool LoadTileWithPersistence(FTileCoord TileCoord, EBiomeType BiomeType, const TArray<float>& HeightData);
 
@@ -183,7 +190,7 @@ private:
 	int32 MaxInstancesPerTile;
 
 	UPROPERTY()
-	TArray<float> LODDistances;
+        TArray<float> CullDistances;
 
 	// PCG-related properties (always declared but only used when WITH_PCG is true)
 	UPROPERTY()
@@ -199,6 +206,9 @@ private:
 	// Instance persistence manager
         UPROPERTY()
         TObjectPtr<UInstancePersistenceManager> PersistenceManager;
+
+        UPROPERTY()
+        TObjectPtr<UHeightfieldService> HeightfieldService;
 
 #if VHM_PCG_ENABLED
         TWeakObjectPtr<AActor> PCGAnchorActor;
@@ -247,12 +257,12 @@ private:
 	/**
 	 * Generate vegetation instances for a tile
 	 */
-	TArray<FPCGInstanceData> GenerateVegetationInstances(FTileCoord TileCoord, const FBiomeDefinition& BiomeDef, const TArray<float>& HeightData, const FPCGTileMetrics* TileMetrics = nullptr, bool bUsePCGHeuristics = false);
+        TArray<FPCGInstanceData> GenerateVegetationInstances(FTileCoord TileCoord, const FBiomeDefinition& BiomeDef, const TArray<float>& HeightData, const FPCGTileMetrics* TileMetrics = nullptr, bool bUsePCGHeuristics = false, float DensityScale = 1.0f);
 
 	/**
 	 * Generate vegetation instances for a tile with spawn parameters (forced biome mode support)
 	 */
-	TArray<FPCGInstanceData> GenerateVegetationInstances(FTileCoord TileCoord, const FBiomeDefinition& BiomeDef, const TArray<float>& HeightData, const FPCGSpawnParams& SpawnParams, const FPCGTileMetrics* TileMetrics = nullptr, bool bUsePCGHeuristics = false);
+        TArray<FPCGInstanceData> GenerateVegetationInstances(FTileCoord TileCoord, const FBiomeDefinition& BiomeDef, const TArray<float>& HeightData, const FPCGSpawnParams& SpawnParams, const FPCGTileMetrics* TileMetrics = nullptr, bool bUsePCGHeuristics = false, float DensityScale = 1.0f);
 
 	/**
 	 * Generate POI instances for a tile
@@ -287,7 +297,11 @@ private:
 
 	FPCGTileMetrics AnalyzeTileMetrics(const TArray<float>& HeightData) const;
 
-	float ComputeEnvironmentScale(const FPCGTileMetrics& TileMetrics, const FPCGVegetationRule& VegRule) const;
+        float ComputeEnvironmentScale(const FPCGTileMetrics& TileMetrics, const FPCGVegetationRule& VegRule) const;
+
+        float EstimateWorkUnitsForBiome(EBiomeType BiomeType, const FPCGTileMetrics* TileMetrics) const;
+
+        float ComputeDensityScaleFromWork(float EstimatedWorkUnits) const;
 
 	UPCGGraph* ResolveBiomePCGGraph(EBiomeType BiomeType);
 

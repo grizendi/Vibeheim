@@ -37,6 +37,7 @@
 #include "HAL/IConsoleManager.h"
 #include "HAL/FileManager.h"
 #include "Trace/Trace.inl"
+#include "Services/HeightfieldService.h"
 
 UE_DEFINE_LOG_CATEGORY(LogPCGWorldService);
 
@@ -385,6 +386,7 @@ namespace PCGWorldService::Private
             { VHMPCGAttr::SeaLevel, TConstArrayView<EPCGMetadataTypes>(FloatType, UE_ARRAY_COUNT(FloatType)), EAttributeScope::Parameter, true, TEXT("float") },
             { VHMPCGAttr::TileSize, TConstArrayView<EPCGMetadataTypes>(FloatType, UE_ARRAY_COUNT(FloatType)), EAttributeScope::Parameter, true, TEXT("float") },
             { VHMPCGAttr::BiomeWeight, TConstArrayView<EPCGMetadataTypes>(FloatType, UE_ARRAY_COUNT(FloatType)), EAttributeScope::Parameter, true, TEXT("float") },
+            { VHMPCGAttr::DensityScale, TConstArrayView<EPCGMetadataTypes>(FloatType, UE_ARRAY_COUNT(FloatType)), EAttributeScope::Parameter, false, TEXT("float") },
             { VHMPCGAttr::BiomeId, TConstArrayView<EPCGMetadataTypes>(Int32Type, UE_ARRAY_COUNT(Int32Type)), EAttributeScope::Parameter, true, TEXT("int32") },
             { VHMPCGAttr::TileSeed, TConstArrayView<EPCGMetadataTypes>(Int32Type, UE_ARRAY_COUNT(Int32Type)), EAttributeScope::Parameter, true, TEXT("int32") },
             { VHMPCGAttr::TileX, TConstArrayView<EPCGMetadataTypes>(Int32Type, UE_ARRAY_COUNT(Int32Type)), EAttributeScope::Parameter, true, TEXT("int32") },
@@ -395,7 +397,8 @@ namespace PCGWorldService::Private
             { VHMPCGAttr::InstanceScale, TConstArrayView<EPCGMetadataTypes>(VectorType, UE_ARRAY_COUNT(VectorType)), EAttributeScope::Point, false, TEXT("FVector") },
             { VHMPCGAttr::InstanceRotation, TConstArrayView<EPCGMetadataTypes>(RotatorType, UE_ARRAY_COUNT(RotatorType)), EAttributeScope::Point, false, TEXT("FRotator") },
             { VHMPCGAttr::IsActive, TConstArrayView<EPCGMetadataTypes>(BoolType, UE_ARRAY_COUNT(BoolType)), EAttributeScope::Point, false, TEXT("bool") },
-            { VHMPCGAttr::InstanceId, TConstArrayView<EPCGMetadataTypes>(GuidType, UE_ARRAY_COUNT(GuidType)), EAttributeScope::Point, false, TEXT("FGuid (stored as string/name)") }
+            { VHMPCGAttr::InstanceId, TConstArrayView<EPCGMetadataTypes>(GuidType, UE_ARRAY_COUNT(GuidType)), EAttributeScope::Point, false, TEXT("FGuid (stored as string/name)") },
+            { VHMPCGAttr::RespectGraphZ, TConstArrayView<EPCGMetadataTypes>(BoolType, UE_ARRAY_COUNT(BoolType)), EAttributeScope::Point, false, TEXT("bool") }
         };
 
         return Attributes;
@@ -447,12 +450,14 @@ namespace PCGWorldService::Private
     }
 
 static UPCGParamData* CreateTileParameterData(UObject* Outer, const FPCGTileMetrics& TileMetrics,
-                FTileCoord TileCoord, EBiomeType BiomeType, const FWorldGenConfig& WorldGenSettings, uint32 TileSeed);
+                FTileCoord TileCoord, EBiomeType BiomeType, const FWorldGenConfig& WorldGenSettings, uint32 TileSeed,
+                float DensityScale);
 
         static UPCGPointData* CreateTilePointData(UObject* Outer, FTileCoord TileCoord, const FWorldGenConfig& WorldGenSettings,
                 const FPCGTileMetrics& TileMetrics);
 
         static void ExtractInstancesFromPointData(const UPCGPointData* PointData, FTileCoord TileCoord,
+                const FWorldGenConfig& WorldGenSettings, const UHeightfieldService* HeightfieldService,
                 FPCGGenerationData& OutGenerationData);
 }
 #endif
@@ -463,10 +468,11 @@ UPCGWorldService::UPCGWorldService()
         PerformanceStats = FPCGPerformanceStats();
         CurrentPCGGraph = nullptr;
         TileActor = nullptr;
+        HeightfieldService = nullptr;
         MaxInstancesPerTile = 10000;
-        LODDistances.Add(500.0f);  // LOD 0-1 transition
-        LODDistances.Add(1500.0f); // LOD 1-2 transition
-        LODDistances.Add(5000.0f); // LOD 2-3 transition
+        CullDistances.Add(500.0f);  // Near cull distance for runtime HISM fallback
+        CullDistances.Add(1500.0f); // Mid-range cull distance for runtime HISM fallback
+        CullDistances.Add(5000.0f); // Far cull distance for runtime HISM fallback
 #if VHM_PCG_ENABLED
     SchedulerExecutor = MakeUnique<FPCGSchedulerExecutor>();
     RefreshRuntimeSettingsFromCVars();
@@ -999,7 +1005,7 @@ void UPCGWorldService::HandleWorldCleanup(UWorld* World, bool bSessionEnded, boo
 #if VHM_PCG_ENABLED
 UPCGParamData* PCGWorldService::Private::CreateTileParameterData(UObject* Outer,
         const FPCGTileMetrics& TileMetrics, FTileCoord TileCoord, EBiomeType BiomeType,
-        const FWorldGenConfig& WorldGenSettings, uint32 TileSeed)
+        const FWorldGenConfig& WorldGenSettings, uint32 TileSeed, float DensityScale)
 {
         UPCGParamData* ParamData = NewObject<UPCGParamData>(Outer ? Outer : GetTransientPackage(), NAME_None, RF_Transient);
         if (!ensureMsgf(ParamData, TEXT("Failed to allocate tile parameter data for (%d, %d)"), TileCoord.X, TileCoord.Y))
@@ -1053,6 +1059,7 @@ UPCGParamData* PCGWorldService::Private::CreateTileParameterData(UObject* Outer,
         EnsureAndSetAttribute(VHMPCGAttr::TileY, TileCoord.Y, false);
         EnsureAndSetAttribute(VHMPCGAttr::TileSize, WorldGenSettings.TileSizeMeters, true);
         EnsureAndSetAttribute(VHMPCGAttr::BiomeWeight, 1.0f, true);
+        EnsureAndSetAttribute(VHMPCGAttr::DensityScale, DensityScale, true);
 
         return ParamData;
 }
@@ -1111,6 +1118,7 @@ UPCGPointData* PCGWorldService::Private::CreateTilePointData(UObject* Outer, FTi
 }
 
 void PCGWorldService::Private::ExtractInstancesFromPointData(const UPCGPointData* PointData, FTileCoord TileCoord,
+        const FWorldGenConfig& WorldGenSettings, const UHeightfieldService* HeightfieldService,
         FPCGGenerationData& OutGenerationData)
 {
         OutGenerationData.GeneratedInstances.Reset();
@@ -1135,6 +1143,10 @@ void PCGWorldService::Private::ExtractInstancesFromPointData(const UPCGPointData
         }
 
         OutGenerationData.GeneratedInstances.Reserve(Points.Num());
+
+        const float MinTerrainZ = WorldGenSettings.SeaLevel - WorldGenSettings.MaxTerrainHeight;
+        const float MaxTerrainZ = WorldGenSettings.SeaLevel + WorldGenSettings.MaxTerrainHeight;
+        bool bLoggedMissingHeightService = false;
 
         bool bLoggedMissingMetadata = false;
         TSet<FName> MissingAttributes;
@@ -1186,6 +1198,7 @@ void PCGWorldService::Private::ExtractInstancesFromPointData(const UPCGPointData
                 Instance.OwningTile = TileCoord;
 
                 const PCGMetadataEntryKey EntryKey = Point.MetadataEntry;
+                bool bRespectGraphZ = false;
 
                 if (!Metadata)
                 {
@@ -1223,22 +1236,22 @@ void PCGWorldService::Private::ExtractInstancesFromPointData(const UPCGPointData
                                 Instance.Mesh = TSoftObjectPtr<UStaticMesh>(StaticMeshPath);
                                 bMeshAssigned = true;
                         }
-                        else
-                        {
-                                UObject* RawObject = nullptr;
-                                if (Metadata->GetAttribute<UObject*>(VHMPCGAttr::StaticMesh, EntryKey, RawObject) || Metadata->GetAttribute<UObject*>(VHMPCGAttr::Mesh, EntryKey, RawObject))
-                                {
-                                        if (UStaticMesh* MeshAsset = Cast<UStaticMesh>(RawObject))
-                                        {
-                                                Instance.Mesh = MeshAsset;
-                                                bMeshAssigned = true;
-                                        }
-                                }
-                        }
-
                         if (!bMeshAssigned)
                         {
-                                LogMissingAttribute(VHMPCGAttr::StaticMesh);
+                                const bool bHasStaticMeshAttr = Metadata->GetConstAttribute(VHMPCGAttr::StaticMesh) != nullptr;
+                                const bool bHasMeshAttr = Metadata->GetConstAttribute(VHMPCGAttr::Mesh) != nullptr;
+
+                                if (!bHasStaticMeshAttr && !bHasMeshAttr)
+                                {
+                                        LogMissingAttribute(VHMPCGAttr::StaticMesh);
+                                }
+                                else
+                                {
+                                        const FName AttrName = bHasStaticMeshAttr ? VHMPCGAttr::StaticMesh : VHMPCGAttr::Mesh;
+                                        UE_LOG(LogPCGWorldService, Error,
+                                                TEXT("Tile (%d, %d) attribute '%s' must be authored as a Soft Object Path."),
+                                                TileCoord.X, TileCoord.Y, *AttrName.ToString());
+                                }
                         }
 
                         bool bIsActive = Instance.bIsActive;
@@ -1285,7 +1298,31 @@ void PCGWorldService::Private::ExtractInstancesFromPointData(const UPCGPointData
                                         LogMissingAttribute(VHMPCGAttr::InstanceId);
                                 }
                         }
+
+                        Metadata->GetAttribute<bool>(VHMPCGAttr::RespectGraphZ, EntryKey, bRespectGraphZ);
                 }
+
+                const bool bZOutOfBounds = (Instance.Location.Z < MinTerrainZ || Instance.Location.Z > MaxTerrainZ);
+                if (!bRespectGraphZ || bZOutOfBounds)
+                {
+                        if (HeightfieldService)
+                        {
+                                const float TerrainHeight = HeightfieldService->GetHeightAtLocation(FVector2D(Instance.Location.X, Instance.Location.Y));
+                                if (FMath::IsFinite(TerrainHeight))
+                                {
+                                        Instance.Location.Z = TerrainHeight;
+                                }
+                        }
+                        else if (!bLoggedMissingHeightService)
+                        {
+                                UE_LOG(LogPCGWorldService, Warning,
+                                        TEXT("Heightfield service unavailable; cannot project PCG instances for tile (%d, %d)."),
+                                        TileCoord.X, TileCoord.Y);
+                                bLoggedMissingHeightService = true;
+                        }
+                }
+
+                Instance.Location.Z = FMath::Clamp(Instance.Location.Z, MinTerrainZ, MaxTerrainZ);
 
                 OutGenerationData.GeneratedInstances.Add(MoveTemp(Instance));
         }
@@ -1441,10 +1478,6 @@ bool UPCGWorldService::Initialize(const FWorldGenConfig& Settings)
         MaxInstancesPerTile = Settings.MaxHISMInstances;
         InitializeDefaultBiomes();
 
-        WorldGenSettings = Settings;
-        MaxInstancesPerTile = Settings.MaxHISMInstances;
-        InitializeDefaultBiomes();
-
 #if WITH_AUTOMATION_TESTS && VHM_PCG_ENABLED
         if (TestWorldOverride.IsValid())
         {
@@ -1526,10 +1559,11 @@ FPCGGenerationData UPCGWorldService::GenerateBiomeContent(FTileCoord TileCoord, 
 #endif
 
 	// Add logging during content test to verify rule count
-	if (const FBiomeDefinition* BiomeDef = BiomeDefinitions.Find(BiomeType))
-	{
-		UE_LOG(LogPCGWorldService, Log, TEXT("Forest rules: N=%d"), BiomeDef->VegetationRules.Num());
-	}
+        if (const FBiomeDefinition* BiomeDef = BiomeDefinitions.Find(BiomeType))
+        {
+                UE_LOG(LogPCGWorldService, Log, TEXT("%s rules: N=%d"),
+                        *UEnum::GetValueAsString(BiomeType), BiomeDef->VegetationRules.Num());
+        }
 
 	// For biome-specific generation (test path), dont use cache - always generate fresh
 	// This ensures we use the BiomeType parameter as authoritative rather than tile classification
@@ -1558,7 +1592,9 @@ FPCGGenerationData UPCGWorldService::GenerateContentInternal(FTileCoord TileCoor
 {
         FPCGTileMetrics TileMetrics;
         bool bHasTileMetrics = false;
-        const int32 ExpectedHeightDataSize = 64 * 64;
+        const float SamplesPerSideFloat = WorldGenSettings.TileSizeMeters / FMath::Max(KINDA_SMALL_NUMBER, WorldGenSettings.SampleSpacingMeters);
+        const int32 SamplesPerSide = FMath::Clamp(FMath::RoundToInt(SamplesPerSideFloat), 1, 4096);
+        const int32 ExpectedHeightDataSize = SamplesPerSide * SamplesPerSide;
 
 #if VHM_PCG_ENABLED
         if (bDedicatedServer || bHeadless)
@@ -1714,7 +1750,9 @@ FPCGGenerationData UPCGWorldService::GeneratePCGContent(FTileCoord TileCoord, EB
         return GenerateFallbackContent(TileCoord, BiomeType, HeightData, true, TileMetrics);
     }
 
-    const int32 ExpectedHeightSamples = 64 * 64;
+    const float SamplesPerSideFloat = WorldGenSettings.TileSizeMeters / FMath::Max(KINDA_SMALL_NUMBER, WorldGenSettings.SampleSpacingMeters);
+    const int32 SamplesPerSide = FMath::Clamp(FMath::RoundToInt(SamplesPerSideFloat), 1, 4096);
+    const int32 ExpectedHeightSamples = SamplesPerSide * SamplesPerSide;
     const bool bHasHeightData = HeightData.Num() == ExpectedHeightSamples;
 
     FPCGTileMetrics LocalMetrics;
@@ -1725,9 +1763,14 @@ FPCGGenerationData UPCGWorldService::GeneratePCGContent(FTileCoord TileCoord, EB
         EffectiveMetrics = &LocalMetrics;
     }
 
+    const float EstimatedWorkUnits = EstimateWorkUnitsForBiome(BiomeType, EffectiveMetrics);
+    const float DensityScale = ComputeDensityScaleFromWork(EstimatedWorkUnits);
+    GenerationData.EstimatedWorkUnits = EstimatedWorkUnits;
+    GenerationData.DensityScale = DensityScale;
+
     const uint32 TileSeed = GetTileRandomSeed(TileCoord);
     UObject* DataOuter = AnchorActor ? static_cast<UObject*>(AnchorActor) : static_cast<UObject*>(this);
-    UPCGParamData* ParameterData = Private::CreateTileParameterData(DataOuter, EffectiveMetrics ? *EffectiveMetrics : FPCGTileMetrics(), TileCoord, BiomeType, WorldGenSettings, TileSeed);
+    UPCGParamData* ParameterData = Private::CreateTileParameterData(DataOuter, EffectiveMetrics ? *EffectiveMetrics : FPCGTileMetrics(), TileCoord, BiomeType, WorldGenSettings, TileSeed, DensityScale);
     UPCGPointData* TilePointData = Private::CreateTilePointData(DataOuter, TileCoord, WorldGenSettings, EffectiveMetrics ? *EffectiveMetrics : FPCGTileMetrics());
 
     FAttributeValidationResult Validation = ValidateInputAttributes(ParameterData, TilePointData);
@@ -1846,7 +1889,8 @@ FPCGGenerationData UPCGWorldService::GeneratePCGContent(FTileCoord TileCoord, EB
     {
         if (const UPCGPointData* OutputPointData = Cast<UPCGPointData>(OutputDatum.Get()))
         {
-            Private::ExtractInstancesFromPointData(OutputPointData, TileCoord, GenerationData);
+            Private::ExtractInstancesFromPointData(OutputPointData, TileCoord, WorldGenSettings,
+                    HeightfieldService.Get(), GenerationData);
         }
     }
 
@@ -1898,8 +1942,10 @@ FPCGGenerationData UPCGWorldService::GenerateFallbackContent(FTileCoord TileCoor
 		return GenerationData;
 	}
 
-	const int32 ExpectedHeightDataSize = 64 * 64;
-	const bool bHasValidHeightData = HeightData.Num() == ExpectedHeightDataSize;
+        const float SamplesPerSideFloat = WorldGenSettings.TileSizeMeters / FMath::Max(KINDA_SMALL_NUMBER, WorldGenSettings.SampleSpacingMeters);
+        const int32 SamplesPerSide = FMath::Clamp(FMath::RoundToInt(SamplesPerSideFloat), 1, 4096);
+        const int32 ExpectedHeightDataSize = SamplesPerSide * SamplesPerSide;
+        const bool bHasValidHeightData = HeightData.Num() == ExpectedHeightDataSize;
 
 	FPCGTileMetrics LocalMetrics;
 	const FPCGTileMetrics* EffectiveMetrics = TileMetrics;
@@ -1933,7 +1979,12 @@ FPCGGenerationData UPCGWorldService::GenerateFallbackContent(FTileCoord TileCoor
 			*UEnum::GetValueAsString(BiomeType), EffectiveMetrics ? TEXT("true") : TEXT("false"));
 	}
 
-	TArray<FPCGInstanceData> VegetationInstances = GenerateVegetationInstances(TileCoord, *BiomeDef, HeightData, SpawnParams, EffectiveMetrics, bUsePCGHeuristics);
+        const float EstimatedWorkUnits = EstimateWorkUnitsForBiome(BiomeType, EffectiveMetrics);
+        const float DensityScale = ComputeDensityScaleFromWork(EstimatedWorkUnits);
+        GenerationData.EstimatedWorkUnits = EstimatedWorkUnits;
+        GenerationData.DensityScale = DensityScale;
+
+        TArray<FPCGInstanceData> VegetationInstances = GenerateVegetationInstances(TileCoord, *BiomeDef, HeightData, SpawnParams, EffectiveMetrics, bUsePCGHeuristics, DensityScale);
 	GenerationData.GeneratedInstances.Append(VegetationInstances);
 
 	TArray<FPOIData> POIInstances = GeneratePOIInstances(TileCoord, *BiomeDef, HeightData);
@@ -1957,31 +2008,35 @@ FPCGGenerationData UPCGWorldService::GenerateFallbackContent(FTileCoord TileCoor
 	return GenerationData;
 }
 
-TArray<FPCGInstanceData> UPCGWorldService::GenerateVegetationInstances(FTileCoord TileCoord, const FBiomeDefinition& BiomeDef, const TArray<float>& HeightData, const FPCGTileMetrics* TileMetrics, bool bUsePCGHeuristics)
+TArray<FPCGInstanceData> UPCGWorldService::GenerateVegetationInstances(FTileCoord TileCoord, const FBiomeDefinition& BiomeDef, const TArray<float>& HeightData, const FPCGTileMetrics* TileMetrics, bool bUsePCGHeuristics, float DensityScale)
 {
-	FPCGSpawnParams DefaultSpawnParams;
-	return GenerateVegetationInstances(TileCoord, BiomeDef, HeightData, DefaultSpawnParams, TileMetrics, bUsePCGHeuristics);
+        FPCGSpawnParams DefaultSpawnParams;
+        return GenerateVegetationInstances(TileCoord, BiomeDef, HeightData, DefaultSpawnParams, TileMetrics, bUsePCGHeuristics, DensityScale);
 }
 
-TArray<FPCGInstanceData> UPCGWorldService::GenerateVegetationInstances(FTileCoord TileCoord, const FBiomeDefinition& BiomeDef, const TArray<float>& HeightData, const FPCGSpawnParams& SpawnParams, const FPCGTileMetrics* TileMetrics, bool bUsePCGHeuristics)
+TArray<FPCGInstanceData> UPCGWorldService::GenerateVegetationInstances(FTileCoord TileCoord, const FBiomeDefinition& BiomeDef, const TArray<float>& HeightData, const FPCGSpawnParams& SpawnParams, const FPCGTileMetrics* TileMetrics, bool bUsePCGHeuristics, float DensityScale)
 {
-	TArray<FPCGInstanceData> Instances;
+        TArray<FPCGInstanceData> Instances;
 
-	const int32 ExpectedHeightDataSize = 64 * 64;
-	if (HeightData.Num() != ExpectedHeightDataSize)
-	{
-		UE_LOG(LogPCGWorldService, Error, TEXT("Height data size mismatch: expected %d elements (64x64), got %d elements"),
-			ExpectedHeightDataSize, HeightData.Num());
-		return Instances;
-	}
+        const float SamplesPerSideFloat = WorldGenSettings.TileSizeMeters / FMath::Max(KINDA_SMALL_NUMBER, WorldGenSettings.SampleSpacingMeters);
+        const int32 SamplesPerSide = FMath::Clamp(FMath::RoundToInt(SamplesPerSideFloat), 1, 4096);
+        const int32 ExpectedHeightDataSize = SamplesPerSide * SamplesPerSide;
+        if (HeightData.Num() != ExpectedHeightDataSize)
+        {
+                UE_LOG(LogPCGWorldService, Error, TEXT("Height data size mismatch: expected %d elements (%dx%d), got %d elements"),
+                        ExpectedHeightDataSize, HeightData.Num());
+                return Instances;
+        }
 
-	FVector TileWorldPos = TileCoord.ToWorldPosition(64.0f);
-	FVector2D TileStart(TileWorldPos.X - 32.0f, TileWorldPos.Y - 32.0f);
-	const float TileAreaM2 = 64.0f * 64.0f;
+        const float TileSize = WorldGenSettings.TileSizeMeters;
+        const float InvSampleSpacing = 1.0f / FMath::Max(KINDA_SMALL_NUMBER, WorldGenSettings.SampleSpacingMeters);
+        FVector TileWorldPos = TileCoord.ToWorldPosition(TileSize);
+        FVector2D TileStart(TileWorldPos.X - TileSize * 0.5f, TileWorldPos.Y - TileSize * 0.5f);
+        const float TileAreaM2 = TileSize * TileSize;
 
-	FRandomStream RandomStream(GetTileRandomSeed(TileCoord));
-	const float BiomeWeight = GetBiomeWeightForSpawn(SpawnParams, BiomeDef.BiomeType);
-	const bool bApplyHeuristics = bUsePCGHeuristics && TileMetrics != nullptr;
+        FRandomStream RandomStream(GetTileRandomSeed(TileCoord));
+        const float BiomeWeight = GetBiomeWeightForSpawn(SpawnParams, BiomeDef.BiomeType);
+        const bool bApplyHeuristics = bUsePCGHeuristics && TileMetrics != nullptr;
 
 	UE_LOG(LogPCGWorldService, VeryVerbose, TEXT("Generating vegetation for biome %s with %d rules (heuristics=%s, biomeWeight=%.3f)"),
 		*UEnum::GetValueAsString(BiomeDef.BiomeType), BiomeDef.VegetationRules.Num(), bApplyHeuristics ? TEXT("true") : TEXT("false"), BiomeWeight);
@@ -1992,17 +2047,17 @@ TArray<FPCGInstanceData> UPCGWorldService::GenerateVegetationInstances(FTileCoor
 	{
 		UStaticMesh* Mesh = VegRule.VegetationMesh.IsNull() ? nullptr : VegRule.VegetationMesh.LoadSynchronous();
 
-		float BaseDensity = VegRule.Density * WorldGenSettings.VegetationDensity * BiomeWeight;
-		if (TileMetrics)
-		{
-			BaseDensity *= ComputeEnvironmentScale(*TileMetrics, VegRule);
-		}
+                float BaseDensity = VegRule.Density * WorldGenSettings.VegetationDensity * BiomeWeight * DensityScale;
+                if (TileMetrics)
+                {
+                        BaseDensity *= ComputeEnvironmentScale(*TileMetrics, VegRule);
+                }
 
-		int32 BaseInstanceCount = FMath::Max(0, FMath::RoundToInt(BaseDensity * TileAreaM2 / 100.0f));
-		const int32 MaxInstancesForThisRule = FMath::Max(1, MaxInstancesPerTile / FMath::Max(1, BiomeDef.VegetationRules.Num()));
-		int32 InstanceCount = FMath::Min(BaseInstanceCount, MaxInstancesForThisRule);
+                int32 BaseInstanceCount = FMath::Max(0, FMath::RoundToInt(BaseDensity * TileAreaM2 / 100.0f));
+                const int32 MaxInstancesForThisRule = FMath::Max(1, MaxInstancesPerTile / FMath::Max(1, BiomeDef.VegetationRules.Num()));
+                int32 InstanceCount = FMath::Min(BaseInstanceCount, MaxInstancesForThisRule);
 
-		if (bHeadless && SpawnParams.bForceBiome)
+                if (bHeadless && SpawnParams.bForceBiome)
 		{
 			InstanceCount = FMath::Max(InstanceCount, 1);
 		}
@@ -2018,43 +2073,44 @@ TArray<FPCGInstanceData> UPCGWorldService::GenerateVegetationInstances(FTileCoor
 		TArray<FVector2D> SamplePoints;
 		SamplePoints.Reserve(InstanceCount);
 
-		if (bApplyHeuristics)
-		{
-			GenerateClusteredSamples(RandomStream, InstanceCount, TileStart, 64.0f, 2.0f, SamplePoints);
-		}
-		else
-		{
-			for (int32 i = 0; i < InstanceCount; ++i)
-			{
-				SamplePoints.Add(GeneratePoissonSample(RandomStream, TileStart, 64.0f, 2.0f));
-			}
-		}
+                const float MinDistance = FMath::Max(2.0f, TileSize * 0.03125f); // roughly 2m at 64m tiles
+                if (bApplyHeuristics)
+                {
+                        GenerateClusteredSamples(RandomStream, InstanceCount, TileStart, TileSize, MinDistance, SamplePoints);
+                }
+                else
+                {
+                        for (int32 i = 0; i < InstanceCount; ++i)
+                        {
+                                SamplePoints.Add(GeneratePoissonSample(RandomStream, TileStart, TileSize, MinDistance));
+                        }
+                }
 
-		int32 ValidInstances = 0;
-		int32 HeightRejections = 0;
-		int32 SlopeRejections = 0;
+                int32 ValidInstances = 0;
+                int32 HeightRejections = 0;
+                int32 SlopeRejections = 0;
 
-		for (const FVector2D& SamplePoint : SamplePoints)
-		{
-			FVector WorldPos = FVector(SamplePoint, 0.0f);
-			bool bPassesHeightCheck = true;
-			bool bPassesSlopeCheck = true;
+                for (const FVector2D& SamplePoint : SamplePoints)
+                {
+                        FVector WorldPos = FVector(SamplePoint, 0.0f);
+                        bool bPassesHeightCheck = true;
+                        bool bPassesSlopeCheck = true;
 
-			const int32 HeightX = FMath::Clamp(FMath::FloorToInt(SamplePoint.X - TileStart.X), 0, 63);
-			const int32 HeightY = FMath::Clamp(FMath::FloorToInt(SamplePoint.Y - TileStart.Y), 0, 63);
-			const int32 HeightIndex = HeightY * 64 + HeightX;
+                        const int32 HeightX = FMath::Clamp(FMath::FloorToInt((SamplePoint.X - TileStart.X) * InvSampleSpacing), 0, SamplesPerSide - 1);
+                        const int32 HeightY = FMath::Clamp(FMath::FloorToInt((SamplePoint.Y - TileStart.Y) * InvSampleSpacing), 0, SamplesPerSide - 1);
+                        const int32 HeightIndex = HeightY * SamplesPerSide + HeightX;
 
-			const float Height = HeightData[HeightIndex];
-			WorldPos.Z = Height;
+                        const float Height = HeightData[HeightIndex];
+                        WorldPos.Z = Height;
 
-			if (!(Height >= VegRule.MinHeight && Height <= VegRule.MaxHeight))
+                        if (!(Height >= VegRule.MinHeight && Height <= VegRule.MaxHeight))
 			{
 				bPassesHeightCheck = false;
 			}
 
 			if (bPassesHeightCheck)
 			{
-				const float Slope = CalculateSlope(HeightData, HeightX, HeightY, 64);
+                                const float Slope = CalculateSlope(HeightData, HeightX, HeightY, SamplesPerSide);
 				if (Slope > VegRule.SlopeLimit)
 				{
 					bPassesSlopeCheck = false;
@@ -2130,8 +2186,9 @@ TArray<FPOIData> UPCGWorldService::GeneratePOIInstances(FTileCoord TileCoord, co
 	TArray<FPOIData> POIs;
 
 	// Calculate tile world position
-	FVector TileWorldPos = TileCoord.ToWorldPosition(64.0f);
-	FVector2D TileStart(TileWorldPos.X - 32.0f, TileWorldPos.Y - 32.0f);
+        const float TileSize = WorldGenSettings.TileSizeMeters;
+        FVector TileWorldPos = TileCoord.ToWorldPosition(TileSize);
+        FVector2D TileStart(TileWorldPos.X - TileSize * 0.5f, TileWorldPos.Y - TileSize * 0.5f);
 
 	// Initialize seeded random for consistent generation
 	FRandomStream RandomStream(GetTileRandomSeed(TileCoord));
@@ -2584,7 +2641,7 @@ FPCGGraphValidationResult UPCGWorldService::ValidatePCGGraph(const FString& Grap
                 const FTileCoord SampleTile(0, 0);
                 const uint32 TileSeed = GetTileRandomSeed(SampleTile);
 
-                UPCGParamData* ParameterData = Private::CreateTileParameterData(this, DummyMetrics, SampleTile, EBiomeType::None, WorldGenSettings, TileSeed);
+                UPCGParamData* ParameterData = Private::CreateTileParameterData(this, DummyMetrics, SampleTile, EBiomeType::None, WorldGenSettings, TileSeed, 1.0f);
                 UPCGPointData* PointData = Private::CreateTilePointData(this, SampleTile, WorldGenSettings, DummyMetrics);
 
                 if (ParameterData && PointData)
@@ -2884,16 +2941,16 @@ bool UPCGWorldService::AddInstance(FTileCoord TileCoord, const FPCGInstanceData&
 
 bool UPCGWorldService::RemovePOI(FGuid POIId)
 {
-	// Find POI in spawned POIs
-	FPOIData* POIData = SpawnedPOIs.Find(POIId);
-	if (!POIData)
+        // Find POI in spawned POIs
+        FPOIData* POIData = SpawnedPOIs.Find(POIId);
+        if (!POIData)
 	{
 		UE_LOG(LogPCGWorldService, Warning, TEXT("POI %s not found in spawned POIs"), *POIId.ToString());
 		return false;
 	}
 
 	// Get the tile coordinate for persistence logging
-	FTileCoord TileCoord = FTileCoord::FromWorldPosition(POIData->Location, 64.0f);
+        FTileCoord TileCoord = FTileCoord::FromWorldPosition(POIData->Location, WorldGenSettings.TileSizeMeters);
 
 	// Destroy the spawned actor if it exists
 	if (TObjectPtr<AActor>* FoundPtr = SpawnedPOIActors.Find(POIId))
@@ -2915,17 +2972,32 @@ bool UPCGWorldService::RemovePOI(FGuid POIId)
 	// Remove from spawned POIs map
 	SpawnedPOIs.Remove(POIId);
 
-	UE_LOG(LogPCGWorldService, Log, TEXT("Removed POI %s (%s)"), *POIId.ToString(), *POIData->POIName);
-	return true;
+        UE_LOG(LogPCGWorldService, Log, TEXT("Removed POI %s (%s)"), *POIId.ToString(), *POIData->POIName);
+        return true;
+}
+
+void UPCGWorldService::SetHeightfieldService(UHeightfieldService* InHeightfieldService)
+{
+        HeightfieldService = InHeightfieldService;
+
+        if (HeightfieldService)
+        {
+                UE_LOG(LogPCGWorldService, Log, TEXT("Heightfield service bound for terrain projection"));
+        }
+        else
+        {
+                UE_LOG(LogPCGWorldService, Warning,
+                        TEXT("Heightfield service cleared; PCG instances will rely on authored Z values"));
+        }
 }
 
 bool UPCGWorldService::AddPOI(const FPOIData& POIData)
 {
-	// Validate POI ID is properly initialized
-	ensureMsgf(POIData.POIId.IsValid(), TEXT("AddPOI: POIData must have a valid POIId"));
+        // Validate POI ID is properly initialized
+        ensureMsgf(POIData.POIId.IsValid(), TEXT("AddPOI: POIData must have a valid POIId"));
 
 	// Get the tile coordinate for persistence logging
-	FTileCoord TileCoord = FTileCoord::FromWorldPosition(POIData.Location, 64.0f);
+        FTileCoord TileCoord = FTileCoord::FromWorldPosition(POIData.Location, WorldGenSettings.TileSizeMeters);
 
 	// Add to spawned POIs map
 	SpawnedPOIs.Add(POIData.POIId, POIData);
@@ -3206,15 +3278,16 @@ float UPCGWorldService::CalculateSlope(const TArray<float>& HeightData, int32 X,
 }
 FPCGTileMetrics UPCGWorldService::AnalyzeTileMetrics(const TArray<float>& HeightData) const
 {
-	FPCGTileMetrics Metrics;
-	const int32 ExpectedSize = 64 * 64;
-	if (HeightData.Num() != ExpectedSize)
-	{
-		return Metrics;
-	}
+        FPCGTileMetrics Metrics;
+        const float SamplesPerSideFloat = WorldGenSettings.TileSizeMeters / FMath::Max(KINDA_SMALL_NUMBER, WorldGenSettings.SampleSpacingMeters);
+        const int32 GridSize = FMath::Clamp(FMath::RoundToInt(SamplesPerSideFloat), 1, 4096);
+        const int32 ExpectedSize = GridSize * GridSize;
+        if (HeightData.Num() != ExpectedSize)
+        {
+                return Metrics;
+        }
 
-	const int32 GridSize = 64;
-	const float SeaLevel = WorldGenSettings.SeaLevel;
+        const float SeaLevel = WorldGenSettings.SeaLevel;
 
 	float SumHeight = 0.0f;
 	float SumSlope = 0.0f;
@@ -3274,22 +3347,70 @@ FPCGTileMetrics UPCGWorldService::AnalyzeTileMetrics(const TArray<float>& Height
 
 float UPCGWorldService::ComputeEnvironmentScale(const FPCGTileMetrics& TileMetrics, const FPCGVegetationRule& VegRule) const
 {
-	float SlopeFactor = 1.0f;
-	if (VegRule.SlopeLimit > KINDA_SMALL_NUMBER)
-	{
-		SlopeFactor = FMath::Clamp(1.0f - (TileMetrics.AverageSlope / FMath::Max(VegRule.SlopeLimit, 1.0f)), 0.0f, 1.0f);
-	}
+        float SlopeFactor = 1.0f;
+        if (VegRule.SlopeLimit > KINDA_SMALL_NUMBER)
+        {
+                SlopeFactor = FMath::Clamp(1.0f - (TileMetrics.AverageSlope / FMath::Max(VegRule.SlopeLimit, 1.0f)), 0.0f, 1.0f);
+        }
 
-	float WaterFactor = 1.0f;
-	const float WaterFalloff = FMath::Max(10.0f, WorldGenSettings.TileSizeMeters * 0.75f);
-	WaterFactor = FMath::Clamp(1.0f - (TileMetrics.MinAbsWaterDistance / WaterFalloff), 0.2f, 1.0f);
+        float WaterFactor = 1.0f;
+        const float WaterFalloff = FMath::Max(10.0f, WorldGenSettings.TileSizeMeters * 0.75f);
+        WaterFactor = FMath::Clamp(1.0f - (TileMetrics.MinAbsWaterDistance / WaterFalloff), 0.2f, 1.0f);
 
-	if (TileMetrics.WaterCoverageRatio > 0.0f && VegRule.MaxHeight > WorldGenSettings.SeaLevel)
-	{
-		WaterFactor *= 1.0f - TileMetrics.WaterCoverageRatio;
-	}
+        if (TileMetrics.WaterCoverageRatio > 0.0f && VegRule.MaxHeight > WorldGenSettings.SeaLevel)
+        {
+                WaterFactor *= 1.0f - TileMetrics.WaterCoverageRatio;
+        }
 
-	return FMath::Clamp(SlopeFactor * WaterFactor, 0.1f, 1.5f);
+        return FMath::Clamp(SlopeFactor * WaterFactor, 0.1f, 1.5f);
+}
+
+float UPCGWorldService::EstimateWorkUnitsForBiome(EBiomeType BiomeType, const FPCGTileMetrics* TileMetrics) const
+{
+        const FBiomeDefinition* BiomeDef = BiomeDefinitions.Find(BiomeType);
+        if (!BiomeDef)
+        {
+                return 0.0f;
+        }
+
+        const float TileSize = WorldGenSettings.TileSizeMeters;
+        const float TileArea = TileSize * TileSize;
+        const float BiomeWeight = 1.0f;
+
+        float EstimatedUnits = 0.0f;
+        for (const FPCGVegetationRule& VegRule : BiomeDef->VegetationRules)
+        {
+                float Density = VegRule.Density * WorldGenSettings.VegetationDensity * BiomeWeight;
+                if (TileMetrics)
+                {
+                        Density *= ComputeEnvironmentScale(*TileMetrics, VegRule);
+                }
+
+                const float RuleUnits = FMath::Max(0.0f, Density * TileArea / 100.0f);
+                EstimatedUnits += RuleUnits;
+        }
+
+        // POI placement cost is coarse but keeps density scaling responsive when vegetation is sparse
+        EstimatedUnits += static_cast<float>(BiomeDef->POIRules.Num()) * 10.0f;
+
+        return EstimatedUnits;
+}
+
+float UPCGWorldService::ComputeDensityScaleFromWork(float EstimatedWorkUnits) const
+{
+        static constexpr float WorkUnitsPerMs = 500.0f;
+
+        if (EstimatedWorkUnits <= KINDA_SMALL_NUMBER)
+        {
+                return 1.0f;
+        }
+
+        const float TargetMs = FMath::Max(0.1f, WorldGenSettings.PCGTargetMsPerTile);
+        const float LoadMs = EstimatedWorkUnits / WorkUnitsPerMs;
+        const float EffectiveLoad = FMath::Max(LoadMs, 0.1f);
+        const float RawScale = TargetMs / EffectiveLoad;
+
+        return FMath::Clamp(RawScale, 0.5f, 1.2f);
 }
 
 bool UPCGWorldService::CheckPOISpacingRequirements(FVector Location, float MinDistance)
@@ -3316,7 +3437,7 @@ void UPCGWorldService::ApplyDensityLimiting(FPCGGenerationData& GenerationData)
 	}
 
 	// Sort instances by some priority (e.g., distance from tile center, or keep first N instances)
-	FVector TileCenter = GenerationData.TileCoord.ToWorldPosition(64.0f);
+        FVector TileCenter = GenerationData.TileCoord.ToWorldPosition(WorldGenSettings.TileSizeMeters);
 
 	GenerationData.GeneratedInstances.Sort([TileCenter](const FPCGInstanceData& A, const FPCGInstanceData& B)
 		{
@@ -3355,7 +3476,7 @@ void UPCGWorldService::CreateHISMComponentsForTile(FTileCoord TileCoord)
 
 	if (!TileActor)
 	{
-		FVector TileWorldPos = TileCoord.ToWorldPosition(64.0f);
+                FVector TileWorldPos = TileCoord.ToWorldPosition(WorldGenSettings.TileSizeMeters);
 		FTransform ActorTransform(FRotator::ZeroRotator, TileWorldPos, FVector::OneVector);
 		TileActor = World->SpawnActor<AActor>(AActor::StaticClass(), ActorTransform);
 #if WITH_EDITOR
@@ -3441,7 +3562,7 @@ UHierarchicalInstancedStaticMeshComponent* UPCGWorldService::GetOrCreateHISMComp
 	NewComponent->SetMobility(EComponentMobility::Movable);
 	NewComponent->SetCanEverAffectNavigation(false);
 	NewComponent->SetupAttachment(RootComponent);
-	NewComponent->SetCullDistances(LODDistances[0], LODDistances[2]);
+        NewComponent->SetCullDistances(CullDistances[0], CullDistances[2]);
 	NewComponent->bUseAsOccluder = false; // Vegetation typically shouldnt occlude
 	NewComponent->RegisterComponent();
 
@@ -3482,16 +3603,24 @@ float UPCGWorldService::EstimateMemoryUsage()
 
 bool UPCGWorldService::FindPOILocationStratified(FTileCoord TileCoord, const FPOISpawnRule& POIRule, const TArray<float>& HeightData, FRandomStream& RandomStream, FVector& OutLocation)
 {
-	// Calculate tile bounds
-	FVector TileWorldPos = TileCoord.ToWorldPosition(64.0f);
-	FVector2D TileStart(TileWorldPos.X - 32.0f, TileWorldPos.Y - 32.0f);
+        // Calculate tile bounds
+        const float TileSize = WorldGenSettings.TileSizeMeters;
+        const float InvSampleSpacing = 1.0f / FMath::Max(KINDA_SMALL_NUMBER, WorldGenSettings.SampleSpacingMeters);
+        const int32 SamplesPerSide = FMath::Clamp(FMath::RoundToInt(WorldGenSettings.TileSizeMeters * InvSampleSpacing), 1, 4096);
+        if (HeightData.Num() != SamplesPerSide * SamplesPerSide)
+        {
+                return false;
+        }
 
-	// Use stratified sampling - divide tile into 4x4 grid and sample within each cell
-	const int32 GridSize = 4;
-	const float CellSize = 64.0f / GridSize;
+        FVector TileWorldPos = TileCoord.ToWorldPosition(TileSize);
+        FVector2D TileStart(TileWorldPos.X - TileSize * 0.5f, TileWorldPos.Y - TileSize * 0.5f);
 
-	// Try multiple cells for better distribution
-	TArray<FIntVector2> CellIndices;
+        // Use stratified sampling - divide tile into 4x4 grid and sample within each cell
+        const int32 GridSize = 4;
+        const float CellSize = TileSize / GridSize;
+
+        // Try multiple cells for better distribution
+        TArray<FIntVector2> CellIndices;
 	for (int32 Y = 0; Y < GridSize; Y++)
 	{
 		for (int32 X = 0; X < GridSize; X++)
@@ -3511,17 +3640,18 @@ bool UPCGWorldService::FindPOILocationStratified(FTileCoord TileCoord, const FPO
 	for (const FIntVector2& CellIndex : CellIndices)
 	{
 		// Generate random point within this cell
-		FVector2D CellMin = TileStart + FVector2D(CellIndex.X * CellSize, CellIndex.Y * CellSize);
-		FVector2D RandomOffset = FVector2D(
-			RandomStream.FRandRange(2.0f, CellSize - 2.0f),
-			RandomStream.FRandRange(2.0f, CellSize - 2.0f)
-		);
-		FVector2D SamplePoint = CellMin + RandomOffset;
+                FVector2D CellMin = TileStart + FVector2D(CellIndex.X * CellSize, CellIndex.Y * CellSize);
+                const float Padding = FMath::Min(CellSize * 0.1f, 2.0f);
+                FVector2D RandomOffset = FVector2D(
+                        RandomStream.FRandRange(Padding, CellSize - Padding),
+                        RandomStream.FRandRange(Padding, CellSize - Padding)
+                );
+                FVector2D SamplePoint = CellMin + RandomOffset;
 
-		// Convert to heightfield coordinates
-		int32 HeightX = FMath::Clamp(FMath::FloorToInt(SamplePoint.X - TileStart.X), 0, 63);
-		int32 HeightY = FMath::Clamp(FMath::FloorToInt(SamplePoint.Y - TileStart.Y), 0, 63);
-		int32 HeightIndex = HeightY * 64 + HeightX;
+                // Convert to heightfield coordinates
+                int32 HeightX = FMath::Clamp(FMath::FloorToInt((SamplePoint.X - TileStart.X) * InvSampleSpacing), 0, SamplesPerSide - 1);
+                int32 HeightY = FMath::Clamp(FMath::FloorToInt((SamplePoint.Y - TileStart.Y) * InvSampleSpacing), 0, SamplesPerSide - 1);
+                int32 HeightIndex = HeightY * SamplesPerSide + HeightX;
 
 		if (!HeightData.IsValidIndex(HeightIndex))
 		{
@@ -3530,7 +3660,7 @@ bool UPCGWorldService::FindPOILocationStratified(FTileCoord TileCoord, const FPO
 
 		// Get terrain data at this location
 		float Height = HeightData[HeightIndex];
-		float Slope = CalculateSlope(HeightData, HeightX, HeightY, 64);
+                float Slope = CalculateSlope(HeightData, HeightX, HeightY, SamplesPerSide);
 		FVector TestLocation(SamplePoint.X, SamplePoint.Y, Height);
 
 		// Check slope requirements
@@ -3558,11 +3688,11 @@ bool UPCGWorldService::FindPOILocationStratified(FTileCoord TileCoord, const FPO
 			bool bIsFlatArea = true;
 			float MaxSlopeInArea = 0.0f;
 
-			for (int32 CheckY = FMath::Max(0, HeightY - 1); CheckY <= FMath::Min(63, HeightY + 1); CheckY++)
-			{
-				for (int32 CheckX = FMath::Max(0, HeightX - 1); CheckX <= FMath::Min(63, HeightX + 1); CheckX++)
-				{
-					float LocalSlope = CalculateSlope(HeightData, CheckX, CheckY, 64);
+                        for (int32 CheckY = FMath::Max(0, HeightY - 1); CheckY <= FMath::Min(SamplesPerSide - 1, HeightY + 1); CheckY++)
+                        {
+                                for (int32 CheckX = FMath::Max(0, HeightX - 1); CheckX <= FMath::Min(SamplesPerSide - 1, HeightX + 1); CheckX++)
+                                {
+                                        float LocalSlope = CalculateSlope(HeightData, CheckX, CheckY, SamplesPerSide);
 					MaxSlopeInArea = FMath::Max(MaxSlopeInArea, LocalSlope);
 					if (LocalSlope > POIRule.SlopeLimit * 0.5f) // Stricter slope for flat ground
 					{
