@@ -165,9 +165,10 @@ bool FIntegratedSystemTest::RunTest(const FString& Parameters)
 	ClimateSystem->Initialize(ClimateSettings, Settings->Settings.Seed);
 	HeightfieldService->Initialize(Settings->Settings);
 	HeightfieldService->SetNoiseSystem(NoiseSystem);
-	HeightfieldService->SetClimateSystem(ClimateSystem);
-	BiomeService->Initialize(ClimateSystem, Settings->Settings);
-	PCGService->Initialize(Settings->Settings);
+        HeightfieldService->SetClimateSystem(ClimateSystem);
+        BiomeService->Initialize(ClimateSystem, Settings->Settings);
+        PCGService->Initialize(Settings->Settings);
+        PCGService->SetBiomeService(BiomeService);
 	
 	// Generate data for a test tile
 	FTileCoord TestTile(1, 1);

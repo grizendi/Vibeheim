@@ -184,6 +184,10 @@ struct VIBEHEIM_API FWorldGenConfig
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PCG")
     int32 MaxHISMInstances = 10000;
 
+    /** When true, headless environments still spawn logical instances for testing. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PCG")
+    bool bAllowHeadlessLogicalInstances = true;
+
     /** Enables runtime frustum culling for the PCG scheduler. */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PCG|Scheduler", meta = (DisplayName = "Enable Frustum Culling"))
     bool bEnableFrustumCulling = true;

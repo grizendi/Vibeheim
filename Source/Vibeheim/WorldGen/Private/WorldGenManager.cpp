@@ -148,6 +148,7 @@ bool AWorldGenManager::InitializeWorldGenSystems()
                 return false;
         }
         PCGWorldService->SetHeightfieldService(HeightfieldService);
+        PCGWorldService->SetBiomeService(BiomeService);
         ReloadWorldGenAssets();
 
 

@@ -38,6 +38,7 @@
 #include "HAL/FileManager.h"
 #include "Trace/Trace.inl"
 #include "Services/HeightfieldService.h"
+#include "Services/BiomeService.h"
 
 UE_DEFINE_LOG_CATEGORY(LogPCGWorldService);
 
@@ -451,7 +452,7 @@ namespace PCGWorldService::Private
 
 static UPCGParamData* CreateTileParameterData(UObject* Outer, const FPCGTileMetrics& TileMetrics,
                 FTileCoord TileCoord, EBiomeType BiomeType, const FWorldGenConfig& WorldGenSettings, uint32 TileSeed,
-                float DensityScale);
+                float DensityScale, float BiomeWeight);
 
         static UPCGPointData* CreateTilePointData(UObject* Outer, FTileCoord TileCoord, const FWorldGenConfig& WorldGenSettings,
                 const FPCGTileMetrics& TileMetrics);
@@ -1005,7 +1006,7 @@ void UPCGWorldService::HandleWorldCleanup(UWorld* World, bool bSessionEnded, boo
 #if VHM_PCG_ENABLED
 UPCGParamData* PCGWorldService::Private::CreateTileParameterData(UObject* Outer,
         const FPCGTileMetrics& TileMetrics, FTileCoord TileCoord, EBiomeType BiomeType,
-        const FWorldGenConfig& WorldGenSettings, uint32 TileSeed, float DensityScale)
+        const FWorldGenConfig& WorldGenSettings, uint32 TileSeed, float DensityScale, float BiomeWeight)
 {
         UPCGParamData* ParamData = NewObject<UPCGParamData>(Outer ? Outer : GetTransientPackage(), NAME_None, RF_Transient);
         if (!ensureMsgf(ParamData, TEXT("Failed to allocate tile parameter data for (%d, %d)"), TileCoord.X, TileCoord.Y))
@@ -1058,7 +1059,7 @@ UPCGParamData* PCGWorldService::Private::CreateTileParameterData(UObject* Outer,
         EnsureAndSetAttribute(VHMPCGAttr::TileX, TileCoord.X, false);
         EnsureAndSetAttribute(VHMPCGAttr::TileY, TileCoord.Y, false);
         EnsureAndSetAttribute(VHMPCGAttr::TileSize, WorldGenSettings.TileSizeMeters, true);
-        EnsureAndSetAttribute(VHMPCGAttr::BiomeWeight, 1.0f, true);
+        EnsureAndSetAttribute(VHMPCGAttr::BiomeWeight, BiomeWeight, true);
         EnsureAndSetAttribute(VHMPCGAttr::DensityScale, DensityScale, true);
 
         return ParamData;
@@ -1476,6 +1477,7 @@ bool UPCGWorldService::Initialize(const FWorldGenConfig& Settings)
 {
         WorldGenSettings = Settings;
         MaxInstancesPerTile = Settings.MaxHISMInstances;
+        bAllowHeadlessLogicalInstances = Settings.bAllowHeadlessLogicalInstances;
         InitializeDefaultBiomes();
 
 #if WITH_AUTOMATION_TESTS && VHM_PCG_ENABLED
@@ -1494,6 +1496,12 @@ bool UPCGWorldService::Initialize(const FWorldGenConfig& Settings)
         {
                 UE_LOG(LogPCGWorldService, Warning,
                         TEXT("Headless mode: PCG running without UWorld; HISM updates will be skipped."));
+
+                if (!bAllowHeadlessLogicalInstances)
+                {
+                        UE_LOG(LogPCGWorldService, Warning,
+                                TEXT("Headless logical instances disabled via config; runtime will avoid force-spawning."));
+                }
         }
 
         bDedicatedServer = IsRunningDedicatedServer();
@@ -1769,8 +1777,9 @@ FPCGGenerationData UPCGWorldService::GeneratePCGContent(FTileCoord TileCoord, EB
     GenerationData.DensityScale = DensityScale;
 
     const uint32 TileSeed = GetTileRandomSeed(TileCoord);
+    const float BiomeBlendWeight = ResolveBiomeBlendWeight(TileCoord, BiomeType, EffectiveMetrics);
     UObject* DataOuter = AnchorActor ? static_cast<UObject*>(AnchorActor) : static_cast<UObject*>(this);
-    UPCGParamData* ParameterData = Private::CreateTileParameterData(DataOuter, EffectiveMetrics ? *EffectiveMetrics : FPCGTileMetrics(), TileCoord, BiomeType, WorldGenSettings, TileSeed, DensityScale);
+    UPCGParamData* ParameterData = Private::CreateTileParameterData(DataOuter, EffectiveMetrics ? *EffectiveMetrics : FPCGTileMetrics(), TileCoord, BiomeType, WorldGenSettings, TileSeed, DensityScale, BiomeBlendWeight);
     UPCGPointData* TilePointData = Private::CreateTilePointData(DataOuter, TileCoord, WorldGenSettings, EffectiveMetrics ? *EffectiveMetrics : FPCGTileMetrics());
 
     FAttributeValidationResult Validation = ValidateInputAttributes(ParameterData, TilePointData);
@@ -1955,12 +1964,15 @@ FPCGGenerationData UPCGWorldService::GenerateFallbackContent(FTileCoord TileCoor
 		EffectiveMetrics = &LocalMetrics;
 	}
 
-	FPCGSpawnParams SpawnParams;
-	if (bHeadless)
-	{
-		SpawnParams.bForceBiome = true;
-		SpawnParams.BiomeOverride = BiomeType;
-	}
+        FPCGSpawnParams SpawnParams;
+        const float BiomeBlendWeight = ResolveBiomeBlendWeight(TileCoord, BiomeType, EffectiveMetrics);
+        SpawnParams.BiomeWeightScale = BiomeBlendWeight;
+
+        if (bHeadless && bAllowHeadlessLogicalInstances)
+        {
+                SpawnParams.bForceBiome = true;
+                SpawnParams.BiomeOverride = BiomeType;
+        }
 
 	if (EffectiveMetrics)
 	{
@@ -1968,10 +1980,9 @@ FPCGGenerationData UPCGWorldService::GenerateFallbackContent(FTileCoord TileCoor
 		const float WaterFalloff = FMath::Max(10.0f, WorldGenSettings.TileSizeMeters * 0.75f);
 		const float WaterFactor = FMath::Clamp(1.0f - (EffectiveMetrics->MinAbsWaterDistance / WaterFalloff), 0.2f, 1.0f);
 
-		SpawnParams.SlopeResponse = SlopeFactor;
-		SpawnParams.WaterResponse = WaterFactor;
-		SpawnParams.BiomeWeightScale = SlopeFactor * WaterFactor;
-	}
+                SpawnParams.SlopeResponse = SlopeFactor;
+                SpawnParams.WaterResponse = WaterFactor;
+        }
 
 	if (bUsePCGHeuristics)
 	{
@@ -2057,10 +2068,10 @@ TArray<FPCGInstanceData> UPCGWorldService::GenerateVegetationInstances(FTileCoor
                 const int32 MaxInstancesForThisRule = FMath::Max(1, MaxInstancesPerTile / FMath::Max(1, BiomeDef.VegetationRules.Num()));
                 int32 InstanceCount = FMath::Min(BaseInstanceCount, MaxInstancesForThisRule);
 
-                if (bHeadless && SpawnParams.bForceBiome)
-		{
-			InstanceCount = FMath::Max(InstanceCount, 1);
-		}
+                if (bHeadless && bAllowHeadlessLogicalInstances && SpawnParams.bForceBiome)
+                {
+                        InstanceCount = FMath::Max(InstanceCount, 1);
+                }
 
 		UE_LOG(LogPCGWorldService, VeryVerbose, TEXT("Vegetation rule %s: baseDensity=%.3f baseCount=%d clamped=%d"),
 			VegRule.VegetationMesh.IsNull() ? TEXT("NULL_MESH") : *VegRule.VegetationMesh.GetAssetName(), BaseDensity, BaseInstanceCount, InstanceCount);
@@ -2117,11 +2128,11 @@ TArray<FPCGInstanceData> UPCGWorldService::GenerateVegetationInstances(FTileCoor
 				}
 			}
 
-			if (SpawnParams.bForceBiome && bHeadless)
-			{
-				bPassesHeightCheck = true;
-				bPassesSlopeCheck = true;
-			}
+                        if (SpawnParams.bForceBiome && bHeadless && bAllowHeadlessLogicalInstances)
+                        {
+                                bPassesHeightCheck = true;
+                                bPassesSlopeCheck = true;
+                        }
 
 			if (!bPassesHeightCheck)
 			{
@@ -2140,7 +2151,7 @@ TArray<FPCGInstanceData> UPCGWorldService::GenerateVegetationInstances(FTileCoor
 			InstanceData.Rotation = FRotator(0.0f, RandomStream.FRandRange(0.0f, 360.0f), 0.0f);
 			InstanceData.Scale = FVector(RandomStream.FRandRange(VegRule.MinScale, VegRule.MaxScale));
 
-			if (bHeadless && VegRule.VegetationMesh.IsNull())
+                        if (bHeadless && bAllowHeadlessLogicalInstances && VegRule.VegetationMesh.IsNull())
 			{
 				InstanceData.Mesh = TSoftObjectPtr<UStaticMesh>();
 			}
@@ -2641,7 +2652,7 @@ FPCGGraphValidationResult UPCGWorldService::ValidatePCGGraph(const FString& Grap
                 const FTileCoord SampleTile(0, 0);
                 const uint32 TileSeed = GetTileRandomSeed(SampleTile);
 
-                UPCGParamData* ParameterData = Private::CreateTileParameterData(this, DummyMetrics, SampleTile, EBiomeType::None, WorldGenSettings, TileSeed, 1.0f);
+                UPCGParamData* ParameterData = Private::CreateTileParameterData(this, DummyMetrics, SampleTile, EBiomeType::None, WorldGenSettings, TileSeed, 1.0f, 1.0f);
                 UPCGPointData* PointData = Private::CreateTilePointData(this, SampleTile, WorldGenSettings, DummyMetrics);
 
                 if (ParameterData && PointData)
@@ -2989,6 +3000,72 @@ void UPCGWorldService::SetHeightfieldService(UHeightfieldService* InHeightfieldS
                 UE_LOG(LogPCGWorldService, Warning,
                         TEXT("Heightfield service cleared; PCG instances will rely on authored Z values"));
         }
+}
+
+void UPCGWorldService::SetBiomeService(UBiomeService* InBiomeService)
+{
+        BiomeService = InBiomeService;
+
+        if (BiomeService)
+        {
+                UE_LOG(LogPCGWorldService, Log, TEXT("Biome service bound for blend weights"));
+        }
+        else
+        {
+                UE_LOG(LogPCGWorldService, Warning,
+                        TEXT("Biome service cleared; biome weights will default to 1.0"));
+        }
+}
+
+float UPCGWorldService::ResolveBiomeBlendWeight(FTileCoord TileCoord, EBiomeType BiomeType,
+        const FPCGTileMetrics* TileMetrics) const
+{
+        if (!BiomeService)
+        {
+                return 1.0f;
+        }
+
+        const FVector TileCenter = TileCoord.ToWorldPosition(WorldGenSettings.TileSizeMeters);
+        const FVector2D TileCenter2D(TileCenter.X, TileCenter.Y);
+
+        float Altitude = WorldGenSettings.SeaLevel;
+        if (TileMetrics)
+        {
+                Altitude = TileMetrics->AverageHeight;
+        }
+        else if (HeightfieldService)
+        {
+                Altitude = HeightfieldService->GetHeightAtLocation(TileCenter2D);
+        }
+
+        const FBiomeResult BiomeResult = BiomeService->DetermineBiome(TileCenter2D, Altitude);
+
+        EBiomeType QueryBiome = BiomeType;
+        if (QueryBiome == EBiomeType::None && BiomeResult.PrimaryBiome != EBiomeType::None)
+        {
+                QueryBiome = BiomeResult.PrimaryBiome;
+        }
+
+        float Weight = 1.0f;
+        if (const float* RequestedWeight = BiomeResult.BiomeWeights.Find(QueryBiome))
+        {
+                Weight = *RequestedWeight;
+        }
+        else if (const float* PrimaryWeight = BiomeResult.BiomeWeights.Find(BiomeResult.PrimaryBiome))
+        {
+                Weight = *PrimaryWeight;
+        }
+        else if (BiomeResult.BiomeWeights.Num() > 0)
+        {
+                float MaxWeight = 0.0f;
+                for (const TPair<EBiomeType, float>& Pair : BiomeResult.BiomeWeights)
+                {
+                        MaxWeight = FMath::Max(MaxWeight, Pair.Value);
+                }
+                Weight = MaxWeight;
+        }
+
+        return FMath::Clamp(Weight, 0.0f, 1.0f);
 }
 
 bool UPCGWorldService::AddPOI(const FPOIData& POIData)

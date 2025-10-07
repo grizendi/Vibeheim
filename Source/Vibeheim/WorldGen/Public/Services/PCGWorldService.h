@@ -20,6 +20,7 @@ class AActor;
 class UPCGGraph;
 class UInstancePersistenceManager;
 class UHeightfieldService;
+class UBiomeService;
 #if VHM_PCG_ENABLED
 class UPCGComponent;
 class UPCGParamData;
@@ -126,6 +127,10 @@ public:
         UFUNCTION(BlueprintCallable, Category = "PCG")
         void SetHeightfieldService(UHeightfieldService* InHeightfieldService);
 
+        /** Provide the biome service so tile weights can be propagated to PCG graphs. */
+        UFUNCTION(BlueprintCallable, Category = "PCG")
+        void SetBiomeService(UBiomeService* InBiomeService);
+
         /**
          * Load tile with persistence reconciliation
          */
@@ -193,8 +198,8 @@ private:
         TArray<float> CullDistances;
 
 	// PCG-related properties (always declared but only used when WITH_PCG is true)
-	UPROPERTY()
-	TObjectPtr<UObject> CurrentPCGGraph; // UPCGGraph* when WITH_PCG is available
+        UPROPERTY()
+        TObjectPtr<UObject> CurrentPCGGraph; // UPCGGraph* when WITH_PCG is available
 
         UPROPERTY()
 #if VHM_PCG_ENABLED
@@ -209,6 +214,12 @@ private:
 
         UPROPERTY()
         TObjectPtr<UHeightfieldService> HeightfieldService;
+
+        UPROPERTY()
+        TObjectPtr<UBiomeService> BiomeService;
+
+        UPROPERTY()
+        bool bAllowHeadlessLogicalInstances = true;
 
 #if VHM_PCG_ENABLED
         TWeakObjectPtr<AActor> PCGAnchorActor;
@@ -344,6 +355,9 @@ private:
          * Apply terrain modification stamp for POI placement
          */
         void ApplyPOITerrainStamp(FVector Location, float Radius);
+
+        /** Resolve the blend weight for the requested biome/tile combination. */
+        float ResolveBiomeBlendWeight(FTileCoord TileCoord, EBiomeType BiomeType, const FPCGTileMetrics* TileMetrics) const;
 
 #if VHM_PCG_ENABLED
         void RegisterTelemetry(FPCGTaskId TaskId, EBiomeType BiomeType, const UPCGGraph& Graph, const FTileCoord& TileCoord);
