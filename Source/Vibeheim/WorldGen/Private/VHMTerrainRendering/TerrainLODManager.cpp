@@ -2,6 +2,7 @@
 #include "Engine/World.h"
 #include "Engine/Engine.h"
 #include "Logging/LogMacros.h"
+#include "Data/WorldGenTypes.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogTerrainLOD, Log, All);
 
@@ -370,7 +371,8 @@ void UVHMTerrainLODManager::RunBasicValidationTest()
     FTileCoord TestTile(0, 0);
     FVector TestViewerPos(100.0f, 100.0f, 50.0f);
     
-    float TestDistance = FVector::Dist(TestViewerPos, TestTile.ToWorldPosition(64.0f));
+    const FWorldGenConfig DefaultConfig;
+    float TestDistance = FVector::Dist(TestViewerPos, TestTile.ToWorldPosition(DefaultConfig.TileSizeMeters));
     UE_LOG(LogTerrainLOD, Log, TEXT("Test tile (0,0) distance from viewer (100,100,50): %.1fm"), TestDistance);
     
     // Determine expected LOD level

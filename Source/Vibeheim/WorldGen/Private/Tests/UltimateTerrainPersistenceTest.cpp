@@ -52,7 +52,8 @@ static FAutoConsoleCommand UltimateTerrainPersistenceTestCommand(
         
         UE_LOG(LogTemp, Warning, TEXT("Step 2: Apply 4 terrain modifications"));
         
-        FVector TestLocation = TestTile.ToWorldPosition();
+        const float TileSize = Config.TileSizeMeters;
+        FVector TestLocation = TestTile.ToWorldPosition(TileSize);
         
         // Apply 4 modifications with smaller radius to stay within tile bounds
         FVector AddLocation = TestLocation + FVector(4.0f, 4.0f, 0.0f);
