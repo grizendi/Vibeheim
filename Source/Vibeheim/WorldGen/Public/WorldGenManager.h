@@ -60,6 +60,8 @@ public:
 
     UPCGWorldService* GetPCGWorldService() const { return PCGWorldService; }
 
+    UHeightfieldService* GetHeightfieldService() const { return HeightfieldService; }
+
     /**
      * Handle world generation error fallback
      */

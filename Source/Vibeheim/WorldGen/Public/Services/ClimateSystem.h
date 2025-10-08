@@ -97,7 +97,7 @@ public:
 	 * Initialize the climate system with settings
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Climate")
-	void Initialize(const FClimateSettings& InSettings, int32 InSeed);
+        void Initialize(const FClimateSettings& InSettings, int32 InSeed, const FWorldGenConfig* InWorldGenConfig = nullptr);
 
 	/**
 	 * Calculate climate data for a specific world position
@@ -151,8 +151,11 @@ private:
 	UPROPERTY()
 	FClimateSettings Settings;
 
-	UPROPERTY()
-	int32 Seed;
+        UPROPERTY()
+        int32 Seed;
+
+        UPROPERTY()
+        FWorldGenConfig CachedWorldGenConfig;
 
 	/**
 	 * Calculate latitude-based temperature variation

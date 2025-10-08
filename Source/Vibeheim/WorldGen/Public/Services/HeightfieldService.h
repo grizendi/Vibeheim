@@ -97,9 +97,9 @@ public:
 	virtual bool Initialize(const FWorldGenConfig& Settings) override;
 	virtual FHeightfieldData GenerateHeightfield(int32 Seed, FTileCoord TileCoord) override;
 	virtual bool ModifyHeightfield(FVector Location, float Radius, float Strength, EHeightfieldOperation Operation) override;
-	virtual float GetHeightAtLocation(FVector2D WorldPos) override;
-	virtual FVector GetNormalAtLocation(FVector2D WorldPos) override;
-	virtual float GetSlopeAtLocation(FVector2D WorldPos) override;
+        virtual float GetHeightAtLocation(FVector2D WorldPos) override;
+        virtual FVector GetNormalAtLocation(FVector2D WorldPos) override;
+        virtual float GetSlopeAtLocation(FVector2D WorldPos) override;
 	virtual bool SaveHeightfieldModifications() override;
 	virtual bool LoadHeightfieldModifications() override;
 	virtual bool UploadHeightfieldToGPU(const FHeightfieldData& HeightfieldData) override;
@@ -151,7 +151,7 @@ public:
 	 * Load terrain modifications for a specific tile
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Persistence")
-	bool LoadTileTerrainDeltas(FTileCoord TileCoord);
+        bool LoadTileTerrainDeltas(FTileCoord TileCoord);
 
 	/**
 	 * Get all modifications affecting a specific tile
@@ -171,10 +171,15 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Persistence")
 	FString GetTerraDeltaPath(FTileCoord TileCoord) const;
 
-	/**
-	 * Sample height at world coordinates with consistent coordinate conversion (cm → sample index)
-	 */
-	float SampleHeightAt(FVector2D WorldXY, const TArray<float>& HeightData, FTileCoord TileCoord) const;
+        /**
+         * Sample height at world coordinates with consistent coordinate conversion (cm → sample index)
+         */
+        float SampleHeightAt(FVector2D WorldXY, const TArray<float>& HeightData, FTileCoord TileCoord) const;
+
+        /**
+         * Sample height directly from cached terrain data using world-space XY coordinates in meters.
+         */
+        float SampleHeightWorldXY(FVector2D WorldXY) const;
 
 private:
 	UPROPERTY()

@@ -126,7 +126,7 @@ bool AWorldGenManager::InitializeWorldGenSystems()
 
 	// Initialize climate system with default settings
 	FClimateSettings ClimateSettings;
-	ClimateSystem->Initialize(ClimateSettings, WorldGenSettings->Settings.Seed);
+        ClimateSystem->Initialize(ClimateSettings, WorldGenSettings->Settings.Seed, &WorldGenSettings->Settings);
 
 	// Initialize Biome Service
 	BiomeService = NewObject<UBiomeService>(this);

@@ -1226,17 +1226,39 @@ void PCGWorldService::Private::ExtractInstancesFromPointData(const UPCGPointData
                         }
 
                         bool bMeshAssigned = false;
-                        FSoftObjectPath StaticMeshPath;
-                        if (Metadata->GetAttribute<FSoftObjectPath>(VHMPCGAttr::StaticMesh, EntryKey, StaticMeshPath) && !StaticMeshPath.IsNull())
+                        const FName MeshAttributes[] = { VHMPCGAttr::StaticMesh, VHMPCGAttr::Mesh };
+                        for (const FName& AttrName : MeshAttributes)
                         {
-                                Instance.Mesh = TSoftObjectPtr<UStaticMesh>(StaticMeshPath);
-                                bMeshAssigned = true;
+                                FSoftObjectPath StaticMeshPath;
+                                if (Metadata->GetAttribute<FSoftObjectPath>(AttrName, EntryKey, StaticMeshPath) && !StaticMeshPath.IsNull())
+                                {
+                                        Instance.Mesh = TSoftObjectPtr<UStaticMesh>(StaticMeshPath);
+                                        bMeshAssigned = true;
+                                        break;
+                                }
+
+                                UObject* MeshObject = nullptr;
+                                if (Metadata->GetAttribute<UObject*>(AttrName, EntryKey, MeshObject) && MeshObject)
+                                {
+                                        if (UStaticMesh* MeshPtr = Cast<UStaticMesh>(MeshObject))
+                                        {
+                                                UE_LOG(LogPCGWorldService, Warning,
+                                                        TEXT("Tile (%d, %d) attribute '%s' provided as object pointer. Use Soft Object Path in PCG graphs; pointer attrs can cause blending issues."),
+                                                        TileCoord.X, TileCoord.Y, *AttrName.ToString());
+                                                Instance.Mesh = TSoftObjectPtr<UStaticMesh>(MeshPtr);
+                                                bMeshAssigned = true;
+                                        }
+                                        else
+                                        {
+                                                UE_LOG(LogPCGWorldService, Error,
+                                                        TEXT("Tile (%d, %d) attribute '%s' must reference a UStaticMesh asset."),
+                                                        TileCoord.X, TileCoord.Y, *AttrName.ToString());
+                                        }
+
+                                        break;
+                                }
                         }
-                        else if (Metadata->GetAttribute<FSoftObjectPath>(VHMPCGAttr::Mesh, EntryKey, StaticMeshPath) && !StaticMeshPath.IsNull())
-                        {
-                                Instance.Mesh = TSoftObjectPtr<UStaticMesh>(StaticMeshPath);
-                                bMeshAssigned = true;
-                        }
+
                         if (!bMeshAssigned)
                         {
                                 const bool bHasStaticMeshAttr = Metadata->GetConstAttribute(VHMPCGAttr::StaticMesh) != nullptr;
@@ -1308,7 +1330,7 @@ void PCGWorldService::Private::ExtractInstancesFromPointData(const UPCGPointData
                 {
                         if (HeightfieldService)
                         {
-                                const float TerrainHeight = HeightfieldService->GetHeightAtLocation(FVector2D(Instance.Location.X, Instance.Location.Y));
+                                const float TerrainHeight = HeightfieldService->SampleHeightWorldXY(FVector2D(Instance.Location.X, Instance.Location.Y));
                                 if (FMath::IsFinite(TerrainHeight))
                                 {
                                         Instance.Location.Z = TerrainHeight;
@@ -3035,7 +3057,7 @@ float UPCGWorldService::ResolveBiomeBlendWeight(FTileCoord TileCoord, EBiomeType
         }
         else if (HeightfieldService)
         {
-                Altitude = HeightfieldService->GetHeightAtLocation(TileCenter2D);
+                Altitude = HeightfieldService->SampleHeightWorldXY(TileCenter2D);
         }
 
         const FBiomeResult BiomeResult = BiomeService->DetermineBiome(TileCenter2D, Altitude);
