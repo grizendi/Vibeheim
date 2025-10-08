@@ -2764,9 +2764,13 @@ FIntegrationTestResult UWorldGenIntegrationTest::RunPCGIntegrationTest()
 			return Result;
 		}
 		
-		// Define removal area (center quarter of the tile)
-		FVector TileCenter = AreaTestTile.ToWorldPosition(64.0f);
-		FBox RemovalArea(TileCenter - FVector(16.0f, 16.0f, 50.0f), TileCenter + FVector(16.0f, 16.0f, 50.0f));
+                const UWorldGenSettings* GlobalSettings = UWorldGenSettings::GetWorldGenSettings();
+                const float TileSizeMeters = GlobalSettings ? GlobalSettings->Settings.TileSizeMeters : 64.0f;
+                const float HalfExtentMeters = TileSizeMeters * 0.25f;
+
+                FVector TileCenter = AreaTestTile.ToWorldPosition(TileSizeMeters);
+                FBox RemovalArea(TileCenter - FVector(HalfExtentMeters, HalfExtentMeters, 50.0f),
+                        TileCenter + FVector(HalfExtentMeters, HalfExtentMeters, 50.0f));
 		
 		bool bAreaRemovalSuccess = PCGService->RemoveContentInArea(RemovalArea);
 		if (!bAreaRemovalSuccess)

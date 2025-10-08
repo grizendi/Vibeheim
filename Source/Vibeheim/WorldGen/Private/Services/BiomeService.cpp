@@ -361,49 +361,82 @@ FBiomeResult UBiomeService::ApplyBiomeBlending(const TMap<EBiomeType, float>& Bi
 
 TArray<FBiomeResult> UBiomeService::GenerateTileBiomeData(FTileCoord TileCoord, const TArray<float>& HeightData) const
 {
-	TArray<FBiomeResult> BiomeResults;
-	
-	// Calculate tile world position
-	FVector TileWorldPos = TileCoord.ToWorldPosition(64.0f);
-	FVector2D TileStart(TileWorldPos.X - 32.0f, TileWorldPos.Y - 32.0f);
-	
-	// Generate biome data for each sample in the tile (64x64 samples)
-	const int32 SamplesPerTile = 64;
-	BiomeResults.Reserve(SamplesPerTile * SamplesPerTile);
-	
-	for (int32 Y = 0; Y < SamplesPerTile; Y++)
-	{
-		for (int32 X = 0; X < SamplesPerTile; X++)
-		{
-			// Calculate world position for this sample
-			FVector2D SampleWorldPos = TileStart + FVector2D(X, Y);
-			
-			// Get height for this sample
-			float SampleHeight = 0.0f;
-			if (HeightData.IsValidIndex(Y * SamplesPerTile + X))
-			{
-				SampleHeight = HeightData[Y * SamplesPerTile + X];
-			}
-			
-			// Determine biome
-			FBiomeResult BiomeResult = DetermineBiome(SampleWorldPos, SampleHeight);
-			BiomeResults.Add(BiomeResult);
-		}
-	}
-	
-	return BiomeResults;
+TArray<FBiomeResult> BiomeResults;
+
+const float TileSize = WorldGenSettings.TileSizeMeters;
+const FVector TileWorldPos = TileCoord.ToWorldPosition(TileSize);
+const FVector2D TileStart(TileWorldPos.X - TileSize * 0.5f, TileWorldPos.Y - TileSize * 0.5f);
+
+int32 SamplesPerTile = 0;
+if (HeightData.Num() > 0)
+{
+const float Root = FMath::Sqrt(static_cast<float>(HeightData.Num()));
+const int32 RoundedRoot = FMath::RoundToInt(Root);
+if (RoundedRoot > 0 && RoundedRoot * RoundedRoot == HeightData.Num())
+{
+SamplesPerTile = RoundedRoot;
+}
+}
+
+if (SamplesPerTile <= 0)
+{
+const float SampleSpacing = FMath::Max(WorldGenSettings.SampleSpacingMeters, KINDA_SMALL_NUMBER);
+SamplesPerTile = FMath::Clamp(FMath::RoundToInt(TileSize / SampleSpacing), 1, 4096);
+}
+
+const float EffectiveSpacing = SamplesPerTile > 0 ? TileSize / SamplesPerTile : WorldGenSettings.SampleSpacingMeters;
+BiomeResults.Reserve(SamplesPerTile * SamplesPerTile);
+
+for (int32 Y = 0; Y < SamplesPerTile; Y++)
+{
+for (int32 X = 0; X < SamplesPerTile; X++)
+{
+const FVector2D SampleWorldPos = TileStart + FVector2D(X * EffectiveSpacing, Y * EffectiveSpacing);
+
+float SampleHeight = 0.0f;
+if (HeightData.IsValidIndex(Y * SamplesPerTile + X))
+{
+SampleHeight = HeightData[Y * SamplesPerTile + X];
+}
+
+const FBiomeResult BiomeResult = DetermineBiome(SampleWorldPos, SampleHeight);
+BiomeResults.Add(BiomeResult);
+}
+}
+
+return BiomeResults;
 }
 
 bool UBiomeService::ExportBiomePNG(FTileCoord TileCoord, const TArray<float>& HeightData, const FString& OutputPath) const
 {
-	// Generate biome data for the tile
-	TArray<FBiomeResult> BiomeData = GenerateTileBiomeData(TileCoord, HeightData);
-	
-	if (BiomeData.Num() != 64 * 64)
-	{
-		UE_LOG(LogBiomeService, Error, TEXT("Invalid biome data size for tile export"));
-		return false;
-	}
+        const float TileSize = WorldGenSettings.TileSizeMeters;
+        int32 SamplesPerTile = 0;
+        if (HeightData.Num() > 0)
+        {
+                const float Root = FMath::Sqrt(static_cast<float>(HeightData.Num()));
+                const int32 RoundedRoot = FMath::RoundToInt(Root);
+                if (RoundedRoot > 0 && RoundedRoot * RoundedRoot == HeightData.Num())
+                {
+                        SamplesPerTile = RoundedRoot;
+                }
+        }
+
+        if (SamplesPerTile <= 0)
+        {
+                const float SampleSpacing = FMath::Max(WorldGenSettings.SampleSpacingMeters, KINDA_SMALL_NUMBER);
+                SamplesPerTile = FMath::Clamp(FMath::RoundToInt(TileSize / SampleSpacing), 1, 4096);
+        }
+
+        const int32 ExpectedSampleCount = SamplesPerTile * SamplesPerTile;
+
+        // Generate biome data for the tile
+        TArray<FBiomeResult> BiomeData = GenerateTileBiomeData(TileCoord, HeightData);
+
+        if (BiomeData.Num() != ExpectedSampleCount)
+        {
+                UE_LOG(LogBiomeService, Error, TEXT("Invalid biome data size for tile export"));
+                return false;
+        }
 	
 	// Create output directory
 	FString FullOutputPath = FPaths::ProjectDir() / OutputPath;
@@ -411,7 +444,7 @@ bool UBiomeService::ExportBiomePNG(FTileCoord TileCoord, const TArray<float>& He
 	
 	// Export biome map
 	TArray<FColor> BiomePixels;
-	BiomePixels.Reserve(64 * 64);
+        BiomePixels.Reserve(ExpectedSampleCount);
 	
 	for (const FBiomeResult& Result : BiomeData)
 	{

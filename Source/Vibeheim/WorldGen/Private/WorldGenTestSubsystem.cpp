@@ -994,19 +994,21 @@ static bool ParseEditArgs(const TArray<FString>& Args, float& OutX, float& OutY,
     return true;
 }
 
-static TArray<FTileCoord> ComputeAffectedTiles(const FVector2D& Center, float Radius)
+static TArray<FTileCoord> ComputeAffectedTiles(const FVector2D& Center, float Radius, float TileSize)
 {
     TArray<FTileCoord> Result;
-    FTileCoord CenterTile = FTileCoord::FromWorldPosition(FVector(Center.X, Center.Y, 0.0f));
-    int32 TileRadius = FMath::CeilToInt(Radius / 64.0f);
-    const float TileDiagonal = 64.0f * FMath::Sqrt(2.0f);
+    TileSize = FMath::Max(TileSize, KINDA_SMALL_NUMBER);
+
+    FTileCoord CenterTile = FTileCoord::FromWorldPosition(FVector(Center.X, Center.Y, 0.0f), TileSize);
+    int32 TileRadius = FMath::CeilToInt(Radius / TileSize);
+    const float TileDiagonal = TileSize * FMath::Sqrt(2.0f);
 
     for (int32 y = CenterTile.Y - TileRadius; y <= CenterTile.Y + TileRadius; ++y)
     {
         for (int32 x = CenterTile.X - TileRadius; x <= CenterTile.X + TileRadius; ++x)
         {
             FTileCoord T(x, y);
-            FVector TileWorldPos = T.ToWorldPosition(64.0f);
+            FVector TileWorldPos = T.ToWorldPosition(TileSize);
             FVector2D TileCenter(TileWorldPos.X, TileWorldPos.Y);
             float Dist = FVector2D::Distance(Center, TileCenter);
             if (Dist <= Radius + TileDiagonal)
@@ -1097,7 +1099,10 @@ void UWorldGenTestSubsystem::ApplyEdit(EHeightfieldOperation Op, const TArray<FS
     if (VHM)
     {
         FVector2D Center(X, Y);
-        TArray<FTileCoord> Tiles = ComputeAffectedTiles(Center, Radius);
+        const UWorldGenSettings* Settings = UWorldGenSettings::GetWorldGenSettings();
+        const float TileSize = Settings ? Settings->Settings.TileSizeMeters : 64.0f;
+
+        TArray<FTileCoord> Tiles = ComputeAffectedTiles(Center, Radius, TileSize);
         int32 Updated = 0;
         for (const FTileCoord& T : Tiles)
         {
@@ -1285,7 +1290,7 @@ void UWorldGenTestSubsystem::ExecuteDeterminismTestCommand(const TArray<FString>
         EBiomeType BiomeType = LocalBiome->DetermineTileBiome(T, HFData.HeightData);
 
         // Climate at tile center (altitude = center height)
-        FVector TileWorldPos = T.ToWorldPosition(64.0f);
+        FVector TileWorldPos = T.ToWorldPosition(WGConfig.TileSizeMeters);
         FVector2D Center(TileWorldPos.X, TileWorldPos.Y);
         float CenterHeight = HFData.GetHeightAtSample(HFData.Resolution/2, HFData.Resolution/2);
         FClimateData Clim = LocalClimate->CalculateClimate(Center, CenterHeight);

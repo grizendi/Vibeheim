@@ -6,19 +6,40 @@
 
 DEFINE_LOG_CATEGORY_STATIC(LogClimateSystem, Log, All);
 
-UClimateSystem::UClimateSystem()
+namespace
 {
-	// Initialize with default settings
-	Settings = FClimateSettings();
-	Seed = 1337;
+static int32 ResolveSamplesPerTile(const FWorldGenConfig& Config, const TArray<float>& HeightData)
+{
+        if (HeightData.Num() > 0)
+        {
+                const float Root = FMath::Sqrt(static_cast<float>(HeightData.Num()));
+                const int32 RoundedRoot = FMath::RoundToInt(Root);
+                if (RoundedRoot > 0 && RoundedRoot * RoundedRoot == HeightData.Num())
+                {
+                        return RoundedRoot;
+                }
+        }
+
+        const float SampleSpacing = FMath::Max(Config.SampleSpacingMeters, KINDA_SMALL_NUMBER);
+        return FMath::Clamp(FMath::RoundToInt(Config.TileSizeMeters / SampleSpacing), 1, 4096);
+}
 }
 
-void UClimateSystem::Initialize(const FClimateSettings& InSettings, int32 InSeed)
+UClimateSystem::UClimateSystem()
 {
-	Settings = InSettings;
-	Seed = InSeed;
-	
-	UE_LOG(LogClimateSystem, Log, TEXT("Climate system initialized with seed %llu"), Seed);
+        // Initialize with default settings
+        Settings = FClimateSettings();
+        Seed = 1337;
+        CachedWorldGenConfig = FWorldGenConfig();
+}
+
+void UClimateSystem::Initialize(const FClimateSettings& InSettings, int32 InSeed, const FWorldGenConfig* InWorldGenConfig)
+{
+        Settings = InSettings;
+        Seed = InSeed;
+        CachedWorldGenConfig = InWorldGenConfig ? *InWorldGenConfig : FWorldGenConfig();
+
+        UE_LOG(LogClimateSystem, Log, TEXT("Climate system initialized with seed %llu"), Seed);
 }
 
 FClimateData UClimateSystem::CalculateClimate(FVector2D WorldPosition, float Altitude) const
@@ -93,23 +114,24 @@ TArray<FClimateData> UClimateSystem::GenerateTileClimateData(FTileCoord TileCoor
 {
 	TArray<FClimateData> ClimateDataArray;
 	
-	// Calculate tile world position
-	FVector TileWorldPos = TileCoord.ToWorldPosition(64.0f); // Using locked tile size
-	FVector2D TileStart(TileWorldPos.X - 32.0f, TileWorldPos.Y - 32.0f); // Start at corner
-	
-	// Generate climate data for each sample in the tile (64x64 samples)
-	const int32 SamplesPerTile = 64;
-	ClimateDataArray.Reserve(SamplesPerTile * SamplesPerTile);
-	
-	for (int32 Y = 0; Y < SamplesPerTile; Y++)
-	{
-		for (int32 X = 0; X < SamplesPerTile; X++)
-		{
-			// Calculate world position for this sample
-			FVector2D SampleWorldPos = TileStart + FVector2D(X, Y);
-			
-			// Get height for this sample (if height data is provided)
-			float SampleHeight = 0.0f;
+        const float TileSize = CachedWorldGenConfig.TileSizeMeters;
+        const FVector TileWorldPos = TileCoord.ToWorldPosition(TileSize);
+        const FVector2D TileStart(TileWorldPos.X - TileSize * 0.5f, TileWorldPos.Y - TileSize * 0.5f);
+
+        const int32 SamplesPerTile = ResolveSamplesPerTile(CachedWorldGenConfig, HeightData);
+        const float EffectiveSpacing = SamplesPerTile > 0 ? TileSize / SamplesPerTile : CachedWorldGenConfig.SampleSpacingMeters;
+
+        ClimateDataArray.Reserve(SamplesPerTile * SamplesPerTile);
+
+        for (int32 Y = 0; Y < SamplesPerTile; Y++)
+        {
+                for (int32 X = 0; X < SamplesPerTile; X++)
+                {
+                        // Calculate world position for this sample
+                        FVector2D SampleWorldPos = TileStart + FVector2D(X * EffectiveSpacing, Y * EffectiveSpacing);
+
+                        // Get height for this sample (if height data is provided)
+                        float SampleHeight = 0.0f;
 			if (HeightData.IsValidIndex(Y * SamplesPerTile + X))
 			{
 				SampleHeight = HeightData[Y * SamplesPerTile + X];
@@ -126,14 +148,17 @@ TArray<FClimateData> UClimateSystem::GenerateTileClimateData(FTileCoord TileCoor
 
 bool UClimateSystem::ExportClimatePNG(FTileCoord TileCoord, const TArray<float>& HeightData, const FString& OutputPath) const
 {
-	// Generate climate data for the tile
-	TArray<FClimateData> ClimateData = GenerateTileClimateData(TileCoord, HeightData);
-	
-	if (ClimateData.Num() != 64 * 64)
-	{
-		UE_LOG(LogClimateSystem, Error, TEXT("Invalid climate data size for tile export"));
-		return false;
-	}
+        const int32 SamplesPerTile = ResolveSamplesPerTile(CachedWorldGenConfig, HeightData);
+        const int32 ExpectedSampleCount = SamplesPerTile * SamplesPerTile;
+
+        // Generate climate data for the tile
+        TArray<FClimateData> ClimateData = GenerateTileClimateData(TileCoord, HeightData);
+
+        if (ClimateData.Num() != ExpectedSampleCount)
+        {
+                UE_LOG(LogClimateSystem, Error, TEXT("Invalid climate data size for tile export"));
+                return false;
+        }
 	
 	// Create output directory if it doesn't exist
 	FString FullOutputPath = FPaths::ProjectDir() / OutputPath;
@@ -142,7 +167,7 @@ bool UClimateSystem::ExportClimatePNG(FTileCoord TileCoord, const TArray<float>&
 	// Export temperature map
 	{
 		TArray<FColor> TemperaturePixels;
-		TemperaturePixels.Reserve(64 * 64);
+                TemperaturePixels.Reserve(ExpectedSampleCount);
 		
 		for (const FClimateData& Data : ClimateData)
 		{
@@ -161,7 +186,7 @@ bool UClimateSystem::ExportClimatePNG(FTileCoord TileCoord, const TArray<float>&
 	// Export moisture map
 	{
 		TArray<FColor> MoisturePixels;
-		MoisturePixels.Reserve(64 * 64);
+                MoisturePixels.Reserve(ExpectedSampleCount);
 		
 		for (const FClimateData& Data : ClimateData)
 		{
@@ -178,7 +203,7 @@ bool UClimateSystem::ExportClimatePNG(FTileCoord TileCoord, const TArray<float>&
 	// Export ring bias map
 	{
 		TArray<FColor> RingPixels;
-		RingPixels.Reserve(64 * 64);
+                RingPixels.Reserve(ExpectedSampleCount);
 		
 		for (const FClimateData& Data : ClimateData)
 		{

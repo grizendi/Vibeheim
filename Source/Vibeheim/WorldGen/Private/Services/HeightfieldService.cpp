@@ -797,7 +797,12 @@ bool UHeightfieldService::ModifyHeightfield(FVector Location, float Radius, floa
 
 float UHeightfieldService::GetHeightAtLocation(FVector2D WorldPos)
 {
-	return InterpolateHeight(WorldPos);
+        return SampleHeightWorldXY(WorldPos);
+}
+
+float UHeightfieldService::SampleHeightWorldXY(FVector2D WorldXY) const
+{
+        return InterpolateHeight(WorldXY);
 }
 
 FVector UHeightfieldService::GetNormalAtLocation(FVector2D WorldPos)

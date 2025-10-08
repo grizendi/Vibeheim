@@ -43,6 +43,8 @@ namespace VHMPCGAttr
         inline const FName IsActive(TEXT("IsActive"));
         inline const FName InstanceId(TEXT("InstanceId"));
         inline const FName RespectGraphZ(TEXT("RespectGraphZ"));
+        inline const FName TerrainHeight(TEXT("TerrainHeight"));
+        inline const FName TerrainSlope(TEXT("TerrainSlope"));
 }
 
 /** Aggregated tile metrics computed prior to scheduling PCG graphs. */
