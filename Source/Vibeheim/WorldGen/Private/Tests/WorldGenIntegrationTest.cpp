@@ -1981,7 +1981,8 @@ FIntegrationTestResult UWorldGenIntegrationTest::RunPersistenceTest()
 			InitialHeightfield.HeightData.Num() * sizeof(float));
 		
 		// Step 2: Apply all 4 terrain editing operations
-		FVector TestLocation = TestTile.ToWorldPosition();
+                const float TileSize = WorldGenSettings ? WorldGenSettings->Settings.TileSizeMeters : 64.0f;
+                FVector TestLocation = TestTile.ToWorldPosition(TileSize);
 		float EditRadius = TestConfig.TerrainEditRadius;
 		float EditStrength = TestConfig.TerrainEditStrength;
 		
@@ -3256,7 +3257,8 @@ FIntegrationTestResult UWorldGenIntegrationTest::RunPOIIntegrationTest()
 		TestRule.MinDistanceFromOthers = 50.0f;
 		
 		// Test a location that should be valid (center of tile with gentle terrain)
-		FVector TestLocation = TestTile.ToWorldPosition();
+                const float TileSize = WorldGenSettings ? WorldGenSettings->Settings.TileSizeMeters : 64.0f;
+                FVector TestLocation = TestTile.ToWorldPosition(TileSize);
 		TestLocation.Z = 50.0f; // Set a reasonable altitude
 		
 		bool bValidPlacement = POIService->ValidatePOIPlacement(TestLocation, TestRule, TestHeightData, TestTile);

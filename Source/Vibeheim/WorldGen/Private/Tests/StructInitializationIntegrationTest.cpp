@@ -729,8 +729,11 @@ bool FStructInitializationIntegrationTestBase::TestCrossSystemWorkflowIntegratio
 		
 		// Step 3: Create PCG instances around POIs
 		TArray<FPCGInstanceData> WorkflowInstances;
-		for (const FPOIData& POI : WorkflowPOIs)
-		{
+                const UWorldGenSettings* GlobalSettings = UWorldGenSettings::GetWorldGenSettings();
+                const float TileSize = GlobalSettings ? GlobalSettings->Settings.TileSizeMeters : 64.0f;
+
+                for (const FPOIData& POI : WorkflowPOIs)
+                {
 			// Create instances in a circle around each POI
 			for (int32 i = 0; i < 8; i++)
 			{
@@ -744,7 +747,7 @@ bool FStructInitializationIntegrationTestBase::TestCrossSystemWorkflowIntegratio
 					0.0f
 				);
 				Instance.Rotation = FRotator(0.0f, Angle, 0.0f);
-				Instance.OwningTile = FTileCoord::FromWorldPosition(Instance.Location);
+                                Instance.OwningTile = FTileCoord::FromWorldPosition(Instance.Location, TileSize);
 				Instance.bIsActive = true;
 				
 				if (!Instance.InstanceId.IsValid())

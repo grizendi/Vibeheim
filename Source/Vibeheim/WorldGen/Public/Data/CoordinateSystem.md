@@ -26,16 +26,16 @@ struct FTileCoord {
     int32 X, Y;
     
     // Convert world position to tile coordinate
-    static FTileCoord FromWorldPosition(FVector WorldPos, float TileSize = 64.0f);
+    static FTileCoord FromWorldPosition(FVector WorldPos, float TileSize);
     
     // Convert tile coordinate to world center position
-    FVector ToWorldPosition(float TileSize = 64.0f) const;
+    FVector ToWorldPosition(float TileSize) const;
 };
 ```
 
 ### Coordinate Conversion
-- **World to Tile**: `TileX = floor(WorldX / 64.0f)`, `TileY = floor(WorldY / 64.0f)`
-- **Tile to World**: `WorldX = (TileX + 0.5f) * 64.0f`, `WorldY = (TileY + 0.5f) * 64.0f`
+- **World to Tile**: `TileX = floor(WorldX / TileSize)`, `TileY = floor(WorldY / TileSize)`
+- **Tile to World**: `WorldX = (TileX + 0.5f) * TileSize`, `WorldY = (TileY + 0.5f) * TileSize`
 - Tile coordinates represent the tile containing a world position
 - Tile-to-world conversion returns the center of the tile
 

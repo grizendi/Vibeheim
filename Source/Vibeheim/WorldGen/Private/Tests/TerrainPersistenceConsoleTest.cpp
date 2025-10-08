@@ -42,7 +42,8 @@ static FAutoConsoleCommand TestTerrainPersistenceCommand(
         UE_LOG(LogTemp, Warning, TEXT("Step 2: Apply terrain modifications"));
         
         // Apply modifications (same sequence as integration test)
-        FVector TestLocation = TestTile.ToWorldPosition();
+        const float TileSize = Config.TileSizeMeters;
+        FVector TestLocation = TestTile.ToWorldPosition(TileSize);
         
         // Operation 1: Add terrain
         FVector AddLocation = TestLocation + FVector(5.0f, 5.0f, 0.0f);

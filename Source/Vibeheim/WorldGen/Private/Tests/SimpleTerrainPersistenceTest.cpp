@@ -43,7 +43,8 @@ static FAutoConsoleCommand SimpleTerrainPersistenceTestCommand(
         UE_LOG(LogTemp, Warning, TEXT("Step 2: Apply single terrain modification"));
         
         // Apply just one modification to keep it simple
-        FVector TestLocation = TestTile.ToWorldPosition();
+        const float TileSize = Config.TileSizeMeters;
+        FVector TestLocation = TestTile.ToWorldPosition(TileSize);
         FVector ModLocation = TestLocation; // Center of tile
         
         bool bModSuccess = HeightfieldService->ModifyHeightfield(ModLocation, EditRadius, EditStrength, EHeightfieldOperation::Add);

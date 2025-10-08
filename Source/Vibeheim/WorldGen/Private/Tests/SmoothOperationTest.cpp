@@ -42,7 +42,8 @@ static FAutoConsoleCommand SmoothOperationTestCommand(
         
         UE_LOG(LogTemp, Warning, TEXT("Step 2: Apply modifications with smooth operation"));
         
-        FVector TestLocation = TestTile.ToWorldPosition();
+        const float TileSize = Config.TileSizeMeters;
+        FVector TestLocation = TestTile.ToWorldPosition(TileSize);
         
         // Apply Add operation first to create some variation
         FVector AddLocation = TestLocation + FVector(5.0f, 5.0f, 0.0f);

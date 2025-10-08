@@ -833,12 +833,12 @@ FVector UHeightfieldService::GetNormalAtLocation(FVector2D WorldPos)
 
 float UHeightfieldService::GetSlopeAtLocation(FVector2D WorldPos)
 {
-	FTileCoord TileCoord = FTileCoord::FromWorldPosition(FVector(WorldPos.X, WorldPos.Y, 0.0f));
-	FHeightfieldData HeightfieldData;
+        const float TileSize = WorldGenSettings.TileSizeMeters;
+        FTileCoord TileCoord = FTileCoord::FromWorldPosition(FVector(WorldPos.X, WorldPos.Y, 0.0f), TileSize);
+        FHeightfieldData HeightfieldData;
 
         if (GetCachedHeightfield(TileCoord, HeightfieldData))
         {
-                const float TileSize = WorldGenSettings.TileSizeMeters;
                 const float SampleSpacing = WorldGenSettings.SampleSpacingMeters;
                 const float InvSampleSpacing = 1.0f / FMath::Max(SampleSpacing, KINDA_SMALL_NUMBER);
 
@@ -852,12 +852,12 @@ float UHeightfieldService::GetSlopeAtLocation(FVector2D WorldPos)
                 return HeightfieldData.GetSlopeAtSample(X, Y);
         }
 
-	return 0.0f;
+        return 0.0f;
 }
 
 bool UHeightfieldService::SaveHeightfieldModifications()
 {
-	int32 SavedTiles = 0;
+        int32 SavedTiles = 0;
 
 	// Save all dirty tiles
 	for (const FTileCoord& TileCoord : DirtyTiles)

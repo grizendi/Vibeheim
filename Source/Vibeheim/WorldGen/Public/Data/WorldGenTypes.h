@@ -41,7 +41,7 @@ struct VIBEHEIM_API FTileCoord
 	FTileCoord(FIntVector2 InCoord) : X(InCoord.X), Y(InCoord.Y) {}
 
         // Convert world position to tile coordinate
-        static FTileCoord FromWorldPosition(FVector WorldPos, float TileSize = 64.0f)
+        static FTileCoord FromWorldPosition(FVector WorldPos, float TileSize)
         {
                 return FTileCoord(
                         FMath::FloorToInt(WorldPos.X / TileSize),
@@ -55,7 +55,7 @@ struct VIBEHEIM_API FTileCoord
         }
 
         // Convert tile coordinate to world position (center of tile)
-        FVector ToWorldPosition(float TileSize = 64.0f) const
+        FVector ToWorldPosition(float TileSize) const
         {
                 return FVector(
                         (X + 0.5f) * TileSize,
