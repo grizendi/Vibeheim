@@ -3,6 +3,7 @@
 #include "Services/PCGWorldService.h"
 #include "Services/PCGWorldServiceTypes.h"
 #include "Services/PCGSchedulerExecutor.h"
+#include "Services/HeightfieldService.h"
 #include "PCGComponent.h"
 #include "PCGGraph.h"
 #include "PCGSubsystem.h"
@@ -443,6 +444,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPCGWorldServiceFrustumToggleTest, "Vibeheim.PC
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPCGWorldServicePerformanceStatsTest, "Vibeheim.PCG.WorldService.Integration.PerformanceStats", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPCGWorldServiceDifferenceRegressionTest, "Vibeheim.PCG.WorldService.Integration.DifferenceRegression", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPCGWorldServiceDeterminismHashTest, "Vibeheim.PCG.WorldService.Integration.Determinism", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPCGWorldServiceRespectGraphZTest, "Vibeheim.PCG.WorldService.Integration.RespectGraphZ", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FPCGWorldServiceSchedulerSuccessTest::RunTest(const FString& Parameters)
 {
@@ -747,6 +749,95 @@ bool FPCGWorldServiceDeterminismHashTest::RunTest(const FString& Parameters)
         TestEqual(TEXT("Deterministic transform hash"), FirstRun.InstanceTransformHash, SecondRun.InstanceTransformHash);
 
         Graph->RemoveFromRoot();
+        DestroyConfiguredService(Service, World, Subsystem, Anchor, Component);
+        return true;
+#endif
+}
+
+bool FPCGWorldServiceRespectGraphZTest::RunTest(const FString& Parameters)
+{
+#if !VHM_PCG_ENABLED
+        return true;
+#else
+        FWorldGenConfig Config;
+        UWorld* World = nullptr;
+        UPCGSubsystem* Subsystem = nullptr;
+        AActor* Anchor = nullptr;
+        UPCGComponent* Component = nullptr;
+        UPCGWorldService* Service = CreateConfiguredService(Config, World, Subsystem, Anchor, Component);
+
+        UHeightfieldService* Heightfield = NewObject<UHeightfieldService>(GetTransientPackage());
+        Heightfield->AddToRoot();
+        Heightfield->Initialize(Config);
+        Service->SetHeightfieldService(Heightfield);
+
+        auto Executor = MakeUnique<FMockSchedulerExecutor>(FMockSchedulerExecutor::EMode::Success);
+        FMockSchedulerExecutor* ExecutorPtr = Executor.Get();
+        FPCGWorldServiceTestAccessor::SetScheduler(Service, TUniquePtr<FPCGSchedulerExecutor>(Executor.Release()));
+
+        UPCGGraph* Graph = NewObject<UPCGGraph>(GetTransientPackage(), NAME_None, RF_Transient);
+        Graph->AddToRoot();
+
+        const TArray<float> HeightData = CreateFlatHeightfield();
+        const FTileCoord TileCoord(0, 0);
+
+        // Case 1: Attribute missing -> defaults to projecting onto terrain height (0.0f)
+        ExecutorPtr->ConfigureOutputBuilder([](UPCGPointData& PointData)
+        {
+                TArray<FPCGPoint>& Points = PointData.GetMutablePoints();
+                check(Points.Num() == 1);
+                FPCGPoint& Point = Points[0];
+                Point.Transform.SetLocation(FVector(25.0f, -10.0f, 90.0f));
+        });
+
+        const FPCGGenerationData ProjectedGeneration = FPCGWorldServiceTestAccessor::InvokeGenerate(
+                Service, TileCoord, EBiomeType::Meadows, HeightData, Graph);
+
+        TestTrue(TEXT("Projected generation should produce an instance"), ProjectedGeneration.GeneratedInstances.Num() == 1);
+        if (ProjectedGeneration.GeneratedInstances.Num() == 1)
+        {
+                const float ProjectedZ = ProjectedGeneration.GeneratedInstances[0].Location.Z;
+                TestTrue(TEXT("Missing RespectGraphZ attribute projects to sampled height"),
+                        FMath::IsNearlyEqual(ProjectedZ, 0.0f));
+        }
+
+        // Case 2: Attribute explicitly enabled -> preserve graph-authored Z when within bounds
+        ExecutorPtr->ConfigureOutputBuilder([](UPCGPointData& PointData)
+        {
+                TArray<FPCGPoint>& Points = PointData.GetMutablePoints();
+                check(Points.Num() == 1);
+                FPCGPoint& Point = Points[0];
+                Point.Transform.SetLocation(FVector(-40.0f, 55.0f, 42.0f));
+
+                if (UPCGMetadata* Metadata = PointData.MutableMetadata())
+                {
+                        FPCGMetadataAttribute<bool>* RespectAttr = Metadata->GetMutableTypedAttribute<bool>(VHMPCGAttr::RespectGraphZ);
+                        if (!RespectAttr)
+                        {
+                                RespectAttr = Metadata->CreateAttribute<bool>(VHMPCGAttr::RespectGraphZ, false, true, true);
+                        }
+
+                        if (RespectAttr && Point.MetadataEntry != PCGInvalidEntryKey)
+                        {
+                                RespectAttr->SetValue(Point.MetadataEntry, true);
+                        }
+                }
+        });
+
+        const FPCGGenerationData RespectedGeneration = FPCGWorldServiceTestAccessor::InvokeGenerate(
+                Service, TileCoord, EBiomeType::Meadows, HeightData, Graph);
+
+        TestTrue(TEXT("Respect generation should produce an instance"), RespectedGeneration.GeneratedInstances.Num() == 1);
+        if (RespectedGeneration.GeneratedInstances.Num() == 1)
+        {
+                const float PreservedZ = RespectedGeneration.GeneratedInstances[0].Location.Z;
+                TestTrue(TEXT("RespectGraphZ=true preserves graph-authored Z"),
+                        FMath::IsNearlyEqual(PreservedZ, 42.0f));
+        }
+
+        Graph->RemoveFromRoot();
+        Service->SetHeightfieldService(nullptr);
+        Heightfield->RemoveFromRoot();
         DestroyConfiguredService(Service, World, Subsystem, Anchor, Component);
         return true;
 #endif
