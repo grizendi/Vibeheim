@@ -285,10 +285,15 @@ private:
 	 */
 	void UpdatePerformanceStats(float GenerationTimeMs, int32 InstanceCount);
 
-	/**
-	 * Initialize default biome definitions
-	 */
-	void InitializeDefaultBiomes();
+        /**
+         * Apply configuration settings from the world generation config.
+         */
+        void ApplyWorldGenSettings(const FWorldGenConfig& Settings);
+
+        /**
+         * Initialize default biome definitions
+         */
+        void InitializeDefaultBiomes();
 
 	/**
 	 * Initialize default biome definitions with vegetation rules (for merging)

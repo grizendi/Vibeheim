@@ -1495,12 +1495,17 @@ UPCGWorldService::FAttributeValidationResult UPCGWorldService::ValidateInputAttr
 
 #endif
 
-bool UPCGWorldService::Initialize(const FWorldGenConfig& Settings)
+void UPCGWorldService::ApplyWorldGenSettings(const FWorldGenConfig& Settings)
 {
         WorldGenSettings = Settings;
         MaxInstancesPerTile = Settings.MaxHISMInstances;
         bAllowHeadlessLogicalInstances = Settings.bAllowHeadlessLogicalInstances;
         InitializeDefaultBiomes();
+}
+
+bool UPCGWorldService::Initialize(const FWorldGenConfig& Settings)
+{
+        ApplyWorldGenSettings(Settings);
 
 #if WITH_AUTOMATION_TESTS && VHM_PCG_ENABLED
         if (TestWorldOverride.IsValid())
