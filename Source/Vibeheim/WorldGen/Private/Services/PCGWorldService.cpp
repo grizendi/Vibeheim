@@ -1243,8 +1243,8 @@ void PCGWorldService::Private::ExtractInstancesFromPointData(const UPCGPointData
                                         if (UStaticMesh* MeshPtr = Cast<UStaticMesh>(MeshObject))
                                         {
                                                 UE_LOG(LogPCGWorldService, Warning,
-                                                        TEXT("Tile (%d, %d) attribute '%s' provided as object pointer. Use Soft Object Path in PCG graphs; pointer attrs can cause blending issues."),
-                                                        TileCoord.X, TileCoord.Y, *AttrName.ToString());
+                                                        TEXT("PCG attribute '%s' supplied as object pointer; use Soft Object Path in graphs to avoid PCG blend issues."),
+                                                        *AttrName.ToString());
                                                 Instance.Mesh = TSoftObjectPtr<UStaticMesh>(MeshPtr);
                                                 bMeshAssigned = true;
                                         }
