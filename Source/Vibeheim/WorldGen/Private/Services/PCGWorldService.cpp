@@ -8,6 +8,9 @@
 #include "Components/SceneComponent.h"
 #include "Algo/Sort.h"
 #include "PCGVersionGuard.h"
+#include "Engine/AssetManager.h"
+#include "Engine/StreamableManager.h"
+#include "Kismet/GameplayStatics.h"
 
 #if VHM_PCG_ENABLED
 #include "PCGComponent.h"
@@ -31,6 +34,7 @@
 #include "Async/TaskGraphInterfaces.h"
 #include "Async/Async.h"
 #include "GameFramework/Actor.h"
+#include "GameFramework/Pawn.h"
 #include "UObject/ConstructorHelpers.h"
 #include "Data/InstancePersistence.h"
 #include "Data/SerializationShims.h"
@@ -1805,6 +1809,7 @@ FPCGGenerationData UPCGWorldService::GeneratePCGContent(FTileCoord TileCoord, EB
 
     const uint32 TileSeed = GetTileRandomSeed(TileCoord);
     const float BiomeBlendWeight = ResolveBiomeBlendWeight(TileCoord, BiomeType, EffectiveMetrics);
+    PrewarmBiomeAssets(TileCoord, BiomeType);
     UObject* DataOuter = AnchorActor ? static_cast<UObject*>(AnchorActor) : static_cast<UObject*>(this);
     UPCGParamData* ParameterData = Private::CreateTileParameterData(DataOuter, EffectiveMetrics ? *EffectiveMetrics : FPCGTileMetrics(), TileCoord, BiomeType, WorldGenSettings, TileSeed, DensityScale, BiomeBlendWeight);
     UPCGPointData* TilePointData = Private::CreateTilePointData(DataOuter, TileCoord, WorldGenSettings, EffectiveMetrics ? *EffectiveMetrics : FPCGTileMetrics());
@@ -1994,6 +1999,7 @@ FPCGGenerationData UPCGWorldService::GenerateFallbackContent(FTileCoord TileCoor
         FPCGSpawnParams SpawnParams;
         const float BiomeBlendWeight = ResolveBiomeBlendWeight(TileCoord, BiomeType, EffectiveMetrics);
         SpawnParams.BiomeWeightScale = BiomeBlendWeight;
+        PrewarmBiomeAssets(TileCoord, BiomeType);
 
         if (bHeadless && bAllowHeadlessLogicalInstances)
         {
@@ -3093,6 +3099,82 @@ float UPCGWorldService::ResolveBiomeBlendWeight(FTileCoord TileCoord, EBiomeType
         }
 
         return FMath::Clamp(Weight, 0.0f, 1.0f);
+}
+
+void UPCGWorldService::PrewarmBiomeAssets(FTileCoord TileCoord, EBiomeType BiomeType)
+{
+        if (BiomeType == EBiomeType::None)
+        {
+                return;
+        }
+
+        UWorld* World = GetWorld();
+        if (!World)
+        {
+                return;
+        }
+
+        const APawn* PlayerPawn = UGameplayStatics::GetPlayerPawn(World, 0);
+        if (!PlayerPawn)
+        {
+                return;
+        }
+
+        const FVector PlayerLocation = PlayerPawn->GetActorLocation();
+        const FVector TileCenter = TileCoord.ToWorldPosition(WorldGenSettings.TileSizeMeters);
+        const float PrewarmRadius = WorldGenSettings.TileSizeMeters * 3.0f;
+        if (FVector::DistSquared2D(PlayerLocation, TileCenter) > FMath::Square(PrewarmRadius))
+        {
+                return;
+        }
+
+        const FBiomeDefinition* BiomeDef = BiomeDefinitions.Find(BiomeType);
+
+        TArray<FSoftObjectPath> AssetsToStream;
+        auto QueueAsset = [this, &AssetsToStream](const auto& AssetPtr)
+        {
+                if (AssetPtr.IsNull() || AssetPtr.IsValid())
+                {
+                        return;
+                }
+
+                const FSoftObjectPath AssetPath = AssetPtr.ToSoftObjectPath();
+                if (!AssetPath.IsValid() || PrewarmedAssetPaths.Contains(AssetPath))
+                {
+                        return;
+                }
+
+                AssetsToStream.Add(AssetPath);
+                PrewarmedAssetPaths.Add(AssetPath);
+        };
+
+        if (const TSoftObjectPtr<UPCGGraph>* GraphPtr = BiomePCGGraphs.Find(BiomeType))
+        {
+                QueueAsset(*GraphPtr);
+        }
+
+        if (BiomeDef)
+        {
+                QueueAsset(BiomeDef->BiomePCGGraph);
+
+                for (const FPCGVegetationRule& VegRule : BiomeDef->VegetationRules)
+                {
+                        QueueAsset(VegRule.VegetationMesh);
+                }
+
+                for (const FPOISpawnRule& POIRule : BiomeDef->POIRules)
+                {
+                        QueueAsset(POIRule.POIBlueprint);
+                }
+        }
+
+        if (AssetsToStream.Num() == 0)
+        {
+                return;
+        }
+
+        FStreamableManager& Streamable = UAssetManager::GetStreamableManager();
+        Streamable.RequestAsyncLoad(AssetsToStream, FStreamableDelegate(), FStreamableManager::AsyncLoadHighPriority);
 }
 
 bool UPCGWorldService::AddPOI(const FPOIData& POIData)

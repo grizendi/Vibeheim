@@ -9,6 +9,7 @@
 #include "Components/HierarchicalInstancedStaticMeshComponent.h"
 #include "Data/SerializationShims.h"
 #include "HAL/IConsoleManager.h"
+#include "UObject/SoftObjectPath.h"
 #include "PCGWorldService.generated.h"
 
 UE_DECLARE_LOG_CATEGORY_EXTERN(LogPCGWorldService, Log, All);
@@ -194,10 +195,12 @@ private:
 	UPROPERTY()
 	int32 MaxInstancesPerTile;
 
-	UPROPERTY()
+        UPROPERTY()
         TArray<float> CullDistances;
 
-	// PCG-related properties (always declared but only used when WITH_PCG is true)
+        TSet<FSoftObjectPath> PrewarmedAssetPaths;
+
+        // PCG-related properties (always declared but only used when WITH_PCG is true)
         UPROPERTY()
         TObjectPtr<UObject> CurrentPCGGraph; // UPCGGraph* when WITH_PCG is available
 
@@ -318,6 +321,8 @@ private:
         float EstimateWorkUnitsForBiome(EBiomeType BiomeType, const FPCGTileMetrics* TileMetrics) const;
 
         float ComputeDensityScaleFromWork(float EstimatedWorkUnits) const;
+
+        void PrewarmBiomeAssets(FTileCoord TileCoord, EBiomeType BiomeType);
 
 	UPCGGraph* ResolveBiomePCGGraph(EBiomeType BiomeType);
 
