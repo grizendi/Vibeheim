@@ -33,6 +33,11 @@ UClimateSystem::UClimateSystem()
         CachedWorldGenConfig = FWorldGenConfig();
 }
 
+void UClimateSystem::InitializeWithConfig(const FClimateSettings& InSettings, int32 InSeed, const FWorldGenConfig& InWorldGenConfig)
+{
+        Initialize(InSettings, InSeed, &InWorldGenConfig);
+}
+
 void UClimateSystem::Initialize(const FClimateSettings& InSettings, int32 InSeed, const FWorldGenConfig* InWorldGenConfig)
 {
         Settings = InSettings;

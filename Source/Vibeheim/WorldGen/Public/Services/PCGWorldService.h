@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "UObject/NoExportTypes.h"
+#include "Logging/LogMacros.h"
 #include "Services/IPCGWorldService.h"
 #include "Services/PCGWorldServiceTypes.h"
 #include "Data/WorldGenTypes.h"
@@ -12,7 +13,7 @@
 #include "UObject/SoftObjectPath.h"
 #include "PCGWorldService.generated.h"
 
-UE_DECLARE_LOG_CATEGORY_EXTERN(LogPCGWorldService, Log, All);
+DECLARE_LOG_CATEGORY_EXTERN(LogPCGWorldService, Log, All);
 
 // Forward declarations
 class UStaticMeshComponent;
@@ -27,6 +28,11 @@ class UPCGComponent;
 class UPCGParamData;
 class UPCGPointData;
 class FPCGSchedulerExecutor;
+struct FPCGSchedulerExecutorDeleter
+{
+        void operator()(FPCGSchedulerExecutor* Ptr) const;
+};
+using FPCGSchedulerExecutorPtr = TUniquePtr<FPCGSchedulerExecutor, FPCGSchedulerExecutorDeleter>;
 #endif
 
 /**
@@ -205,11 +211,7 @@ private:
         TObjectPtr<UObject> CurrentPCGGraph; // UPCGGraph* when WITH_PCG is available
 
         UPROPERTY()
-#if VHM_PCG_ENABLED
-        TMap<EBiomeType, TObjectPtr<UPCGComponent>> BiomePCGComponents;
-#else
         TMap<EBiomeType, TObjectPtr<UObject>> BiomePCGComponents;
-#endif
 
 	// Instance persistence manager
         UPROPERTY()
@@ -226,7 +228,7 @@ private:
 
 #if VHM_PCG_ENABLED
         TWeakObjectPtr<AActor> PCGAnchorActor;
-        TUniquePtr<FPCGSchedulerExecutor> SchedulerExecutor;
+        FPCGSchedulerExecutorPtr SchedulerExecutor;
         TMap<FPCGTaskId, FPCGTaskContext> ActiveTasks;
         TMap<FPCGTaskId, FPCGTaskTelemetry> ActiveTelemetry;
         TMap<EBiomeType, TArray<double>> BiomeLatencySamples;
@@ -234,6 +236,7 @@ private:
         bool bTelemetryCsvHeaderWritten = false;
         double LastTelemetryFlushSeconds = 0.0;
         FDelegateHandle WorldCleanupHandle;
+        bool bConsoleSinkRegistered = false;
         FConsoleVariableSinkHandle ConsoleSinkHandle;
 #if WITH_AUTOMATION_TESTS
         TWeakObjectPtr<UWorld> TestWorldOverride;
@@ -393,6 +396,24 @@ private:
         float ResolveFrustumMargin(const UPCGComponent& Component, EBiomeType BiomeType) const;
 #endif
 };
+
+#if WITH_AUTOMATION_TESTS
+struct FPCGWorldServiceTestAccessor
+{
+#if VHM_PCG_ENABLED
+        static void SetScheduler(UPCGWorldService* Service, FPCGSchedulerExecutorPtr&& Executor);
+        static void SetWorldOverride(UPCGWorldService* Service, UWorld* World);
+        static void SetSubsystemOverride(UPCGWorldService* Service, UPCGSubsystem* Subsystem);
+        static void SetAnchorActor(UPCGWorldService* Service, AActor* Anchor);
+        static void SetBiomeComponent(UPCGWorldService* Service, EBiomeType Biome, UPCGComponent* Component);
+        static void ResetActiveTasks(UPCGWorldService* Service);
+        static void AddActiveTask(UPCGWorldService* Service, FPCGTaskId TaskId, const FPCGTaskContext& Context);
+        static FPCGGenerationData InvokeGenerate(UPCGWorldService* Service, const FTileCoord& TileCoord, EBiomeType Biome, const TArray<float>& HeightData, UPCGGraph* Graph);
+#endif
+        static void ApplySettings(UPCGWorldService* Service, const FWorldGenConfig& Settings);
+        static void SetRuntimeEnabled(UPCGWorldService* Service, bool bEnabled);
+};
+#endif // WITH_AUTOMATION_TESTS
 
 
 

@@ -17,6 +17,7 @@ class FPCGSchedulerExecutor
 {
 public:
 	FPCGSchedulerExecutor() = default;
+        virtual ~FPCGSchedulerExecutor() = default;
 
         virtual FPCGTaskId ScheduleGraphAsync(UPCGSubsystem& Subsystem,
                 UPCGComponent& SourceComponent,
@@ -64,8 +65,8 @@ public:
                 TArray<FString>& OutErrors);
 #endif
 
-private:
-        friend struct FSchedulerTestHelper;
+        using FResolvedInput = TPair<FName, UPCGData*>;
+
         struct FScheduledTask
         {
                 FPCGTaskContext Context;
@@ -81,7 +82,10 @@ private:
                 FPCGOutputSet CachedOutput;
         };
 
-        using FResolvedInput = TPair<FName, UPCGData*>;
+private:
+#if WITH_AUTOMATION_TESTS
+        friend struct FPCGSchedulerExecutorTestAccessor;
+#endif
 
 	bool ResolveInputs(UPCGGraph& Graph,
 		const FPCGInputSet& InputSet,
@@ -102,6 +106,23 @@ private:
 private:
         TMap<FPCGTaskId, FScheduledTask> ActiveTasks;
 };
+
+#if WITH_AUTOMATION_TESTS
+struct FPCGSchedulerExecutorTestAccessor
+{
+        static bool ResolveInputs(FPCGSchedulerExecutor& Executor,
+                UPCGGraph& Graph,
+                const FPCGInputSet& InputSet,
+                TArray<FPCGSchedulerExecutor::FResolvedInput>& OutResolvedInputs,
+                TArray<FString>& OutWarnings,
+                TArray<FString>& OutErrors,
+                bool& bOutUsedFallback);
+
+        static FPCGSchedulerExecutor::FScheduledTask& AddTask(FPCGSchedulerExecutor& Executor, FPCGTaskId TaskId);
+
+        static void CacheOutput(FPCGSchedulerExecutor& Executor, FPCGTaskId TaskId, const FPCGOutputSet& Output);
+};
+#endif // WITH_AUTOMATION_TESTS
 
 #endif // VHM_PCG_ENABLED
 

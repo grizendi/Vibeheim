@@ -17,6 +17,36 @@
 
 DEFINE_LOG_CATEGORY_STATIC(LogPCGScheduler, Log, All);
 
+#if WITH_AUTOMATION_TESTS
+bool FPCGSchedulerExecutorTestAccessor::ResolveInputs(FPCGSchedulerExecutor& Executor,
+        UPCGGraph& Graph,
+        const FPCGInputSet& InputSet,
+        TArray<FPCGSchedulerExecutor::FResolvedInput>& OutResolvedInputs,
+        TArray<FString>& OutWarnings,
+        TArray<FString>& OutErrors,
+        bool& bOutUsedFallback)
+{
+        return Executor.ResolveInputs(Graph, InputSet, OutResolvedInputs, OutWarnings, OutErrors, bOutUsedFallback);
+}
+
+FPCGSchedulerExecutor::FScheduledTask& FPCGSchedulerExecutorTestAccessor::AddTask(FPCGSchedulerExecutor& Executor, FPCGTaskId TaskId)
+{
+        FPCGSchedulerExecutor::FScheduledTask& Task = Executor.ActiveTasks.Add(TaskId);
+        Task.Context.TaskId = TaskId;
+        return Task;
+}
+
+void FPCGSchedulerExecutorTestAccessor::CacheOutput(FPCGSchedulerExecutor& Executor, FPCGTaskId TaskId, const FPCGOutputSet& Output)
+{
+        if (FPCGSchedulerExecutor::FScheduledTask* Task = Executor.ActiveTasks.Find(TaskId))
+        {
+                Task->CachedOutput = Output;
+                Task->bOutputCached = true;
+                Task->Context.TaskId = TaskId;
+                Task->Context.State = EPCGTaskState::Completed;
+        }
+}
+#endif
 class FGTCall
 {
 public:
@@ -260,9 +290,9 @@ void FPCGSchedulerExecutor::CacheOutput(FScheduledTask& TaskInfo, const FPCGData
 
         for (const FPCGTaggedData& Tagged : OutputData.TaggedData)
         {
-                if (UPCGData* const TaggedData = Tagged.Data.Get())
+                if (const UPCGData* TaggedData = Tagged.Data.Get())
                 {
-                        TaskInfo.CachedOutput.Outputs.Add(TaggedData);
+                        TaskInfo.CachedOutput.Outputs.Add(const_cast<UPCGData*>(TaggedData));
                 }
         }
 
@@ -310,7 +340,7 @@ FPCGTaskId FPCGSchedulerExecutor::ScheduleGraphAsync(UPCGSubsystem& Subsystem,
 	FPCGElementPtr InputElement = MakeShared<FVibeheimPCGInputElement>(DataCollection.ToSharedRef());
 
 	TArray<FPCGTaskId> Dependencies;
-        FPCGScheduleGraphParams Params(&Graph, &SourceComponent, nullptr, InputElement, Dependencies, nullptr, true);
+        FPCGScheduleGraphParams Params(&Graph, &SourceComponent, nullptr, InputElement, MoveTemp(Dependencies), nullptr, true);
         ApplyFrustumPolicy(Params, bEnableFrustumCulling, FrustumMargin);
 
 	const FPCGTaskId TaskId = Subsystem.ScheduleGraph(Params);

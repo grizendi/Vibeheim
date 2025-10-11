@@ -4,6 +4,7 @@
 #include "EngineUtils.h"
 #include "Metadata/PCGMetadata.h"
 #include "Metadata/PCGMetadataAttribute.h"
+#include "PCGComponent.h"
 #include "PCGContext.h"
 #include "Data/PCGPointData.h"
 #include "WorldGenManager.h"
@@ -72,13 +73,27 @@ bool FPCGVibeheimGetTerrainHeightElement::ExecuteInternal(FPCGContext* Context) 
 {
         check(Context);
 
-        const UVibeheimPCGGetTerrainHeightSettings* Settings = Cast<UVibeheimPCGGetTerrainHeightSettings>(Context->GetSettings());
+        const UVibeheimPCGGetTerrainHeightSettings* Settings = Context->GetInputSettings<UVibeheimPCGGetTerrainHeightSettings>();
         if (!Settings)
         {
                 return true;
         }
 
-        UWorld* World = Context->GetWorld();
+        UPCGComponent* SourceComponent = nullptr;
+
+        if (Context->SourceComponent.IsValid())
+        {
+                SourceComponent = Context->SourceComponent.Get();
+        }
+        else if (Context->ExecutionSource.IsValid())
+        {
+                if (UObject* SourceObject = Context->ExecutionSource.GetObject())
+                {
+                        SourceComponent = Cast<UPCGComponent>(SourceObject);
+                }
+        }
+
+        UWorld* World = SourceComponent ? SourceComponent->GetWorld() : nullptr;
         UHeightfieldService* HeightfieldService = ResolveHeightfieldService(World);
 
         if (!HeightfieldService)
@@ -86,14 +101,14 @@ bool FPCGVibeheimGetTerrainHeightElement::ExecuteInternal(FPCGContext* Context) 
                 UE_LOG(LogTemp, Warning, TEXT("GetTerrainHeight: Heightfield service unavailable; passing through input points."));
         }
 
-        const TArray<FPCGTaggedData>& Inputs = Context->InputData.GetInputs();
+        const TArray<FPCGTaggedData>& Inputs = Context->InputData.GetAllInputs();
         for (const FPCGTaggedData& Input : Inputs)
         {
                 const UPCGPointData* InPointData = Cast<UPCGPointData>(Input.Data);
                 if (!InPointData)
                 {
-                        FPCGTaggedData& Passthrough = Context->OutputData.TaggedData.Add_GetRef(Input);
-                        Passthrough.Data = Input.Data;
+                        FPCGTaggedData& Passthrough = Context->OutputData.TaggedData.AddDefaulted_GetRef();
+                        Passthrough = Input;
                         continue;
                 }
 
@@ -171,7 +186,7 @@ bool FPCGVibeheimGetTerrainHeightElement::ExecuteInternal(FPCGContext* Context) 
                         }
                 }
 
-                FPCGTaggedData& Output = Context->OutputData.TaggedData.Add_GetRef();
+                FPCGTaggedData& Output = Context->OutputData.TaggedData.AddDefaulted_GetRef();
                 Output = Input;
                 Output.Data = OutPointData;
         }

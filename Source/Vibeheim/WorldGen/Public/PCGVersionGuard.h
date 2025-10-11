@@ -26,23 +26,26 @@
 static_assert(ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION == 6, 
     "Vibeheim PCG integration requires UE 5.6.x only. Current version is incompatible.");
 
-// Verify PCG module is available
-#if !__has_include("PCGSubsystem.h")
-    #error "PCG module headers not found - ensure PCG plugin is enabled in .uproject"
+#if !defined(WITH_PCG)
+    #if __has_include("PCGSubsystem.h")
+        #define WITH_PCG 1
+    #else
+        #define WITH_PCG 0
+    #endif
 #endif
 
-#ifndef WITH_PCG
-    #error "WITH_PCG not defined - PCG plugin must be enabled"
+#if WITH_PCG && !__has_include("PCGSubsystem.h")
+    #error "PCG module headers not found - ensure PCG plugin is enabled in .uproject"
 #endif
 
 // Define VHM_PCG_ENABLED flag for conditional compilation
 // Server builds can override this to 0 in Build.cs to use HISM-only path
 #ifndef VHM_PCG_ENABLED
-    #define VHM_PCG_ENABLED 1
+    #define VHM_PCG_ENABLED WITH_PCG
 #endif
 
 // Compile-time verification that we can use the scheduler API
-#if VHM_PCG_ENABLED
+#if WITH_PCG && VHM_PCG_ENABLED
     #include "PCGSubsystem.h"
     
     // Verify UE 5.6 scheduler API is available
@@ -57,9 +60,7 @@ static_assert(ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION == 6,
             template<typename U>
             static auto Test(int) -> decltype(
                 std::declval<U>().ScheduleGraph(
-                    std::declval<UPCGComponent*>(),
-                    std::declval<FPCGTaskId>(),
-                    std::declval<const FPCGStackContext&>()
+                    std::declval<const FPCGScheduleGraphParams&>()
                 ),
                 std::true_type{}
             );
@@ -74,7 +75,7 @@ static_assert(ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION == 6,
         static_assert(HasScheduleGraph<UPCGSubsystem>::Value,
             "UPCGSubsystem::ScheduleGraph API not found - verify UE 5.6 PCG plugin version");
     }
-#endif // VHM_PCG_ENABLED
+#endif // WITH_PCG && VHM_PCG_ENABLED
 
 /**
  * Usage Notes:

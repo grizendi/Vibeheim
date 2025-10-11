@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "PCGSettings.h"
+#include "PCGElement.h"
 #include "Services/PCGWorldServiceTypes.h"
 #include "VibeheimPCGGetTerrainHeight.generated.h"
 
@@ -47,7 +48,7 @@ public:
 /**
  * Runtime element that evaluates terrain height for incoming points.
  */
-class FPCGVibeheimGetTerrainHeightElement : public FPCGDataProcessingElement
+class FPCGVibeheimGetTerrainHeightElement : public IPCGElement
 {
 public:
         virtual bool ExecuteInternal(FPCGContext* Context) const override;

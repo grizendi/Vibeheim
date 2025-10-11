@@ -49,10 +49,7 @@ struct VIBEHEIM_API FTileCoord
                 );
         }
 
-        static FTileCoord FromWorldPosition(const FVector& WorldPos, const FWorldGenConfig& Config)
-        {
-                return FromWorldPosition(WorldPos, Config.TileSizeMeters);
-        }
+        static FTileCoord FromWorldPosition(const FVector& WorldPos, const struct FWorldGenConfig& Config);
 
         // Convert tile coordinate to world position (center of tile)
         FVector ToWorldPosition(float TileSize) const
@@ -64,10 +61,7 @@ struct VIBEHEIM_API FTileCoord
                 );
         }
 
-        FVector ToWorldPosition(const FWorldGenConfig& Config) const
-        {
-                return ToWorldPosition(Config.TileSizeMeters);
-        }
+        FVector ToWorldPosition(const struct FWorldGenConfig& Config) const;
 
 	// Hash function for use in TMap
 	friend uint32 GetTypeHash(const FTileCoord& Coord);
@@ -271,6 +265,16 @@ struct VIBEHEIM_API FWorldGenConfig
         MaxTerrainHeight = 120.0f;
     }
 };
+
+inline FTileCoord FTileCoord::FromWorldPosition(const FVector& WorldPos, const FWorldGenConfig& Config)
+{
+        return FromWorldPosition(WorldPos, Config.TileSizeMeters);
+}
+
+inline FVector FTileCoord::ToWorldPosition(const FWorldGenConfig& Config) const
+{
+        return ToWorldPosition(Config.TileSizeMeters);
+}
 
 /**
  * Macro world configuration (continental scale)

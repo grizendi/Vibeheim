@@ -184,31 +184,14 @@ private:
                 auto EnsureAttribute = [Metadata, EntryKey](const FName& AttributeName, auto&& Value)
                 {
                         using ValueType = typename TDecay<decltype(Value)>::Type;
-
-                        if constexpr (std::is_same_v<ValueType, FGuid>)
+                        FPCGMetadataAttribute<ValueType>* Attribute = Metadata->GetMutableTypedAttribute<ValueType>(AttributeName);
+                        if (!Attribute)
                         {
-                                using StoredType = FString;
-                                FPCGMetadataAttribute<StoredType>* Attribute = Metadata->GetMutableTypedAttribute<StoredType>(AttributeName);
-                                if (!Attribute)
-                                {
-                                        Attribute = Metadata->CreateAttribute<StoredType>(AttributeName, FString(), false, true);
-                                }
-                                if (Attribute)
-                                {
-                                        Attribute->SetValue(EntryKey, Value.ToString(EGuidFormats::DigitsWithHyphens));
-                                }
+                                Attribute = Metadata->CreateAttribute<ValueType>(AttributeName, Value, false, true);
                         }
-                        else
+                        if (Attribute)
                         {
-                                FPCGMetadataAttribute<ValueType>* Attribute = Metadata->GetMutableTypedAttribute<ValueType>(AttributeName);
-                                if (!Attribute)
-                                {
-                                        Attribute = Metadata->CreateAttribute<ValueType>(AttributeName, Value, false, true);
-                                }
-                                if (Attribute)
-                                {
-                                        Attribute->SetValue(EntryKey, Value);
-                                }
+                                Attribute->SetValue(EntryKey, Value);
                         }
                 };
 

@@ -8,36 +8,6 @@
 #include "PCGInputOutputSettings.h"
 #include "Data/PCGPointData.h"
 
-namespace
-{
-	struct FSchedulerTestHelper
-	{
-		static bool ResolveInputs(FPCGSchedulerExecutor& Executor,
-			UPCGGraph& Graph,
-			const FPCGInputSet& InputSet,
-			TArray<FPCGSchedulerExecutor::FResolvedInput>& OutResolvedInputs,
-			TArray<FString>& OutWarnings,
-			TArray<FString>& OutErrors,
-			bool& bOutUsedFallback)
-		{
-			return Executor.ResolveInputs(Graph, InputSet, OutResolvedInputs, OutWarnings, OutErrors, bOutUsedFallback);
-		}
-
-		static FPCGSchedulerExecutor::FScheduledTask& AddTask(FPCGSchedulerExecutor& Executor, FPCGTaskId TaskId)
-		{
-			return Executor.ActiveTasks.Add(TaskId);
-		}
-
-                static void CacheOutput(FPCGSchedulerExecutor& Executor, FPCGTaskId TaskId, const FPCGOutputSet& Output)
-                {
-                        FPCGSchedulerExecutor::FScheduledTask& Task = Executor.ActiveTasks.FindChecked(TaskId);
-                        Task.CachedOutput = Output;
-                        Task.bOutputCached = true;
-                        Task.Context.State = EPCGTaskState::Completed;
-                }
-        };
-}
-
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FFPCGSchedulerResolveInputsTest, "Vibeheim.PCG.Scheduler.ResolveInputs", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FFPCGSchedulerFallbackInputsTest, "Vibeheim.PCG.Scheduler.FallbackOrdering", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FFPCGSchedulerValidationFailureTest, "Vibeheim.PCG.Scheduler.ValidationFailure", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -58,7 +28,7 @@ bool FFPCGSchedulerResolveInputsTest::RunTest(const FString& Parameters)
 	TArray<FString> Errors;
 	bool bUsedFallback = false;
 
-	const bool bResult = FSchedulerTestHelper::ResolveInputs(Executor, *Graph, InputSet, ResolvedInputs, Warnings, Errors, bUsedFallback);
+	const bool bResult = FPCGSchedulerExecutorTestAccessor::ResolveInputs(Executor, *Graph, InputSet, ResolvedInputs, Warnings, Errors, bUsedFallback);
 
 	TestTrue(TEXT("ResolveInputs should succeed when required pins are supplied"), bResult);
 	TestEqual(TEXT("Exactly one resolved input"), ResolvedInputs.Num(), 1);
@@ -84,7 +54,7 @@ bool FFPCGSchedulerFallbackInputsTest::RunTest(const FString& Parameters)
 	TArray<FString> Errors;
 	bool bUsedFallback = false;
 
-	const bool bResult = FSchedulerTestHelper::ResolveInputs(Executor, *Graph, InputSet, ResolvedInputs, Warnings, Errors, bUsedFallback);
+	const bool bResult = FPCGSchedulerExecutorTestAccessor::ResolveInputs(Executor, *Graph, InputSet, ResolvedInputs, Warnings, Errors, bUsedFallback);
 
 	TestTrue(TEXT("ResolveInputs should still succeed with fallback ordering"), bResult);
 	TestTrue(TEXT("Fallback should trigger warning"), Warnings.Num() > 0);
@@ -106,7 +76,7 @@ bool FFPCGSchedulerValidationFailureTest::RunTest(const FString& Parameters)
 	TArray<FString> Errors;
 	bool bUsedFallback = false;
 
-	const bool bResult = FSchedulerTestHelper::ResolveInputs(Executor, *Graph, EmptyInputSet, ResolvedInputs, Warnings, Errors, bUsedFallback);
+	const bool bResult = FPCGSchedulerExecutorTestAccessor::ResolveInputs(Executor, *Graph, EmptyInputSet, ResolvedInputs, Warnings, Errors, bUsedFallback);
 
 	TestFalse(TEXT("ResolveInputs should fail when no data provided"), bResult);
 	TestTrue(TEXT("Error list should be populated"), Errors.Num() > 0);
@@ -119,13 +89,13 @@ bool FFPCGSchedulerCacheStateTest::RunTest(const FString& Parameters)
 {
         FPCGSchedulerExecutor Executor;
         const FPCGTaskId TaskId = 42;
-        FPCGSchedulerExecutor::FScheduledTask& Task = FSchedulerTestHelper::AddTask(Executor, TaskId);
+        FPCGSchedulerExecutor::FScheduledTask& Task = FPCGSchedulerExecutorTestAccessor::AddTask(Executor, TaskId);
         Task.Context.TaskId = TaskId;
 
         FPCGOutputSet Output;
         Output.Outputs.Add(NewObject<UPCGPointData>());
 
-        FSchedulerTestHelper::CacheOutput(Executor, TaskId, Output);
+        FPCGSchedulerExecutorTestAccessor::CacheOutput(Executor, TaskId, Output);
 
         TestEqual(TEXT("Task state transitions to Completed"), Task.Context.State, EPCGTaskState::Completed);
         TestTrue(TEXT("Output should be cached"), Task.bOutputCached);

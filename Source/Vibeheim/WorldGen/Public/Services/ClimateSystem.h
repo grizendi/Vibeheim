@@ -96,7 +96,9 @@ public:
 	/**
 	 * Initialize the climate system with settings
 	 */
-	UFUNCTION(BlueprintCallable, Category = "Climate")
+        UFUNCTION(BlueprintCallable, Category = "Climate")
+        void InitializeWithConfig(const FClimateSettings& InSettings, int32 InSeed, const FWorldGenConfig& InWorldGenConfig);
+
         void Initialize(const FClimateSettings& InSettings, int32 InSeed, const FWorldGenConfig* InWorldGenConfig = nullptr);
 
 	/**

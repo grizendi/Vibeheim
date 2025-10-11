@@ -24,6 +24,7 @@
 #include "Metadata/PCGMetadata.h"
 #include "Metadata/PCGMetadataAttribute.h"
 #include "Helpers/PCGMetadataHelpers.h"
+#include "Metadata/PCGMetadataCommon.h"
 #endif
 
 #include "Components/StaticMeshComponent.h"
@@ -41,10 +42,105 @@
 #include "HAL/IConsoleManager.h"
 #include "HAL/FileManager.h"
 #include "Trace/Trace.inl"
+#include "ProfilingDebugging/CountersTrace.h"
 #include "Services/HeightfieldService.h"
 #include "Services/BiomeService.h"
 
-UE_DEFINE_LOG_CATEGORY(LogPCGWorldService);
+DEFINE_LOG_CATEGORY(LogPCGWorldService);
+
+#if VHM_PCG_ENABLED
+TRACE_DECLARE_INT_COUNTER(VibeheimPCGActiveTasks, TEXT("Vibeheim/PCG/ActiveTasks"));
+TRACE_DECLARE_FLOAT_COUNTER(VibeheimPCGLastDurationMs, TEXT("Vibeheim/PCG/LastDurationMs"));
+TRACE_DECLARE_INT_COUNTER(VibeheimPCGLastPointCount, TEXT("Vibeheim/PCG/LastPointCount"));
+#endif
+
+#if VHM_PCG_ENABLED
+void FPCGSchedulerExecutorDeleter::operator()(FPCGSchedulerExecutor* Ptr) const
+{
+        delete Ptr;
+}
+#endif
+
+#if WITH_AUTOMATION_TESTS
+#if VHM_PCG_ENABLED
+void FPCGWorldServiceTestAccessor::SetScheduler(UPCGWorldService* Service, FPCGSchedulerExecutorPtr&& Executor)
+{
+        if (Service)
+        {
+                Service->SchedulerExecutor = MoveTemp(Executor);
+        }
+}
+
+void FPCGWorldServiceTestAccessor::SetWorldOverride(UPCGWorldService* Service, UWorld* World)
+{
+        if (Service)
+        {
+                Service->TestWorldOverride = World;
+        }
+}
+
+void FPCGWorldServiceTestAccessor::SetSubsystemOverride(UPCGWorldService* Service, UPCGSubsystem* Subsystem)
+{
+        if (Service)
+        {
+                Service->TestSubsystemOverride = Subsystem;
+        }
+}
+
+void FPCGWorldServiceTestAccessor::SetAnchorActor(UPCGWorldService* Service, AActor* Anchor)
+{
+        if (Service)
+        {
+                Service->PCGAnchorActor = Anchor;
+        }
+}
+
+void FPCGWorldServiceTestAccessor::SetBiomeComponent(UPCGWorldService* Service, EBiomeType Biome, UPCGComponent* Component)
+{
+        if (Service)
+        {
+                Service->BiomePCGComponents.Add(Biome, Component);
+        }
+}
+
+void FPCGWorldServiceTestAccessor::ResetActiveTasks(UPCGWorldService* Service)
+{
+        if (Service)
+        {
+                Service->ActiveTasks.Reset();
+        }
+}
+
+void FPCGWorldServiceTestAccessor::AddActiveTask(UPCGWorldService* Service, FPCGTaskId TaskId, const FPCGTaskContext& Context)
+{
+        if (Service)
+        {
+                Service->ActiveTasks.Add(TaskId, Context);
+        }
+}
+
+FPCGGenerationData FPCGWorldServiceTestAccessor::InvokeGenerate(UPCGWorldService* Service, const FTileCoord& TileCoord, EBiomeType Biome, const TArray<float>& HeightData, UPCGGraph* Graph)
+{
+        return Service ? Service->GeneratePCGContent(TileCoord, Biome, HeightData, Graph, nullptr) : FPCGGenerationData();
+}
+#endif // VHM_PCG_ENABLED
+
+void FPCGWorldServiceTestAccessor::ApplySettings(UPCGWorldService* Service, const FWorldGenConfig& Settings)
+{
+        if (Service)
+        {
+                Service->WorldGenSettings = Settings;
+        }
+}
+
+void FPCGWorldServiceTestAccessor::SetRuntimeEnabled(UPCGWorldService* Service, bool bEnabled)
+{
+        if (Service)
+        {
+                Service->bRuntimeOperationsEnabled = bEnabled;
+        }
+}
+#endif // WITH_AUTOMATION_TESTS
 
 
 static TAutoConsoleVariable<int32> CVarVibeheimPCGMaxConcurrent(
@@ -164,10 +260,9 @@ namespace PCGWorldService::Editor
         int32 DependencyNodes = 0;
         int32 UnwiredNodes = 0;
 
-        const TArray<TObjectPtr<UPCGNode>>& Nodes = Graph->GetNodes();
-        for (const TObjectPtr<UPCGNode>& NodePtr : Nodes)
+        const TArray<UPCGNode*>& Nodes = Graph->GetNodes();
+        for (UPCGNode* Node : Nodes)
         {
-            UPCGNode* Node = NodePtr.Get();
             if (!Node)
             {
                 continue;
@@ -175,22 +270,18 @@ namespace PCGWorldService::Editor
 
             ++TotalNodes;
 
-            UPCGSettings* Settings = Node->GetSettings();
-            if (!Settings || !Settings->HasExecutionDependencyPin())
-            {
-                continue;
-            }
-
-            ++DependencyNodes;
-
+            const UPCGSettings* NodeSettings = Node->GetSettings();
+            bool bDependencyNode = false;
             bool bDependencyWired = false;
             for (const TObjectPtr<UPCGPin>& PinPtr : Node->GetInputPins())
             {
                 const UPCGPin* Pin = PinPtr.Get();
-                if (!Pin || Pin->Properties.PinType != EPCGPinType::Dependency)
+                if (!Pin || Pin->Properties.Usage != EPCGPinUsage::DependencyOnly)
                 {
                     continue;
                 }
+
+                bDependencyNode = true;
 
                 if (Pin->Edges.Num() > 0)
                 {
@@ -199,10 +290,17 @@ namespace PCGWorldService::Editor
                 }
             }
 
+            if (!bDependencyNode)
+            {
+                continue;
+            }
+
+            ++DependencyNodes;
+
             if (!bDependencyWired)
             {
                 ++UnwiredNodes;
-                const FString NodeLabel = Settings->GetClass()->GetName();
+                const FString NodeLabel = NodeSettings ? NodeSettings->GetClass()->GetName() : Node->GetName();
                 UE_LOG(LogPCGWorldService, Warning, TEXT("Unwired execution dependency on node '%s'."), *NodeLabel);
             }
         }
@@ -368,6 +466,22 @@ namespace PCGWorldService::Private
         return FString::Join(Labels, TEXT(" or "));
     }
 
+    template <typename TValue>
+    TOptional<TValue> GetMetadataValue(const UPCGMetadata* Metadata, const FName& AttributeName, PCGMetadataEntryKey EntryKey)
+    {
+        if (!Metadata)
+        {
+            return TOptional<TValue>();
+        }
+
+        if (const FPCGMetadataAttribute<TValue>* Attribute = Metadata->GetConstTypedAttribute<TValue>(FPCGAttributeIdentifier(AttributeName)))
+        {
+            return Attribute->GetValueFromItemKey(EntryKey);
+        }
+
+        return TOptional<TValue>();
+    }
+
     inline const TArray<FExpectedAttribute>& GetCanonicalAttributes()
     {
         static constexpr EPCGMetadataTypes FloatType[] = { EPCGMetadataTypes::Float };
@@ -479,11 +593,15 @@ UPCGWorldService::UPCGWorldService()
         CullDistances.Add(1500.0f); // Mid-range cull distance for runtime HISM fallback
         CullDistances.Add(5000.0f); // Far cull distance for runtime HISM fallback
 #if VHM_PCG_ENABLED
-    SchedulerExecutor = MakeUnique<FPCGSchedulerExecutor>();
+    SchedulerExecutor = FPCGSchedulerExecutorPtr(new FPCGSchedulerExecutor());
     RefreshRuntimeSettingsFromCVars();
     ConsoleSinkHandle = IConsoleManager::Get().RegisterConsoleVariableSink_Handle(
             FConsoleCommandDelegate::CreateUObject(this, &UPCGWorldService::HandleConsoleVariablesChanged));
+    bConsoleSinkRegistered = true;
 #endif
+
+}
+
 void UPCGWorldService::BeginDestroy()
 {
 #if VHM_PCG_ENABLED
@@ -493,10 +611,11 @@ void UPCGWorldService::BeginDestroy()
         WorldCleanupHandle = FDelegateHandle();
     }
 
-    if (ConsoleSinkHandle.IsValid())
+    if (bConsoleSinkRegistered)
     {
-        IConsoleManager::Get().UnregisterConsoleVariableSink(ConsoleSinkHandle);
+        IConsoleManager::Get().UnregisterConsoleVariableSink_Handle(ConsoleSinkHandle);
         ConsoleSinkHandle = FConsoleVariableSinkHandle();
+        bConsoleSinkRegistered = false;
     }
 
     if (UWorld* World = GetWorld())
@@ -557,9 +676,9 @@ UPCGComponent* UPCGWorldService::GetOrCreateBiomeComponent(EBiomeType BiomeType,
         return nullptr;
     }
 
-    if (TObjectPtr<UPCGComponent>* ExistingPtr = BiomePCGComponents.Find(BiomeType))
+    if (TObjectPtr<UObject>* ExistingPtr = BiomePCGComponents.Find(BiomeType))
     {
-        if (UPCGComponent* ExistingComponent = ExistingPtr->Get())
+        if (UPCGComponent* ExistingComponent = Cast<UPCGComponent>(ExistingPtr->Get()))
         {
             ExistingComponent->SetGraph(&Graph);
             return ExistingComponent;
@@ -596,9 +715,9 @@ void UPCGWorldService::DestroyBiomeComponent(EBiomeType BiomeType)
 {
     check(IsInGameThread());
 
-    if (TObjectPtr<UPCGComponent>* ComponentPtr = BiomePCGComponents.Find(BiomeType))
+    if (TObjectPtr<UObject>* ComponentPtr = BiomePCGComponents.Find(BiomeType))
     {
-        if (UPCGComponent* Component = ComponentPtr->Get())
+        if (UPCGComponent* Component = Cast<UPCGComponent>(ComponentPtr->Get()))
         {
             Component->UnregisterComponent();
             Component->DestroyComponent();
@@ -612,9 +731,9 @@ void UPCGWorldService::CleanupAllComponents()
 {
     check(IsInGameThread());
 
-    for (TPair<EBiomeType, TObjectPtr<UPCGComponent>>& Entry : BiomePCGComponents)
+    for (TPair<EBiomeType, TObjectPtr<UObject>>& Entry : BiomePCGComponents)
     {
-        if (UPCGComponent* Component = Entry.Value.Get())
+        if (UPCGComponent* Component = Cast<UPCGComponent>(Entry.Value.Get()))
         {
             Component->UnregisterComponent();
             Component->DestroyComponent();
@@ -757,7 +876,7 @@ void UPCGWorldService::RegisterTelemetry(FPCGTaskId TaskId, EBiomeType BiomeType
         Telemetry.bFallbackUsed = false;
 
         EmitTelemetryLog(Telemetry, TEXT("Scheduled"));
-        TRACE_COUNTER_SET(TEXT("Vibeheim/PCG/ActiveTasks"), ActiveTelemetry.Num());
+        TRACE_COUNTER_SET(VibeheimPCGActiveTasks, ActiveTelemetry.Num());
 }
 
 void UPCGWorldService::MarkTelemetryStart(FPCGTaskId TaskId)
@@ -801,7 +920,7 @@ void UPCGWorldService::MarkTelemetryCompletion(FPCGTaskId TaskId, bool bSuccess,
                 EmitTelemetryLog(Snapshot, StatusLabel, Reason);
 
                 ActiveTelemetry.Remove(TaskId);
-                TRACE_COUNTER_SET(TEXT("Vibeheim/PCG/ActiveTasks"), ActiveTelemetry.Num());
+                TRACE_COUNTER_SET(VibeheimPCGActiveTasks, ActiveTelemetry.Num());
         }
 }
 
@@ -817,7 +936,7 @@ void UPCGWorldService::MarkTelemetryFallback(FPCGTaskId TaskId, const FString& R
                         FPCGTaskTelemetry Snapshot = *Telemetry;
                         EmitTelemetryLog(Snapshot, TEXT("Fallback"), Reason);
                         ActiveTelemetry.Remove(TaskId);
-                        TRACE_COUNTER_SET(TEXT("Vibeheim/PCG/ActiveTasks"), ActiveTelemetry.Num());
+                        TRACE_COUNTER_SET(VibeheimPCGActiveTasks, ActiveTelemetry.Num());
                         return;
                 }
         }
@@ -861,8 +980,8 @@ void UPCGWorldService::EmitTelemetryLog(const FPCGTaskTelemetry& Telemetry, cons
                 Telemetry.bFallbackUsed ? TEXT("Yes") : TEXT("No"),
                 *ReasonLabel);
 
-        TRACE_COUNTER_SET(TEXT("Vibeheim/PCG/LastDurationMs"), Telemetry.ElapsedMs);
-        TRACE_COUNTER_SET(TEXT("Vibeheim/PCG/LastPoints"), Telemetry.PointsOut);
+        TRACE_COUNTER_SET(VibeheimPCGLastDurationMs, Telemetry.ElapsedMs);
+        TRACE_COUNTER_SET(VibeheimPCGLastPointCount, Telemetry.PointsOut);
 
         AppendTelemetryCsvRow(Telemetry, StatusLabel, ReasonLabel);
 }
@@ -990,7 +1109,7 @@ void UPCGWorldService::AppendTelemetryCsvRow(const FPCGTaskTelemetry& Telemetry,
 
 void UPCGWorldService::HandleWorldCleanup(UWorld* World, bool bSessionEnded, bool bCleanupResources)
 {
-    UE_UNUSED(bSessionEnded);
+    (void)bSessionEnded;
 
     if (!World)
     {
@@ -1093,7 +1212,6 @@ UPCGPointData* PCGWorldService::Private::CreateTilePointData(UObject* Outer, FTi
         UPCGMetadata* Metadata = PointData->MutableMetadata();
         if (!ensureMsgf(Metadata, TEXT("Tile point metadata missing for (%d, %d)"), TileCoord.X, TileCoord.Y))
         {
-                PointData->RecomputeBounds();
                 return PointData;
         }
 
@@ -1118,7 +1236,6 @@ UPCGPointData* PCGWorldService::Private::CreateTilePointData(UObject* Outer, FTi
 
         EnsureAndSetFloat(VHMPCGAttr::AverageSlope, TileMetrics.AverageSlope);
 
-        PointData->RecomputeBounds();
         return PointData;
 }
 
@@ -1136,7 +1253,7 @@ void PCGWorldService::Private::ExtractInstancesFromPointData(const UPCGPointData
                 return;
         }
 
-        const UPCGMetadata* Metadata = PointData->Metadata();
+        const UPCGMetadata* Metadata = PointData->ConstMetadata();
         const TArray<FPCGPoint>& Points = PointData->GetPoints();
 
         if (Points.Num() == 0)
@@ -1223,9 +1340,9 @@ void PCGWorldService::Private::ExtractInstancesFromPointData(const UPCGPointData
                         const FExpectedAttribute* StaticMeshExpectation = ExpectedPointAttributes.FindRef(VHMPCGAttr::StaticMesh);
                         if (const FPCGMetadataAttributeBase* StaticMeshInfo = Metadata->GetConstAttribute(VHMPCGAttr::StaticMesh))
                         {
-                                if (StaticMeshExpectation && !StaticMeshExpectation->AllowedTypes.Contains(StaticMeshInfo->GetTypeId()))
+                                if (StaticMeshExpectation && !StaticMeshExpectation->AllowedTypes.Contains(static_cast<EPCGMetadataTypes>(StaticMeshInfo->GetTypeId())))
                                 {
-                                        LogTypeMismatch(VHMPCGAttr::StaticMesh, StaticMeshInfo->GetTypeId(), StaticMeshExpectation);
+                                        LogTypeMismatch(VHMPCGAttr::StaticMesh, static_cast<EPCGMetadataTypes>(StaticMeshInfo->GetTypeId()), StaticMeshExpectation);
                                 }
                         }
 
@@ -1394,7 +1511,7 @@ void PCGWorldService::Private::ExtractInstancesFromPointData(const UPCGPointData
         }
 
         OutGenerationData.TotalInstanceCount = OutGenerationData.GeneratedInstances.Num();
-        OutGenerationData.InstanceTransformHash = CombinedHash;
+        OutGenerationData.InstanceTransformHash = static_cast<int64>(CombinedHash);
 }
 
 UPCGWorldService::FAttributeValidationResult UPCGWorldService::ValidateInputAttributes(const UPCGParamData* ParameterData, const UPCGPointData* PointData) const
@@ -1403,8 +1520,8 @@ UPCGWorldService::FAttributeValidationResult UPCGWorldService::ValidateInputAttr
 
         using namespace PCGWorldService::Private;
 
-        const UPCGMetadata* ParameterMetadata = ParameterData ? ParameterData->Metadata() : nullptr;
-        const UPCGMetadata* PointMetadata = PointData ? PointData->Metadata() : nullptr;
+        const UPCGMetadata* ParameterMetadata = ParameterData ? ParameterData->ConstMetadata() : nullptr;
+        const UPCGMetadata* PointMetadata = PointData ? PointData->ConstMetadata() : nullptr;
 
         const TArray<FExpectedAttribute>& ExpectedAttributes = GetCanonicalAttributes();
         TSet<FName> ParameterAttributeNames;
@@ -1439,7 +1556,7 @@ UPCGWorldService::FAttributeValidationResult UPCGWorldService::ValidateInputAttr
                         return;
                 }
 
-                const EPCGMetadataTypes ActualType = MetadataAttribute->GetTypeId();
+                const EPCGMetadataTypes ActualType = static_cast<EPCGMetadataTypes>(MetadataAttribute->GetTypeId());
                 if (!Attribute.AllowedTypes.Contains(ActualType))
                 {
                         Result.Errors.AddUnique(FString::Printf(TEXT("%s attribute '%s' is stored as %s but expected %s."), GetScopeLabel(Attribute.Scope), *Attribute.Name.ToString(), *MetadataTypeToString(ActualType), *AllowedTypesToString(Attribute.AllowedTypes)));
@@ -1467,7 +1584,7 @@ UPCGWorldService::FAttributeValidationResult UPCGWorldService::ValidateInputAttr
                         const FName& AttributeName = AttributeNames[Index];
                         if (!KnownAttributes.Contains(AttributeName))
                         {
-                                const EPCGMetadataTypes ReportedType = AttributeTypes.IsValidIndex(Index) ? AttributeTypes[Index] : EPCGMetadataTypes::Unknown;
+                                const EPCGMetadataTypes ReportedType = AttributeTypes.IsValidIndex(Index) ? static_cast<EPCGMetadataTypes>(AttributeTypes[Index]) : EPCGMetadataTypes::Unknown;
                                 Result.Warnings.AddUnique(FString::Printf(TEXT("Unexpected %s attribute '%s' (type %s)."), GetScopeLabel(Scope), *AttributeName.ToString(), *MetadataTypeToString(ReportedType)));
                         }
                 }
@@ -1811,8 +1928,8 @@ FPCGGenerationData UPCGWorldService::GeneratePCGContent(FTileCoord TileCoord, EB
     const float BiomeBlendWeight = ResolveBiomeBlendWeight(TileCoord, BiomeType, EffectiveMetrics);
     PrewarmBiomeAssets(TileCoord, BiomeType);
     UObject* DataOuter = AnchorActor ? static_cast<UObject*>(AnchorActor) : static_cast<UObject*>(this);
-    UPCGParamData* ParameterData = Private::CreateTileParameterData(DataOuter, EffectiveMetrics ? *EffectiveMetrics : FPCGTileMetrics(), TileCoord, BiomeType, WorldGenSettings, TileSeed, DensityScale, BiomeBlendWeight);
-    UPCGPointData* TilePointData = Private::CreateTilePointData(DataOuter, TileCoord, WorldGenSettings, EffectiveMetrics ? *EffectiveMetrics : FPCGTileMetrics());
+    UPCGParamData* ParameterData = PCGWorldService::Private::CreateTileParameterData(DataOuter, EffectiveMetrics ? *EffectiveMetrics : FPCGTileMetrics(), TileCoord, BiomeType, WorldGenSettings, TileSeed, DensityScale, BiomeBlendWeight);
+    UPCGPointData* TilePointData = PCGWorldService::Private::CreateTilePointData(DataOuter, TileCoord, WorldGenSettings, EffectiveMetrics ? *EffectiveMetrics : FPCGTileMetrics());
 
     FAttributeValidationResult Validation = ValidateInputAttributes(ParameterData, TilePointData);
     if (!Validation.bIsValid)
@@ -1930,7 +2047,7 @@ FPCGGenerationData UPCGWorldService::GeneratePCGContent(FTileCoord TileCoord, EB
     {
         if (const UPCGPointData* OutputPointData = Cast<UPCGPointData>(OutputDatum.Get()))
         {
-            Private::ExtractInstancesFromPointData(OutputPointData, TileCoord, WorldGenSettings,
+            PCGWorldService::Private::ExtractInstancesFromPointData(OutputPointData, TileCoord, WorldGenSettings,
                     HeightfieldService.Get(), GenerationData);
         }
     }
@@ -2601,10 +2718,9 @@ FPCGGraphValidationResult UPCGWorldService::ValidatePCGGraph(const FString& Grap
         int32 DependencyNodes = 0;
         int32 UnwiredNodes = 0;
 
-        const TArray<TObjectPtr<UPCGNode>>& Nodes = PCGGraph->GetNodes();
-        for (const TObjectPtr<UPCGNode>& NodePtr : Nodes)
+        const TArray<UPCGNode*>& Nodes = PCGGraph->GetNodes();
+        for (UPCGNode* Node : Nodes)
         {
-                UPCGNode* Node = NodePtr.Get();
                 if (!Node)
                 {
                         continue;
@@ -2612,23 +2728,19 @@ FPCGGraphValidationResult UPCGWorldService::ValidatePCGGraph(const FString& Grap
 
                 ++TotalNodes;
 
-                UPCGSettings* Settings = Node->GetSettings();
-                if (!Settings || !Settings->HasExecutionDependencyPin())
-                {
-                        continue;
-                }
-
-                ++DependencyNodes;
-
+                const UPCGSettings* NodeSettings = Node->GetSettings();
+                bool bDependencyNode = false;
                 bool bDependencyWired = false;
                 const TArray<TObjectPtr<UPCGPin>>& InputPins = Node->GetInputPins();
                 for (const TObjectPtr<UPCGPin>& PinPtr : InputPins)
                 {
                         const UPCGPin* Pin = PinPtr.Get();
-                        if (!Pin || Pin->Properties.PinType != EPCGPinType::Dependency)
+                        if (!Pin || Pin->Properties.Usage != EPCGPinUsage::DependencyOnly)
                         {
                                 continue;
                         }
+
+                        bDependencyNode = true;
 
                         if (Pin->Edges.Num() > 0)
                         {
@@ -2637,11 +2749,18 @@ FPCGGraphValidationResult UPCGWorldService::ValidatePCGGraph(const FString& Grap
                         }
                 }
 
+                if (!bDependencyNode)
+                {
+                        continue;
+                }
+
+                ++DependencyNodes;
+
                 if (!bDependencyWired)
                 {
                         ++UnwiredNodes;
 
-                        const FString NodeLabel = Settings->GetClass()->GetName();
+                        const FString NodeLabel = NodeSettings ? NodeSettings->GetClass()->GetName() : Node->GetName();
                         Result.UnwiredDependencyNodes.Add(NodeLabel);
 
                         const bool bCustomNode = NodeLabel.StartsWith(TEXT("Vibeheim"));
@@ -2685,8 +2804,8 @@ FPCGGraphValidationResult UPCGWorldService::ValidatePCGGraph(const FString& Grap
                 const FTileCoord SampleTile(0, 0);
                 const uint32 TileSeed = GetTileRandomSeed(SampleTile);
 
-                UPCGParamData* ParameterData = Private::CreateTileParameterData(this, DummyMetrics, SampleTile, EBiomeType::None, WorldGenSettings, TileSeed, 1.0f, 1.0f);
-                UPCGPointData* PointData = Private::CreateTilePointData(this, SampleTile, WorldGenSettings, DummyMetrics);
+                UPCGParamData* ParameterData = PCGWorldService::Private::CreateTileParameterData(this, DummyMetrics, SampleTile, EBiomeType::None, WorldGenSettings, TileSeed, 1.0f, 1.0f);
+                UPCGPointData* PointData = PCGWorldService::Private::CreateTilePointData(this, SampleTile, WorldGenSettings, DummyMetrics);
 
                 if (ParameterData && PointData)
                 {
@@ -2721,7 +2840,7 @@ FPCGGraphValidationResult UPCGWorldService::ValidatePCGGraph(const FString& Grap
                                 Result.Warnings.Append(ValidationWarnings);
                                 Result.Errors.Append(ValidationErrors);
 
-                                const TArray<Private::FExpectedAttribute>& ExpectedAttributes = Private::GetCanonicalAttributes();
+                                const TArray<PCGWorldService::Private::FExpectedAttribute>& ExpectedAttributes = PCGWorldService::Private::GetCanonicalAttributes();
                                 for (const TObjectPtr<UPCGData>& OutputDatum : SyncResult.Output.Outputs)
                                 {
                                         const UPCGPointData* OutputPointData = Cast<UPCGPointData>(OutputDatum.Get());
@@ -2730,16 +2849,16 @@ FPCGGraphValidationResult UPCGWorldService::ValidatePCGGraph(const FString& Grap
                                                 continue;
                                         }
 
-                                        const UPCGMetadata* Metadata = OutputPointData->Metadata();
+                                        const UPCGMetadata* Metadata = OutputPointData->Metadata().Get();
                                         if (!Metadata)
                                         {
                                                 Result.Warnings.AddUnique(TEXT("Graph output contained point data without metadata."));
                                                 continue;
                                         }
 
-                                        for (const Private::FExpectedAttribute& Attribute : ExpectedAttributes)
+                                        for (const PCGWorldService::Private::FExpectedAttribute& Attribute : ExpectedAttributes)
                                         {
-                                                if (Attribute.Scope != Private::EAttributeScope::Point)
+                                                if (Attribute.Scope != PCGWorldService::Private::EAttributeScope::Point)
                                                 {
                                                         continue;
                                                 }
@@ -2759,12 +2878,12 @@ FPCGGraphValidationResult UPCGWorldService::ValidatePCGGraph(const FString& Grap
                                                 }
 
                                                 const FPCGMetadataAttributeBase* AttributeBase = Metadata->GetConstAttribute(Attribute.Name);
-                                                if (AttributeBase && !Attribute.AllowedTypes.Contains(AttributeBase->GetTypeId()))
+                                                if (AttributeBase && !Attribute.AllowedTypes.Contains(static_cast<EPCGMetadataTypes>(AttributeBase->GetTypeId())))
                                                 {
                                                         Result.Warnings.AddUnique(FString::Printf(TEXT("Attribute '%s' reported as %s but expected %s."),
                                                                 *Attribute.Name.ToString(),
-                                                                *Private::MetadataTypeToString(AttributeBase->GetTypeId()),
-                                                                *Private::AllowedTypesToString(Attribute.AllowedTypes)));
+                                                                *PCGWorldService::Private::MetadataTypeToString(static_cast<EPCGMetadataTypes>(AttributeBase->GetTypeId())),
+                                                                *PCGWorldService::Private::AllowedTypesToString(Attribute.AllowedTypes)));
                                                 }
                                         }
                                 }
