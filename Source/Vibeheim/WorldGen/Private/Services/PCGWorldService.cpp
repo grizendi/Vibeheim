@@ -482,11 +482,43 @@ namespace PCGWorldService::Private
         return TOptional<TValue>();
     }
 
+    inline bool TryGetSoftObjectPath(const UPCGMetadata* Metadata, PCGMetadataEntryKey EntryKey, const FName& AttributeName, FSoftObjectPath& OutPath)
+    {
+        if (TOptional<FSoftObjectPath> PathValue = GetMetadataValue<FSoftObjectPath>(Metadata, AttributeName, EntryKey))
+        {
+            if (!PathValue->IsNull())
+            {
+                OutPath = MoveTemp(PathValue.GetValue());
+                return true;
+            }
+        }
+
+        if (TOptional<FString> PathString = GetMetadataValue<FString>(Metadata, AttributeName, EntryKey))
+        {
+            if (!PathString->IsEmpty())
+            {
+                FSoftObjectPath FromString(PathString.GetValue());
+                if (!FromString.IsNull())
+                {
+                    OutPath = MoveTemp(FromString);
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    inline bool HasAttribute(const UPCGMetadata* Metadata, const FName& AttributeName)
+    {
+        return Metadata && Metadata->GetConstAttribute(FPCGAttributeIdentifier(AttributeName)) != nullptr;
+    }
+
     inline const TArray<FExpectedAttribute>& GetCanonicalAttributes()
     {
         static constexpr EPCGMetadataTypes FloatType[] = { EPCGMetadataTypes::Float };
         static constexpr EPCGMetadataTypes Int32Type[] = { EPCGMetadataTypes::Integer32 };
-        static constexpr EPCGMetadataTypes SoftObjectType[] = { EPCGMetadataTypes::SoftObjectPath };
+        static constexpr EPCGMetadataTypes SoftObjectType[] = { EPCGMetadataTypes::SoftObjectPath, EPCGMetadataTypes::String, EPCGMetadataTypes::Name };
         static constexpr EPCGMetadataTypes VectorType[] = { EPCGMetadataTypes::Vector };
         static constexpr EPCGMetadataTypes RotatorType[] = { EPCGMetadataTypes::Rotator };
         static constexpr EPCGMetadataTypes BoolType[] = { EPCGMetadataTypes::Boolean };
@@ -1338,7 +1370,7 @@ void PCGWorldService::Private::ExtractInstancesFromPointData(const UPCGPointData
                         }
 
                         const FExpectedAttribute* StaticMeshExpectation = ExpectedPointAttributes.FindRef(VHMPCGAttr::StaticMesh);
-                        if (const FPCGMetadataAttributeBase* StaticMeshInfo = Metadata->GetConstAttribute(VHMPCGAttr::StaticMesh))
+                        if (const FPCGMetadataAttributeBase* StaticMeshInfo = Metadata->GetConstAttribute(FPCGAttributeIdentifier(VHMPCGAttr::StaticMesh)))
                         {
                                 if (StaticMeshExpectation && !StaticMeshExpectation->AllowedTypes.Contains(static_cast<EPCGMetadataTypes>(StaticMeshInfo->GetTypeId())))
                                 {
@@ -1351,39 +1383,18 @@ void PCGWorldService::Private::ExtractInstancesFromPointData(const UPCGPointData
                         for (const FName& AttrName : MeshAttributes)
                         {
                                 FSoftObjectPath StaticMeshPath;
-                                if (Metadata->GetAttribute<FSoftObjectPath>(AttrName, EntryKey, StaticMeshPath) && !StaticMeshPath.IsNull())
+                                if (TryGetSoftObjectPath(Metadata, EntryKey, AttrName, StaticMeshPath))
                                 {
                                         Instance.Mesh = TSoftObjectPtr<UStaticMesh>(StaticMeshPath);
                                         bMeshAssigned = true;
-                                        break;
-                                }
-
-                                UObject* MeshObject = nullptr;
-                                if (Metadata->GetAttribute<UObject*>(AttrName, EntryKey, MeshObject) && MeshObject)
-                                {
-                                        if (UStaticMesh* MeshPtr = Cast<UStaticMesh>(MeshObject))
-                                        {
-                                                UE_LOG(LogPCGWorldService, Warning,
-                                                        TEXT("PCG attribute '%s' supplied as object pointer; use Soft Object Path in graphs to avoid PCG blend issues."),
-                                                        *AttrName.ToString());
-                                                Instance.Mesh = TSoftObjectPtr<UStaticMesh>(MeshPtr);
-                                                bMeshAssigned = true;
-                                        }
-                                        else
-                                        {
-                                                UE_LOG(LogPCGWorldService, Error,
-                                                        TEXT("Tile (%d, %d) attribute '%s' must reference a UStaticMesh asset."),
-                                                        TileCoord.X, TileCoord.Y, *AttrName.ToString());
-                                        }
-
                                         break;
                                 }
                         }
 
                         if (!bMeshAssigned)
                         {
-                                const bool bHasStaticMeshAttr = Metadata->GetConstAttribute(VHMPCGAttr::StaticMesh) != nullptr;
-                                const bool bHasMeshAttr = Metadata->GetConstAttribute(VHMPCGAttr::Mesh) != nullptr;
+                                const bool bHasStaticMeshAttr = HasAttribute(Metadata, VHMPCGAttr::StaticMesh);
+                                const bool bHasMeshAttr = HasAttribute(Metadata, VHMPCGAttr::Mesh);
 
                                 if (!bHasStaticMeshAttr && !bHasMeshAttr)
                                 {
@@ -1393,32 +1404,32 @@ void PCGWorldService::Private::ExtractInstancesFromPointData(const UPCGPointData
                                 {
                                         const FName AttrName = bHasStaticMeshAttr ? VHMPCGAttr::StaticMesh : VHMPCGAttr::Mesh;
                                         UE_LOG(LogPCGWorldService, Error,
-                                                TEXT("Tile (%d, %d) attribute '%s' must be authored as a Soft Object Path."),
+                                                TEXT("Tile (%d, %d) attribute '%s' must be authored as a Soft Object Path or string asset reference."),
                                                 TileCoord.X, TileCoord.Y, *AttrName.ToString());
                                 }
                         }
 
-                        bool bIsActive = Instance.bIsActive;
-                        if (!Metadata->GetAttribute<bool>(VHMPCGAttr::IsActive, EntryKey, bIsActive))
+                        if (TOptional<bool> IsActiveValue = GetMetadataValue<bool>(Metadata, VHMPCGAttr::IsActive, EntryKey))
+                        {
+                                Instance.bIsActive = IsActiveValue.GetValue();
+                        }
+                        else
                         {
                                 LogMissingAttribute(VHMPCGAttr::IsActive);
                         }
-                        Instance.bIsActive = bIsActive;
 
-                        FVector OverrideScale = Instance.Scale;
-                        if (Metadata->GetAttribute<FVector>(VHMPCGAttr::InstanceScale, EntryKey, OverrideScale))
+                        if (TOptional<FVector> ScaleValue = GetMetadataValue<FVector>(Metadata, VHMPCGAttr::InstanceScale, EntryKey))
                         {
-                                Instance.Scale = OverrideScale;
+                                Instance.Scale = ScaleValue.GetValue();
                         }
                         else
                         {
                                 LogMissingAttribute(VHMPCGAttr::InstanceScale);
                         }
 
-                        FRotator OverrideRotation = Instance.Rotation;
-                        if (Metadata->GetAttribute<FRotator>(VHMPCGAttr::InstanceRotation, EntryKey, OverrideRotation))
+                        if (TOptional<FRotator> RotationValue = GetMetadataValue<FRotator>(Metadata, VHMPCGAttr::InstanceRotation, EntryKey))
                         {
-                                Instance.Rotation = OverrideRotation;
+                                Instance.Rotation = RotationValue.GetValue();
                         }
                         else
                         {
@@ -1426,24 +1437,35 @@ void PCGWorldService::Private::ExtractInstancesFromPointData(const UPCGPointData
                         }
 
                         FGuid InstanceGuid;
-                        if (Metadata->GetAttribute<FGuid>(VHMPCGAttr::InstanceId, EntryKey, InstanceGuid) && InstanceGuid.IsValid())
+                        bool bHasGuid = false;
+                        if (TOptional<FString> GuidString = GetMetadataValue<FString>(Metadata, VHMPCGAttr::InstanceId, EntryKey))
+                        {
+                                if (ResolveGuidFromString(GuidString.GetValue(), InstanceGuid))
+                                {
+                                        bHasGuid = true;
+                                }
+                        }
+                        else if (TOptional<FName> GuidName = GetMetadataValue<FName>(Metadata, VHMPCGAttr::InstanceId, EntryKey))
+                        {
+                                if (ResolveGuidFromString(GuidName->ToString(), InstanceGuid))
+                                {
+                                        bHasGuid = true;
+                                }
+                        }
+
+                        if (bHasGuid)
                         {
                                 Instance.InstanceId = InstanceGuid;
                         }
                         else
                         {
-                                FString GuidAsString;
-                                if (Metadata->GetAttribute<FString>(VHMPCGAttr::InstanceId, EntryKey, GuidAsString) && ResolveGuidFromString(GuidAsString, InstanceGuid))
-                                {
-                                        Instance.InstanceId = InstanceGuid;
-                                }
-                                else
-                                {
-                                        LogMissingAttribute(VHMPCGAttr::InstanceId);
-                                }
+                                LogMissingAttribute(VHMPCGAttr::InstanceId);
                         }
 
-                        Metadata->GetAttribute<bool>(VHMPCGAttr::RespectGraphZ, EntryKey, bRespectGraphZ);
+                        if (TOptional<bool> RespectGraphValue = GetMetadataValue<bool>(Metadata, VHMPCGAttr::RespectGraphZ, EntryKey))
+                        {
+                                bRespectGraphZ = RespectGraphValue.GetValue();
+                        }
                 }
 
                 const bool bZOutOfBounds = (Instance.Location.Z < MinTerrainZ || Instance.Location.Z > MaxTerrainZ);
@@ -1542,7 +1564,7 @@ UPCGWorldService::FAttributeValidationResult UPCGWorldService::ValidateInputAttr
                         return;
                 }
 
-                const FPCGMetadataAttributeBase* MetadataAttribute = Metadata->GetConstAttribute(Attribute.Name);
+                const FPCGMetadataAttributeBase* MetadataAttribute = Metadata->GetConstAttribute(FPCGAttributeIdentifier(Attribute.Name));
                 if (!MetadataAttribute)
                 {
                         if (Attribute.bRequired)
@@ -2185,7 +2207,7 @@ TArray<FPCGInstanceData> UPCGWorldService::GenerateVegetationInstances(FTileCoor
         if (HeightData.Num() != ExpectedHeightDataSize)
         {
                 UE_LOG(LogPCGWorldService, Error, TEXT("Height data size mismatch: expected %d elements (%dx%d), got %d elements"),
-                        ExpectedHeightDataSize, HeightData.Num());
+                        ExpectedHeightDataSize, SamplesPerSide, SamplesPerSide, HeightData.Num());
                 return Instances;
         }
 
@@ -2849,7 +2871,7 @@ FPCGGraphValidationResult UPCGWorldService::ValidatePCGGraph(const FString& Grap
                                                 continue;
                                         }
 
-                                        const UPCGMetadata* Metadata = OutputPointData->Metadata().Get();
+                                        const UPCGMetadata* Metadata = OutputPointData->ConstMetadata();
                                         if (!Metadata)
                                         {
                                                 Result.Warnings.AddUnique(TEXT("Graph output contained point data without metadata."));
@@ -2877,7 +2899,7 @@ FPCGGraphValidationResult UPCGWorldService::ValidatePCGGraph(const FString& Grap
                                                         continue;
                                                 }
 
-                                                const FPCGMetadataAttributeBase* AttributeBase = Metadata->GetConstAttribute(Attribute.Name);
+                                                const FPCGMetadataAttributeBase* AttributeBase = Metadata->GetConstAttribute(FPCGAttributeIdentifier(Attribute.Name));
                                                 if (AttributeBase && !Attribute.AllowedTypes.Contains(static_cast<EPCGMetadataTypes>(AttributeBase->GetTypeId())))
                                                 {
                                                         Result.Warnings.AddUnique(FString::Printf(TEXT("Attribute '%s' reported as %s but expected %s."),

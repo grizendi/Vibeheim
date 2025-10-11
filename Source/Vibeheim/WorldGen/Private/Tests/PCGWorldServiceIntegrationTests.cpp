@@ -326,19 +326,19 @@ static void ConfigureDifferenceOutput(FMockSchedulerExecutor& Executor)
 {
         Executor.ConfigureOutputBuilder([](UPCGPointData& PointData)
         {
-                UPCGMetadata* Metadata = PointData.MutableMetadata();
-                FPCGMetadataAttribute<FGuid>* InstanceIdAttr = Metadata->GetMutableTypedAttribute<FGuid>(VHMPCGAttr::InstanceId);
-                FPCGMetadataAttribute<bool>* IsActiveAttr = Metadata->GetMutableTypedAttribute<bool>(VHMPCGAttr::IsActive);
-                FPCGMetadataAttribute<FVector>* ScaleAttr = Metadata->GetMutableTypedAttribute<FVector>(VHMPCGAttr::InstanceScale);
-                FPCGMetadataAttribute<FRotator>* RotationAttr = Metadata->GetMutableTypedAttribute<FRotator>(VHMPCGAttr::InstanceRotation);
-                FPCGMetadataAttribute<FSoftObjectPath>* MeshAttr = Metadata->GetMutableTypedAttribute<FSoftObjectPath>(VHMPCGAttr::StaticMesh);
+		UPCGMetadata* Metadata = PointData.MutableMetadata();
+		FPCGMetadataAttribute<FString>* InstanceIdAttr = Metadata->GetMutableTypedAttribute<FString>(VHMPCGAttr::InstanceId);
+		FPCGMetadataAttribute<bool>* IsActiveAttr = Metadata->GetMutableTypedAttribute<bool>(VHMPCGAttr::IsActive);
+		FPCGMetadataAttribute<FVector>* ScaleAttr = Metadata->GetMutableTypedAttribute<FVector>(VHMPCGAttr::InstanceScale);
+		FPCGMetadataAttribute<FRotator>* RotationAttr = Metadata->GetMutableTypedAttribute<FRotator>(VHMPCGAttr::InstanceRotation);
+		FPCGMetadataAttribute<FSoftObjectPath>* MeshAttr = Metadata->GetMutableTypedAttribute<FSoftObjectPath>(VHMPCGAttr::StaticMesh);
 
-                const PCGMetadataEntryKey Entry = Metadata->AddEntry();
-                InstanceIdAttr->SetValue(Entry, FGuid(0xABCDEF01, 0x1234, 0x5678, 0x9ABC));
-                IsActiveAttr->SetValue(Entry, false);
-                ScaleAttr->SetValue(Entry, FVector(1.0f));
-                RotationAttr->SetValue(Entry, FRotator::ZeroRotator);
-                MeshAttr->SetValue(Entry, FSoftObjectPath(TEXT("/Script/Engine.StaticMesh'/Engine/BasicShapes/Cube.Cube'")));
+		const PCGMetadataEntryKey Entry = Metadata->AddEntry();
+		InstanceIdAttr->SetValue(Entry, FGuid(0xABCDEF01, 0x1234, 0x5678, 0x9ABC).ToString(EGuidFormats::DigitsWithHyphens));
+		IsActiveAttr->SetValue(Entry, false);
+		ScaleAttr->SetValue(Entry, FVector(1.0f));
+		RotationAttr->SetValue(Entry, FRotator::ZeroRotator);
+		MeshAttr->SetValue(Entry, FSoftObjectPath(TEXT("/Script/Engine.StaticMesh'/Engine/BasicShapes/Cube.Cube'")));
 
                 TArray<FPCGPoint>& Points = PointData.GetMutablePoints();
                 FPCGPoint& Point = Points.AddDefaulted_GetRef();
@@ -352,12 +352,12 @@ static void ConfigureDeterministicOutput(FMockSchedulerExecutor& Executor, bool 
 {
         Executor.ConfigureOutputBuilder([bReverseOrder](UPCGPointData& PointData)
         {
-                UPCGMetadata* Metadata = PointData.MutableMetadata();
-                FPCGMetadataAttribute<FGuid>* InstanceIdAttr = Metadata->GetMutableTypedAttribute<FGuid>(VHMPCGAttr::InstanceId);
-                FPCGMetadataAttribute<bool>* IsActiveAttr = Metadata->GetMutableTypedAttribute<bool>(VHMPCGAttr::IsActive);
-                FPCGMetadataAttribute<FVector>* ScaleAttr = Metadata->GetMutableTypedAttribute<FVector>(VHMPCGAttr::InstanceScale);
-                FPCGMetadataAttribute<FRotator>* RotationAttr = Metadata->GetMutableTypedAttribute<FRotator>(VHMPCGAttr::InstanceRotation);
-                FPCGMetadataAttribute<FSoftObjectPath>* MeshAttr = Metadata->GetMutableTypedAttribute<FSoftObjectPath>(VHMPCGAttr::StaticMesh);
+		UPCGMetadata* Metadata = PointData.MutableMetadata();
+		FPCGMetadataAttribute<FString>* InstanceIdAttr = Metadata->GetMutableTypedAttribute<FString>(VHMPCGAttr::InstanceId);
+		FPCGMetadataAttribute<bool>* IsActiveAttr = Metadata->GetMutableTypedAttribute<bool>(VHMPCGAttr::IsActive);
+		FPCGMetadataAttribute<FVector>* ScaleAttr = Metadata->GetMutableTypedAttribute<FVector>(VHMPCGAttr::InstanceScale);
+		FPCGMetadataAttribute<FRotator>* RotationAttr = Metadata->GetMutableTypedAttribute<FRotator>(VHMPCGAttr::InstanceRotation);
+		FPCGMetadataAttribute<FSoftObjectPath>* MeshAttr = Metadata->GetMutableTypedAttribute<FSoftObjectPath>(VHMPCGAttr::StaticMesh);
 
                 struct FDeterministicPoint
                 {
@@ -375,10 +375,10 @@ static void ConfigureDeterministicOutput(FMockSchedulerExecutor& Executor, bool 
                         Algo::Reverse(PointsToAdd);
                 }
 
-                for (const FDeterministicPoint& EntryDef : PointsToAdd)
-                {
-                        const PCGMetadataEntryKey Entry = Metadata->AddEntry();
-                        InstanceIdAttr->SetValue(Entry, EntryDef.Guid);
+		for (const FDeterministicPoint& EntryDef : PointsToAdd)
+		{
+			const PCGMetadataEntryKey Entry = Metadata->AddEntry();
+			InstanceIdAttr->SetValue(Entry, EntryDef.Guid.ToString(EGuidFormats::DigitsWithHyphens));
                         IsActiveAttr->SetValue(Entry, true);
                         ScaleAttr->SetValue(Entry, FVector(1.0f));
                         RotationAttr->SetValue(Entry, FRotator::ZeroRotator);

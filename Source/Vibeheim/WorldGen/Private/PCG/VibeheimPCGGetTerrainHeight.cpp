@@ -81,11 +81,7 @@ bool FPCGVibeheimGetTerrainHeightElement::ExecuteInternal(FPCGContext* Context) 
 
         UPCGComponent* SourceComponent = nullptr;
 
-        if (Context->SourceComponent.IsValid())
-        {
-                SourceComponent = Context->SourceComponent.Get();
-        }
-        else if (Context->ExecutionSource.IsValid())
+        if (Context->ExecutionSource.IsValid())
         {
                 if (UObject* SourceObject = Context->ExecutionSource.GetObject())
                 {
