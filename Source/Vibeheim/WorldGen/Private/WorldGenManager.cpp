@@ -5,6 +5,7 @@
 #include "Services/BiomeService.h"
 #include "Services/PCGWorldService.h"
 #include "Services/TileStreamingService.h"
+#include "Services/WaterSystemService.h"
 #include "Services/POIService.h"
 #include "VHMTerrainRendering/VHMTerrainRenderer.h"
 #include "VHMTerrainRendering/VHMDebugSystem.h"
@@ -44,6 +45,7 @@ AWorldGenManager::AWorldGenManager()
 	POIService = nullptr;
 	VHMTerrainRenderer = nullptr;
 	VHMDebugSystem = nullptr;
+	WaterSystemService = nullptr;
 }
 
 void AWorldGenManager::BeginPlay()
@@ -152,6 +154,19 @@ bool AWorldGenManager::InitializeWorldGenSystems()
         ReloadWorldGenAssets();
 
 
+        // Initialize Water System Service
+        FWaterSystemConfig WaterCfg;
+        if (WorldGenSettings && WorldGenSettings->WaterSystemConfig.IsSet())
+        {
+            WaterCfg = WorldGenSettings->WaterSystemConfig.GetValue();
+        }
+        WaterSystemService = NewObject<UWaterSystemService>(this);
+        if (WaterSystemService)
+        {
+            WaterSystemService->Initialize(WorldGenSettings->Settings, WaterCfg);
+        }
+
+
         // Initialize POI Service
         POIService = NewObject<UPOIService>(this);
 	if (!POIService || !POIService->Initialize(WorldGenSettings->Settings))
@@ -162,7 +177,7 @@ bool AWorldGenManager::InitializeWorldGenSystems()
 
 	// Initialize Tile Streaming Service
 	TileStreamingService = NewObject<UTileStreamingService>(this);
-	if (!TileStreamingService || !TileStreamingService->Initialize(WorldGenSettings->Settings, HeightfieldService, BiomeService, PCGWorldService))
+	if (!TileStreamingService || !TileStreamingService->Initialize(WorldGenSettings->Settings, HeightfieldService, BiomeService, PCGWorldService, WaterSystemService))
 	{
 		UE_LOG(LogWorldGenManager, Error, TEXT("Failed to initialize Tile Streaming Service"));
 		return false;

@@ -12,6 +12,7 @@ class UHeightfieldService;
 class UBiomeService;
 class UPCGWorldService;
 class UVHMTerrainRenderer;
+class UWaterSystemService;
 
 /**
  * Tile state enumeration for streaming system
@@ -75,6 +76,10 @@ struct VIBEHEIM_API FTileStreamingData
 
     UPROPERTY()
     bool bHasPCGContent = false;
+
+    // Per-tile water/shoreline data (filled by WaterSystemService when tile activates)
+    UPROPERTY()
+    FTileWaterData WaterData;
 
 	FTileStreamingData() = default;
 	FTileStreamingData(const FTileCoord& InTileCoord) : TileCoord(InTileCoord) {}
@@ -164,11 +169,12 @@ public:
 	/**
 	 * Initialize the tile streaming system
 	 */
-	UFUNCTION(BlueprintCallable, Category = "Tile Streaming")
-	bool Initialize(const FWorldGenConfig& Settings, 
-		UHeightfieldService* InHeightfieldService, 
-		UBiomeService* InBiomeService, 
-		UPCGWorldService* InPCGWorldService);
+    UFUNCTION(BlueprintCallable, Category = "Tile Streaming")
+    bool Initialize(const FWorldGenConfig& Settings, 
+        UHeightfieldService* InHeightfieldService, 
+        UBiomeService* InBiomeService, 
+        UPCGWorldService* InPCGWorldService,
+        UWaterSystemService* InWaterSystemService = nullptr);
 
 	/**
 	 * Update streaming based on player position
@@ -291,11 +297,14 @@ private:
 	UPROPERTY()
 	UBiomeService* BiomeService;
 
-	UPROPERTY()
-	UPCGWorldService* PCGWorldService;
+    UPROPERTY()
+    UPCGWorldService* PCGWorldService;
 
-	UPROPERTY()
-	UVHMTerrainRenderer* VHMTerrainRenderer;
+    UPROPERTY()
+    UVHMTerrainRenderer* VHMTerrainRenderer;
+
+    UPROPERTY()
+    UWaterSystemService* WaterSystemService;
 
 	// Tile cache and LRU management
 	UPROPERTY()

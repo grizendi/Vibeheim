@@ -3,6 +3,7 @@
 #include "Services/HeightfieldService.h"
 #include "Services/BiomeService.h"
 #include "Services/PCGWorldService.h"
+#include "Services/WaterSystemService.h"
 #include "VHMTerrainRendering/VHMTerrainRenderer.h"
 #include "Data/WorldGenTypes.h"
 #include "Utils/WorldGenLogging.h"
@@ -22,6 +23,7 @@ UTileStreamingService::UTileStreamingService()
 	BiomeService = nullptr;
 	PCGWorldService = nullptr;
 	VHMTerrainRenderer = nullptr;
+	WaterSystemService = nullptr;
 	MaxCacheSize = 81; // 9x9 grid as per task requirements (Generate=9, so max 81 tiles)
 	CurrentTime = 0.0f;
 	LastPlayerTileCoord = FTileCoord(INT32_MAX, INT32_MAX); // Initialize to invalid coord
@@ -31,25 +33,27 @@ UTileStreamingService::UTileStreamingService()
 }
 
 bool UTileStreamingService::Initialize(const FWorldGenConfig& Settings, 
-	UHeightfieldService* InHeightfieldService, 
-	UBiomeService* InBiomeService, 
-	UPCGWorldService* InPCGWorldService)
+    UHeightfieldService* InHeightfieldService, 
+    UBiomeService* InBiomeService, 
+    UPCGWorldService* InPCGWorldService,
+    UWaterSystemService* InWaterSystemService)
 {
-	WorldGenSettings = Settings;
-	HeightfieldService = InHeightfieldService;
-	BiomeService = InBiomeService;
-	PCGWorldService = InPCGWorldService;
+    WorldGenSettings = Settings;
+    HeightfieldService = InHeightfieldService;
+    BiomeService = InBiomeService;
+    PCGWorldService = InPCGWorldService;
+    WaterSystemService = InWaterSystemService;
 
 	// Enhanced defensive checks with detailed error messages
-	if (!HeightfieldService || !BiomeService || !PCGWorldService)
-	{
-		UE_LOG(LogTileStreaming, Error, TEXT("Failed to initialize TileStreamingService - missing required services: HeightfieldService=%s, BiomeService=%s, PCGWorldService=%s"),
-			HeightfieldService ? TEXT("OK") : TEXT("NULL"),
-			BiomeService ? TEXT("OK") : TEXT("NULL"),
-			PCGWorldService ? TEXT("OK") : TEXT("NULL"));
-		WORLDGEN_LOG_WITH_SEED(Error, WorldGenSettings.Seed, TEXT("Failed to initialize TileStreamingService: Missing required services"));
-		return false;
-	}
+    if (!HeightfieldService || !BiomeService || !PCGWorldService)
+    {
+        UE_LOG(LogTileStreaming, Error, TEXT("Failed to initialize TileStreamingService - missing required services: HeightfieldService=%s, BiomeService=%s, PCGWorldService=%s"),
+            HeightfieldService ? TEXT("OK") : TEXT("NULL"),
+            BiomeService ? TEXT("OK") : TEXT("NULL"),
+            PCGWorldService ? TEXT("OK") : TEXT("NULL"));
+        WORLDGEN_LOG_WITH_SEED(Error, WorldGenSettings.Seed, TEXT("Failed to initialize TileStreamingService: Missing required services"));
+        return false;
+    }
 
 	// Clear any existing cache
 	TileCache.Empty();
@@ -426,20 +430,26 @@ void UTileStreamingService::ResetBudgetsForTick()
 }
 
 void UTileStreamingService::UpdateTileStates(const FTileCoord& PlayerTileCoord,
-	const TArray<FTileCoord>& ActiveTiles,
-	const TArray<FTileCoord>& LoadTiles)
+    const TArray<FTileCoord>& ActiveTiles,
+    const TArray<FTileCoord>& LoadTiles)
 {
-	// Update active tiles
-	for (const FTileCoord& TileCoord : ActiveTiles)
-	{
-		FTileStreamingData* TileData = TileCache.Find(TileCoord);
-		if (TileData && (TileData->State == ETileState::Loaded || TileData->State == ETileState::Generated))
-		{
-			TileData->State = ETileState::Active;
-			TileData->LastAccessTime = CurrentTime;
-			UpdateLRUAccess(TileCoord);
-		}
-	}
+    // Update active tiles
+    for (const FTileCoord& TileCoord : ActiveTiles)
+    {
+        FTileStreamingData* TileData = TileCache.Find(TileCoord);
+        if (TileData && (TileData->State == ETileState::Loaded || TileData->State == ETileState::Generated))
+        {
+            TileData->State = ETileState::Active;
+            TileData->LastAccessTime = CurrentTime;
+            UpdateLRUAccess(TileCoord);
+
+            // Compute water/shoreline data and spawn water actor if enabled
+            if (WaterSystemService)
+            {
+                WaterSystemService->OnTileActivated(TileCoord, TileData->HeightfieldData, TileData->WaterData);
+            }
+        }
+    }
 
 	// Demote tiles outside active radius back to loaded
 	for (auto& TilePair : TileCache)
@@ -447,14 +457,18 @@ void UTileStreamingService::UpdateTileStates(const FTileCoord& PlayerTileCoord,
 		FTileCoord TileCoord = TilePair.Key;
 		FTileStreamingData& TileData = TilePair.Value;
 
-		if (TileData.State == ETileState::Active)
-		{
-			if (!IsTileInRadius(TileCoord, PlayerTileCoord, WorldGenSettings.ActiveRadius))
-			{
-				TileData.State = ETileState::Loaded;
-			}
-		}
-	}
+        if (TileData.State == ETileState::Active)
+        {
+            if (!IsTileInRadius(TileCoord, PlayerTileCoord, WorldGenSettings.ActiveRadius))
+            {
+                TileData.State = ETileState::Loaded;
+                if (WaterSystemService)
+                {
+                    WaterSystemService->OnTileDeactivated(TileCoord);
+                }
+            }
+        }
+    }
 }
 
 void UTileStreamingService::EvictDistantTiles(const FTileCoord& PlayerTileCoord)
@@ -670,6 +684,10 @@ void UTileStreamingService::AddTileToCache(const FTileCoord& TileCoord, const FT
 
 void UTileStreamingService::RemoveTileFromCache(const FTileCoord& TileCoord)
 {
+        if (WaterSystemService)
+        {
+                WaterSystemService->OnTileDeactivated(TileCoord);
+        }
         if (PCGWorldService)
         {
                 PCGWorldService->AbandonTasksForTile(TileCoord);

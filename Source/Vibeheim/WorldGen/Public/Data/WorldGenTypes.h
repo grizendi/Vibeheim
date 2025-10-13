@@ -387,6 +387,31 @@ struct VIBEHEIM_API FWaterSystemConfig
 };
 
 /**
+ * Per-tile water analysis data (mask, shoreline, distance field)
+ */
+USTRUCT(BlueprintType)
+struct VIBEHEIM_API FTileWaterData
+{
+    GENERATED_BODY()
+
+    // Resolution of the water data grid (matches heightfield resolution)
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Water")
+    int32 Resolution = 0;
+
+    // Binary mask: 1 = water, 0 = land
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Water")
+    TArray<uint8> WaterMask;
+
+    // Binary mask of shoreline samples (edge between water and land)
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Water")
+    TArray<uint8> ShorelineMask;
+
+    // Distance from each sample to nearest water (in meters)
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Water")
+    TArray<float> DistanceToWater;
+};
+
+/**
  * River and lake generation configuration
  */
 USTRUCT(BlueprintType)

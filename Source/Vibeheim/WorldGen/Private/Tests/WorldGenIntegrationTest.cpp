@@ -1085,7 +1085,7 @@ bool UWorldGenIntegrationTest::InitializeServices()
 			WORLDGEN_LOG(Log, TEXT("  Configuring TileStreamingService dependencies..."));
 			
 			// Initialize TileStreamingService with all required dependencies
-			bool bTileStreamingInitialized = TileStreamingService->Initialize(WorldGenSettings->Settings, HeightfieldService, BiomeService, PCGService);
+			bool bTileStreamingInitialized = TileStreamingService->Initialize(WorldGenSettings->Settings, HeightfieldService, BiomeService, PCGService, /*WaterSystemService*/nullptr);
 			
 			if (bTileStreamingInitialized)
 			{
