@@ -1,5 +1,6 @@
 #include "VHMTerrainRendering/TerrainMaterialSystem.h"
 #include "Services/BiomeService.h"
+#include "Services/TileStreamingService.h"
 #include "Materials/MaterialInterface.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Engine/Texture2D.h"
@@ -7,12 +8,15 @@
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "Engine/TextureDefines.h"
+#include "PixelFormat.h"
+#include "Math/Float16.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogTerrainMaterialSystem, Log, All);
 
 UVHMTerrainMaterialSystem::UVHMTerrainMaterialSystem()
 {
     BiomeService = nullptr;
+    TileStreamingService = nullptr;
     BaseMaterial = nullptr;
     TerrainRVT = nullptr;
     bRVTInitialized = false;
@@ -23,6 +27,11 @@ UVHMTerrainMaterialSystem::UVHMTerrainMaterialSystem()
 
 bool UVHMTerrainMaterialSystem::Initialize(UBiomeService* InBiomeService, const FVHMSettings& InVHMSettings)
 {
+    return InitializeWithStreaming(InBiomeService, InVHMSettings, /*InTileStreamingService=*/nullptr);
+}
+
+bool UVHMTerrainMaterialSystem::InitializeWithStreaming(UBiomeService* InBiomeService, const FVHMSettings& InVHMSettings, UTileStreamingService* InTileStreamingService)
+{
     if (!InBiomeService)
     {
         UE_LOG(LogTerrainMaterialSystem, Error, TEXT("Initialize: BiomeService is null"));
@@ -31,6 +40,7 @@ bool UVHMTerrainMaterialSystem::Initialize(UBiomeService* InBiomeService, const 
 
     BiomeService = InBiomeService;
     VHMSettings = InVHMSettings;
+    TileStreamingService = InTileStreamingService;
 
     // Initialize RVT if enabled
     if (VHMSettings.bUseRuntimeVirtualTexturing)
@@ -46,7 +56,7 @@ bool UVHMTerrainMaterialSystem::Initialize(UBiomeService* InBiomeService, const 
         }
     }
 
-    UE_LOG(LogTerrainMaterialSystem, Log, TEXT("TerrainMaterialSystem initialized successfully"));
+    UE_LOG(LogTerrainMaterialSystem, Log, TEXT("TerrainMaterialSystem initialized%s"), TileStreamingService ? TEXT(" with streaming") : TEXT(""));
     return true;
 }
 
@@ -81,6 +91,9 @@ UMaterialInstanceDynamic* UVHMTerrainMaterialSystem::CreateTileMaterial(const FT
     // Apply biome-specific parameters
     ApplyBiomeParameters(NewMaterial, BiomeData);
 
+    // Apply water parameters if available
+    ApplyWaterParameters(NewMaterial, TileCoord);
+
     // Store material
     TileMaterials.Add(TileCoord, NewMaterial);
 
@@ -106,6 +119,9 @@ bool UVHMTerrainMaterialSystem::UpdateMaterialParameters(const FTileCoord& TileC
     }
 
     ApplyBiomeParameters(MaterialPtr->Get(), BiomeData);
+
+    // Refresh water parameters as water data may change or arrive later
+    ApplyWaterParameters(MaterialPtr->Get(), TileCoord);
 
     UE_LOG(LogTerrainMaterialSystem, Verbose, TEXT("UpdateMaterialParameters: Updated material for tile (%d, %d)"), TileCoord.X, TileCoord.Y);
     return true;
@@ -209,6 +225,24 @@ void UVHMTerrainMaterialSystem::RemoveTileMaterial(const FTileCoord& TileCoord)
 
     // Remove blend data
     TileBlendData.Remove(TileCoord);
+
+    // Cleanup water textures for this tile
+    if (TObjectPtr<UTexture2D>* MaskTex = TileWaterMaskTextures.Find(TileCoord))
+    {
+        if (IsValid(MaskTex->Get()))
+        {
+            MaskTex->Get()->MarkAsGarbage();
+        }
+        TileWaterMaskTextures.Remove(TileCoord);
+    }
+    if (TObjectPtr<UTexture2D>* DistTex = TileWaterDistanceTextures.Find(TileCoord))
+    {
+        if (IsValid(DistTex->Get()))
+        {
+            DistTex->Get()->MarkAsGarbage();
+        }
+        TileWaterDistanceTextures.Remove(TileCoord);
+    }
 
     UE_LOG(LogTerrainMaterialSystem, Verbose, TEXT("RemoveTileMaterial: Removed material for tile (%d, %d)"), TileCoord.X, TileCoord.Y);
 }
@@ -597,6 +631,24 @@ void UVHMTerrainMaterialSystem::CleanupMaterialResources()
     
     TileMaterials.Empty();
     TileBlendData.Empty();
+
+    // Cleanup water textures
+    for (auto& P : TileWaterMaskTextures)
+    {
+        if (IsValid(P.Value.Get()))
+        {
+            P.Value->MarkAsGarbage();
+        }
+    }
+    TileWaterMaskTextures.Empty();
+    for (auto& P : TileWaterDistanceTextures)
+    {
+        if (IsValid(P.Value.Get()))
+        {
+            P.Value->MarkAsGarbage();
+        }
+    }
+    TileWaterDistanceTextures.Empty();
     
     // Cleanup RVT texture layers
     for (auto& TexturePair : RVTTextureLayers)
@@ -638,6 +690,144 @@ void UVHMTerrainMaterialSystem::CleanupMaterialResources()
     bRVTInitialized = false;
     
     UE_LOG(LogTerrainMaterialSystem, Log, TEXT("CleanupMaterialResources: All material resources cleaned up"));
+}
+
+bool UVHMTerrainMaterialSystem::EnsureWaterTexturesForTile(const FTileCoord& TileCoord)
+{
+    if (!TileStreamingService)
+    {
+        return false;
+    }
+
+    // If already created, we're done
+    if (TileWaterMaskTextures.Contains(TileCoord) && TileWaterDistanceTextures.Contains(TileCoord))
+    {
+        return true;
+    }
+
+    FTileStreamingData TileData;
+    if (!TileStreamingService->GetTileData(TileCoord, TileData))
+    {
+        return false;
+    }
+
+    const FTileWaterData& W = TileData.WaterData;
+    const int32 Res = W.Resolution;
+    if (Res <= 0 || W.WaterMask.Num() != Res * Res || W.DistanceToWater.Num() != Res * Res)
+    {
+        return false;
+    }
+
+    // Create and cache textures
+    UTexture2D* Mask = CreateWaterMaskTexture(TileCoord, Res, W.WaterMask);
+    UTexture2D* Dist = CreateWaterDistanceTexture(TileCoord, Res, W.DistanceToWater);
+    if (!Mask || !Dist)
+    {
+        if (Mask)
+        {
+            Mask->MarkAsGarbage();
+        }
+        if (Dist)
+        {
+            Dist->MarkAsGarbage();
+        }
+        return false;
+    }
+    TileWaterMaskTextures.Add(TileCoord, Mask);
+    TileWaterDistanceTextures.Add(TileCoord, Dist);
+    return true;
+}
+
+UTexture2D* UVHMTerrainMaterialSystem::CreateWaterMaskTexture(const FTileCoord& TileCoord, int32 Resolution, const TArray<uint8>& WaterMask)
+{
+    UTexture2D* Tex = UTexture2D::CreateTransient(Resolution, Resolution, PF_G8);
+    if (!Tex)
+    {
+        UE_LOG(LogTerrainMaterialSystem, Error, TEXT("CreateWaterMaskTexture: Failed to create texture for tile (%d,%d)"), TileCoord.X, TileCoord.Y);
+        return nullptr;
+    }
+
+    Tex->SRGB = false;
+    Tex->CompressionSettings = TC_Grayscale;
+    Tex->LODGroup = TEXTUREGROUP_World;
+
+    // Prepare byte data (0/255)
+    TArray<uint8> Data;
+    Data.SetNumUninitialized(Resolution * Resolution);
+    for (int32 i = 0; i < Data.Num(); ++i)
+    {
+        Data[i] = (WaterMask[i] != 0) ? 255 : 0;
+    }
+
+    // Copy to mip 0
+    FTexture2DMipMap& Mip = Tex->GetPlatformData()->Mips[0];
+    void* MipData = Mip.BulkData.Lock(LOCK_READ_WRITE);
+    FMemory::Memcpy(MipData, Data.GetData(), Data.Num());
+    Mip.BulkData.Unlock();
+    Tex->UpdateResource();
+
+    return Tex;
+}
+
+UTexture2D* UVHMTerrainMaterialSystem::CreateWaterDistanceTexture(const FTileCoord& TileCoord, int32 Resolution, const TArray<float>& DistanceMeters)
+{
+    UTexture2D* Tex = UTexture2D::CreateTransient(Resolution, Resolution, PF_R16F);
+    if (!Tex)
+    {
+        UE_LOG(LogTerrainMaterialSystem, Error, TEXT("CreateWaterDistanceTexture: Failed to create texture for tile (%d,%d)"), TileCoord.X, TileCoord.Y);
+        return nullptr;
+    }
+
+    Tex->SRGB = false;
+    Tex->CompressionSettings = TC_HDR;
+    Tex->LODGroup = TEXTUREGROUP_World;
+
+    // Convert floats to half-float byte buffer
+    TArray<uint8> Data;
+    Data.SetNumUninitialized(Resolution * Resolution * sizeof(FFloat16));
+    uint8* WritePtr = Data.GetData();
+    for (int32 i = 0; i < Resolution * Resolution; ++i)
+    {
+        FFloat16 HalfVal(DistanceMeters[i]);
+        FMemory::Memcpy(WritePtr + i * sizeof(FFloat16), &HalfVal, sizeof(FFloat16));
+    }
+
+    // Copy to mip 0
+    FTexture2DMipMap& Mip = Tex->GetPlatformData()->Mips[0];
+    void* MipData = Mip.BulkData.Lock(LOCK_READ_WRITE);
+    FMemory::Memcpy(MipData, Data.GetData(), Data.Num());
+    Mip.BulkData.Unlock();
+    Tex->UpdateResource();
+
+    return Tex;
+}
+
+void UVHMTerrainMaterialSystem::ApplyWaterParameters(UMaterialInstanceDynamic* Material, const FTileCoord& TileCoord)
+{
+    if (!IsValid(Material))
+    {
+        return;
+    }
+
+    if (EnsureWaterTexturesForTile(TileCoord))
+    {
+        UTexture2D* Mask = TileWaterMaskTextures.FindRef(TileCoord);
+        UTexture2D* Dist = TileWaterDistanceTextures.FindRef(TileCoord);
+        if (Mask && Dist)
+        {
+            Material->SetScalarParameterValue(TEXT("WaterEnabled"), 1.0f);
+            Material->SetTextureParameterValue(TEXT("WaterMaskTex"), Mask);
+            Material->SetTextureParameterValue(TEXT("WaterDistanceTex"), Dist);
+            // Default shoreline blend controls (can be overridden in material as needed)
+            Material->SetScalarParameterValue(TEXT("ShorelineBlendWidth"), 10.0f);
+            Material->SetScalarParameterValue(TEXT("ShorelineBlendIntensity"), 1.0f);
+            UE_LOG(LogTerrainMaterialSystem, Verbose, TEXT("Applied water params for tile (%d,%d)"), TileCoord.X, TileCoord.Y);
+            return;
+        }
+    }
+
+    // Fallback when water system is disabled or data unavailable
+    Material->SetScalarParameterValue(TEXT("WaterEnabled"), 0.0f);
 }
 
 bool UVHMTerrainMaterialSystem::SetupRVTTextureStreaming(const TArray<FTileCoord>& InStreamingTiles)

@@ -14,6 +14,7 @@ class UBiomeService;
 class UMaterialInterface;
 class UTexture2D;
 class UTextureRenderTarget2D;
+class UTileStreamingService;
 
 /**
  * Simple concrete placeholder object for RVT-related placeholders.
@@ -166,6 +167,12 @@ public:
     UFUNCTION(BlueprintCallable, Category = "TerrainMaterial")
     bool Initialize(UBiomeService* InBiomeService, const FVHMSettings& InVHMSettings);
 
+    /**
+     * Initialize with streaming service to enable water-mask integration
+     */
+    UFUNCTION(BlueprintCallable, Category = "TerrainMaterial")
+    bool InitializeWithStreaming(UBiomeService* InBiomeService, const FVHMSettings& InVHMSettings, UTileStreamingService* InTileStreamingService);
+
     // ITerrainMaterialSystem interface
     virtual UMaterialInstanceDynamic* CreateTileMaterial(const FTileCoord& TileCoord, const FBiomeDefinition& BiomeData) override;
     virtual bool UpdateMaterialParameters(const FTileCoord& TileCoord, const FBiomeDefinition& BiomeData) override;
@@ -277,6 +284,10 @@ protected:
     UPROPERTY()
     UBiomeService* BiomeService;
 
+    // Optional: tile streaming service for accessing per-tile water data
+    UPROPERTY()
+    UTileStreamingService* TileStreamingService;
+
     // VHM settings
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings")
     FVHMSettings VHMSettings;
@@ -324,6 +335,13 @@ protected:
     mutable int32 ActiveRVTTextures = 0;
     mutable float RVTMemoryUsage = 0.0f;
     mutable int32 StreamingRequests = 0;
+
+    // Per-tile water textures
+    UPROPERTY()
+    TMap<FTileCoord, TObjectPtr<UTexture2D>> TileWaterMaskTextures;
+
+    UPROPERTY()
+    TMap<FTileCoord, TObjectPtr<UTexture2D>> TileWaterDistanceTextures;
 
 private:
     /**
@@ -430,4 +448,24 @@ private:
      * Initialize default texture layers
      */
     void InitializeDefaultTextureLayers();
+
+    /**
+     * Ensure water textures exist for a tile (mask + distance field)
+     */
+    bool EnsureWaterTexturesForTile(const FTileCoord& TileCoord);
+
+    /**
+     * Create water mask (G8) texture from tile water data
+     */
+    UTexture2D* CreateWaterMaskTexture(const FTileCoord& TileCoord, int32 Resolution, const TArray<uint8>& WaterMask);
+
+    /**
+     * Create distance-to-water (R16F) texture from tile water data
+     */
+    UTexture2D* CreateWaterDistanceTexture(const FTileCoord& TileCoord, int32 Resolution, const TArray<float>& DistanceMeters);
+
+    /**
+     * Apply water/shoreline material parameters for a tile
+     */
+    void ApplyWaterParameters(UMaterialInstanceDynamic* Material, const FTileCoord& TileCoord);
 };

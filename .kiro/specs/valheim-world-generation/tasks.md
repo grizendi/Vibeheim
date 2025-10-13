@@ -75,13 +75,13 @@
   - Store shoreline data in `FTileWaterData` structure
   - _Requirements: 3_
 
-- [ ] 8. Extend TerrainMaterialSystem for water integration
-- [ ] 8.1 Add water mask generation
+- [x] 8. Extend TerrainMaterialSystem for water integration
+- [x] 8.1 Add water mask generation
   - Generate per-tile water mask texture based on heightfield
   - Integrate mask into material parameter collection
   - _Requirements: 3_
 
-- [ ] 8.2 Implement distance-to-water blending
+- [x] 8.2 Implement distance-to-water blending
   - Calculate and store distance field for wetness effects
   - Add material parameters for shoreline blending
   - Implement fallback when water system is disabled
@@ -225,4 +225,3 @@
 - Gate F: Water/rivers — river continuity = 0; coastal coverage >= 80% (PARTIAL - Water system complete, rivers pending)
 - Gate G: PCG/POI — validation commands; density within +/- 20% (PARTIAL - PCG complete, POI pending)
 - Gate H: Pipeline/perf — p50/p95/spikes within targets; memory <= limits (PARTIAL - basic metrics complete, spike detection and CSV export pending)
-

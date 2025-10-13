@@ -1086,8 +1086,8 @@ bool UVHMTerrainRenderer::InitializeTerrainMaterialSystem()
     TerrainMaterialSystem.SetObject(MaterialSystem);
     TerrainMaterialSystem.SetInterface(MaterialSystem);
 
-    // Initialize material system with biome service and VHM settings
-    if (!MaterialSystem->Initialize(BiomeService, VHMSettings))
+    // Initialize material system with biome service, VHM settings, and streaming (for water integration)
+    if (!MaterialSystem->InitializeWithStreaming(BiomeService, VHMSettings, TileStreamingService))
     {
         UE_LOG(LogVHMTerrainRenderer, Error, TEXT("InitializeTerrainMaterialSystem - Failed to initialize TerrainMaterialSystem"));
         return false;
