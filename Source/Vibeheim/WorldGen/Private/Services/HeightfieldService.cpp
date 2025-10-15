@@ -1,4 +1,5 @@
 #include "Services/HeightfieldService.h"
+#include "Services/RiverFlowService.h"
 #include "Services/ClimateSystem.h"
 #include "Services/NoiseSystem.h"
 #include "Utils/WorldGenLogging.h"
@@ -9,6 +10,8 @@
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Misc/DateTime.h"
+#include "Algo/Sort.h"
+#include "Templates/Greater.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogHeightfieldService, Log, All);
 
@@ -16,6 +19,7 @@ UHeightfieldService::UHeightfieldService()
 {
 	ClimateSystem = nullptr;
 	NoiseSystem = nullptr;
+	RiverFlowService = nullptr;
 	TotalGenerationTime = 0.0f;
 	GenerationCount = 0;
 
@@ -94,6 +98,32 @@ FHeightfieldData UHeightfieldService::GenerateHeightfield(int32 Seed, FTileCoord
 
 	HeightfieldData.MinHeight = MinHeight;
 	HeightfieldData.MaxHeight = MaxHeight;
+
+	// Preserve pristine heights for deterministic carving/lake stamping
+	if (WorldGenSettings.bEnableRivers && RiverFlowService && RiverSystemConfig.IsSet())
+	{
+		TArray<float> OriginalHeights = HeightfieldData.HeightData;
+		FRiverFlowTileData FlowData;
+		if (RiverFlowService->ComputeFlowMap(TileCoord, HeightfieldData, FlowData) && FlowData.IsValid())
+		{
+			ApplyRiverCarving(HeightfieldData, FlowData, OriginalHeights);
+			ApplyLakePlacement(HeightfieldData, FlowData, OriginalHeights);
+
+			float NewMinHeight = FLT_MAX;
+			float NewMaxHeight = -FLT_MAX;
+			for (float Height : HeightfieldData.HeightData)
+			{
+				NewMinHeight = FMath::Min(NewMinHeight, Height);
+				NewMaxHeight = FMath::Max(NewMaxHeight, Height);
+			}
+			HeightfieldData.MinHeight = NewMinHeight;
+			HeightfieldData.MaxHeight = NewMaxHeight;
+		}
+		else
+		{
+			UE_LOG(LogHeightfieldService, VeryVerbose, TEXT("Skipping river carving for tile (%d, %d) - flow data unavailable"), TileCoord.X, TileCoord.Y);
+		}
+	}
 
 	// Force identical derived buffer lengths and zero them for deterministic checksums
 	// This ensures normals/slopes arrays are exactly HeightData.Num() in both edit and reload paths
@@ -952,6 +982,16 @@ void UHeightfieldService::UpdateGenerationSettings(const FHeightfieldGenerationS
 	UE_LOG(LogHeightfieldService, Log, TEXT("Updated heightfield generation settings"));
 }
 
+void UHeightfieldService::SetRiverFlowService(URiverFlowService* InRiverFlowService)
+{
+	RiverFlowService = InRiverFlowService;
+}
+
+void UHeightfieldService::SetRiverSystemConfig(const TOptional<FRiverSystemConfig>& InRiverConfig)
+{
+	RiverSystemConfig = InRiverConfig;
+}
+
 void UHeightfieldService::SetClimateSystem(UClimateSystem* InClimateSystem)
 {
 	ClimateSystem = InClimateSystem;
@@ -1755,6 +1795,352 @@ void UHeightfieldService::ApplyModificationsToTile(FTileCoord TileCoord, TArray<
 
 	UE_LOG(LogHeightfieldService, Log, TEXT("ApplyModificationsToTile: Completed applying %d modifications to tile (%d, %d), final checksum: 0x%08X"),
 		ModList->Modifications.Num(), TileCoord.X, TileCoord.Y, FinalChecksum);
+}
+
+void UHeightfieldService::ApplyRiverCarving(FHeightfieldData& HeightfieldData, const FRiverFlowTileData& FlowData, const TArray<float>& OriginalHeights)
+{
+	if (!RiverSystemConfig.IsSet())
+	{
+		return;
+	}
+
+	if (!FlowData.IsValid())
+	{
+		UE_LOG(LogHeightfieldService, VeryVerbose, TEXT("ApplyRiverCarving skipped - invalid flow data for tile (%d, %d)"),
+			HeightfieldData.TileCoord.X, HeightfieldData.TileCoord.Y);
+		return;
+	}
+
+	const FRiverSystemConfig& Config = RiverSystemConfig.GetValue();
+	const int32 FlowResolution = FlowData.Resolution;
+	const int32 HeightResolution = HeightfieldData.Resolution;
+	if (FlowResolution <= 0 || HeightResolution <= 0)
+	{
+		return;
+	}
+
+	const float Threshold = FlowData.AccumulationThreshold > 0.0f
+		? FlowData.AccumulationThreshold
+		: Config.FlowAccumulationThreshold;
+	if (Threshold <= 0.0f)
+	{
+		return;
+	}
+
+	float InOutMinHeight = HeightfieldData.MinHeight;
+	float InOutMaxHeight = HeightfieldData.MaxHeight;
+
+	const float CellSizeMeters = FlowData.CellSizeMeters > 0.0f
+		? FlowData.CellSizeMeters
+		: WorldGenSettings.TileSizeMeters / FMath::Max(FlowResolution, 1);
+	const float SampleSpacing = FMath::Max(WorldGenSettings.SampleSpacingMeters, KINDA_SMALL_NUMBER);
+	const float AccumRange = FMath::Max(FlowData.MaxAccumulation - Threshold, 1.0f);
+	const int32 FlowSampleCount = FlowData.FlowAccumulation.Num();
+
+	for (int32 Index = 0; Index < FlowSampleCount; ++Index)
+	{
+		if (!FlowData.FlowAccumulation.IsValidIndex(Index))
+		{
+			continue;
+		}
+
+		const float Accumulation = FlowData.FlowAccumulation[Index];
+		if (Accumulation < Threshold)
+		{
+			continue;
+		}
+
+		const float Normalized = FMath::Clamp((Accumulation - Threshold) / AccumRange, 0.0f, 1.0f);
+		const float ChannelWidthMeters = FMath::Lerp(Config.MinRiverWidth, Config.MaxRiverWidth, Normalized);
+		const float ChannelDepthMeters = Config.RiverBedDepth * (0.5f + 0.5f * Normalized);
+
+		const int32 CellX = Index % FlowResolution;
+		const int32 CellY = Index / FlowResolution;
+
+		FVector2D SegmentStart(
+			(static_cast<float>(CellX) + 0.5f) * CellSizeMeters,
+			(static_cast<float>(CellY) + 0.5f) * CellSizeMeters);
+
+		FVector2D SegmentEnd = SegmentStart;
+		if (FlowData.DownstreamIndices.IsValidIndex(Index))
+		{
+			const int32 DownIndex = FlowData.DownstreamIndices[Index];
+			if (DownIndex >= 0 && DownIndex < FlowSampleCount)
+			{
+				const int32 DownX = DownIndex % FlowResolution;
+				const int32 DownY = DownIndex / FlowResolution;
+				SegmentEnd = FVector2D(
+					(static_cast<float>(DownX) + 0.5f) * CellSizeMeters,
+					(static_cast<float>(DownY) + 0.5f) * CellSizeMeters);
+			}
+		}
+
+		FVector2D FlowVector = SegmentEnd - SegmentStart;
+		if (FlowVector.IsNearlyZero())
+		{
+			if (FlowData.FlowDirections.IsValidIndex(Index))
+			{
+				FlowVector = FlowData.FlowDirections[Index].GetSafeNormal() * CellSizeMeters;
+				SegmentEnd = SegmentStart + FlowVector;
+			}
+			else
+			{
+				FlowVector = FVector2D(1.0f, 0.0f) * CellSizeMeters;
+				SegmentEnd = SegmentStart + FlowVector;
+			}
+		}
+
+		const float SegmentLength = FlowVector.Size();
+		const FVector2D SegmentDirection = SegmentLength > KINDA_SMALL_NUMBER ? FlowVector / SegmentLength : FVector2D(1.0f, 0.0f);
+		const int32 Steps = FMath::Max(1, FMath::CeilToInt(SegmentLength / (CellSizeMeters * 0.5f)));
+
+		for (int32 Step = 0; Step <= Steps; ++Step)
+		{
+			const float T = Steps > 0 ? static_cast<float>(Step) / Steps : 0.0f;
+			const FVector2D Point = SegmentStart + SegmentDirection * (SegmentLength * T);
+			CarveRiverChannelAtPoint(Point, SegmentDirection, ChannelWidthMeters, ChannelDepthMeters, HeightfieldData, InOutMinHeight, InOutMaxHeight, OriginalHeights);
+		}
+	}
+
+	HeightfieldData.MinHeight = InOutMinHeight;
+	HeightfieldData.MaxHeight = InOutMaxHeight;
+}
+
+void UHeightfieldService::CarveRiverChannelAtPoint(const FVector2D& LocalPointMeters, const FVector2D& FlowDir, float ChannelWidthMeters, float ChannelDepthMeters, FHeightfieldData& HeightfieldData, float& InOutMinHeight, float& InOutMaxHeight, const TArray<float>& OriginalHeights)
+{
+	if (ChannelWidthMeters <= KINDA_SMALL_NUMBER || ChannelDepthMeters <= KINDA_SMALL_NUMBER)
+	{
+		return;
+	}
+
+	const int32 Resolution = HeightfieldData.Resolution;
+	if (Resolution <= 0)
+	{
+		return;
+	}
+
+	const float SampleSpacing = FMath::Max(WorldGenSettings.SampleSpacingMeters, KINDA_SMALL_NUMBER);
+	const float RadiusMeters = FMath::Max(ChannelWidthMeters * 0.5f, SampleSpacing);
+	const int32 RadiusSamples = FMath::CeilToInt(RadiusMeters / SampleSpacing);
+
+	const FVector2D Direction = FlowDir.IsNearlyZero() ? FVector2D(1.0f, 0.0f) : FlowDir.GetSafeNormal();
+	const FVector2D Perp(-Direction.Y, Direction.X);
+
+	const int32 CenterX = FMath::RoundToInt(LocalPointMeters.X / SampleSpacing);
+	const int32 CenterY = FMath::RoundToInt(LocalPointMeters.Y / SampleSpacing);
+
+	for (int32 Y = CenterY - RadiusSamples; Y <= CenterY + RadiusSamples; ++Y)
+	{
+		if (Y < 0 || Y >= Resolution)
+		{
+			continue;
+		}
+
+		for (int32 X = CenterX - RadiusSamples; X <= CenterX + RadiusSamples; ++X)
+		{
+			if (X < 0 || X >= Resolution)
+			{
+				continue;
+			}
+
+			const int32 SampleIndex = Y * Resolution + X;
+			if (!HeightfieldData.HeightData.IsValidIndex(SampleIndex))
+			{
+				continue;
+			}
+
+			const FVector2D SamplePos(
+				static_cast<float>(X) * SampleSpacing,
+				static_cast<float>(Y) * SampleSpacing);
+			const FVector2D Delta = SamplePos - LocalPointMeters;
+
+			const float Lateral = FVector2D::DotProduct(Delta, Perp);
+			if (FMath::Abs(Lateral) > RadiusMeters)
+			{
+				continue;
+			}
+
+			const float Along = FVector2D::DotProduct(Delta, Direction);
+			const float NormalizedLateral = FMath::Clamp(FMath::Abs(Lateral) / RadiusMeters, 0.0f, 1.0f);
+			const float AlongFalloff = FMath::Clamp(1.0f - FMath::Abs(Along) / (RadiusMeters * 1.5f), 0.0f, 1.0f);
+			const float Falloff = AlongFalloff * (1.0f - NormalizedLateral * NormalizedLateral);
+			if (Falloff <= 0.0f)
+			{
+				continue;
+			}
+
+			const float BaseHeight = OriginalHeights.IsValidIndex(SampleIndex)
+				? OriginalHeights[SampleIndex]
+				: HeightfieldData.HeightData[SampleIndex];
+			const float TargetHeight = BaseHeight - ChannelDepthMeters;
+			const float NewHeight = FMath::Lerp(BaseHeight, TargetHeight, Falloff);
+			const float ClampedHeight = FMath::Clamp(NewHeight, -WorldGenSettings.MaxTerrainHeight, WorldGenSettings.MaxTerrainHeight);
+
+			HeightfieldData.HeightData[SampleIndex] = FMath::Min(HeightfieldData.HeightData[SampleIndex], ClampedHeight);
+			InOutMinHeight = FMath::Min(InOutMinHeight, HeightfieldData.HeightData[SampleIndex]);
+			InOutMaxHeight = FMath::Max(InOutMaxHeight, HeightfieldData.HeightData[SampleIndex]);
+		}
+	}
+}
+
+void UHeightfieldService::ApplyLakePlacement(FHeightfieldData& HeightfieldData, const FRiverFlowTileData& FlowData, const TArray<float>& OriginalHeights)
+{
+	if (!RiverSystemConfig.IsSet())
+	{
+		return;
+	}
+	if (!FlowData.IsValid())
+	{
+		return;
+	}
+
+	const FRiverSystemConfig& Config = RiverSystemConfig.GetValue();
+	if (Config.MaxLakesPerTile <= 0)
+	{
+		return;
+	}
+
+	TArray<int32> CandidateIndices;
+	CandidateIndices.Reserve(FlowData.DownstreamIndices.Num());
+	for (int32 Index = 0; Index < FlowData.DownstreamIndices.Num(); ++Index)
+	{
+		const int32 Downstream = FlowData.DownstreamIndices[Index];
+		if (Downstream < 0)
+		{
+			CandidateIndices.Add(Index);
+		}
+	}
+
+	if (CandidateIndices.Num() == 0)
+	{
+		return;
+	}
+
+	const float Threshold = FlowData.AccumulationThreshold > 0.0f
+		? FlowData.AccumulationThreshold
+		: Config.FlowAccumulationThreshold;
+	const float AccumRange = FMath::Max(FlowData.MaxAccumulation - Threshold, 1.0f);
+
+	Algo::SortBy(CandidateIndices, [&FlowData](int32 Index)
+	{
+		return FlowData.FlowAccumulation.IsValidIndex(Index)
+			? FlowData.FlowAccumulation[Index]
+			: 0.0f;
+	}, TGreater<float>());
+
+	float InOutMinHeight = HeightfieldData.MinHeight;
+	float InOutMaxHeight = HeightfieldData.MaxHeight;
+	const int32 FlowResolution = FlowData.Resolution;
+	const float CellSizeMeters = FlowData.CellSizeMeters > 0.0f
+		? FlowData.CellSizeMeters
+		: WorldGenSettings.TileSizeMeters / FMath::Max(FlowResolution, 1);
+
+	int32 LakesPlaced = 0;
+	for (int32 CandidateIndex : CandidateIndices)
+	{
+		if (LakesPlaced >= Config.MaxLakesPerTile)
+		{
+			break;
+		}
+
+		if (!FlowData.FlowAccumulation.IsValidIndex(CandidateIndex))
+		{
+			continue;
+		}
+
+		const float Accumulation = FlowData.FlowAccumulation[CandidateIndex];
+		if (Accumulation < Threshold)
+		{
+			continue;
+		}
+
+		const float Normalized = FMath::Clamp((Accumulation - Threshold) / AccumRange, 0.0f, 1.0f);
+		const float LakeRadiusMeters = FMath::Lerp(Config.LakeMinRadius, Config.LakeMaxRadius, Normalized);
+		const float LakeDepthMeters = Config.RiverBedDepth * (0.6f + 0.4f * Normalized);
+
+		const int32 CellX = CandidateIndex % FlowResolution;
+		const int32 CellY = CandidateIndex / FlowResolution;
+		const FVector2D Center(
+			(static_cast<float>(CellX) + 0.5f) * CellSizeMeters,
+			(static_cast<float>(CellY) + 0.5f) * CellSizeMeters);
+
+		StampLakeAtPoint(Center, LakeRadiusMeters, LakeDepthMeters, HeightfieldData, InOutMinHeight, InOutMaxHeight, OriginalHeights);
+		++LakesPlaced;
+	}
+
+	HeightfieldData.MinHeight = InOutMinHeight;
+	HeightfieldData.MaxHeight = InOutMaxHeight;
+}
+
+void UHeightfieldService::StampLakeAtPoint(const FVector2D& LocalPointMeters, float LakeRadiusMeters, float LakeDepthMeters, FHeightfieldData& HeightfieldData, float& InOutMinHeight, float& InOutMaxHeight, const TArray<float>& OriginalHeights)
+{
+	if (LakeRadiusMeters <= KINDA_SMALL_NUMBER || LakeDepthMeters <= KINDA_SMALL_NUMBER)
+	{
+		return;
+	}
+
+	const int32 Resolution = HeightfieldData.Resolution;
+	if (Resolution <= 0)
+	{
+		return;
+	}
+
+	const float SampleSpacing = FMath::Max(WorldGenSettings.SampleSpacingMeters, KINDA_SMALL_NUMBER);
+	const int32 RadiusSamples = FMath::CeilToInt(LakeRadiusMeters / SampleSpacing);
+
+	const int32 CenterX = FMath::RoundToInt(LocalPointMeters.X / SampleSpacing);
+	const int32 CenterY = FMath::RoundToInt(LocalPointMeters.Y / SampleSpacing);
+
+	for (int32 Y = CenterY - RadiusSamples; Y <= CenterY + RadiusSamples; ++Y)
+	{
+		if (Y < 0 || Y >= Resolution)
+		{
+			continue;
+		}
+
+		for (int32 X = CenterX - RadiusSamples; X <= CenterX + RadiusSamples; ++X)
+		{
+			if (X < 0 || X >= Resolution)
+			{
+				continue;
+			}
+
+			const int32 SampleIndex = Y * Resolution + X;
+			if (!HeightfieldData.HeightData.IsValidIndex(SampleIndex))
+			{
+				continue;
+			}
+
+			const FVector2D SamplePos(
+				static_cast<float>(X) * SampleSpacing,
+				static_cast<float>(Y) * SampleSpacing);
+
+			const FVector2D Delta = SamplePos - LocalPointMeters;
+			const float Distance = Delta.Size();
+			if (Distance > LakeRadiusMeters)
+			{
+				continue;
+			}
+
+			const float Normalized = Distance / LakeRadiusMeters;
+			const float BasinFalloff = 1.0f - FMath::Clamp(Normalized * Normalized, 0.0f, 1.0f);
+			const float ShoreFalloff = FMath::Clamp((Normalized - 0.75f) / 0.25f, 0.0f, 1.0f);
+
+			const float BaseHeight = OriginalHeights.IsValidIndex(SampleIndex)
+				? OriginalHeights[SampleIndex]
+				: HeightfieldData.HeightData[SampleIndex];
+
+			float TargetHeight = BaseHeight - (LakeDepthMeters * BasinFalloff);
+			TargetHeight -= LakeDepthMeters * 0.1f * (1.0f - ShoreFalloff);
+
+			const float BlendedHeight = FMath::Lerp(BaseHeight, TargetHeight, BasinFalloff);
+			const float ClampedHeight = FMath::Clamp(BlendedHeight, -WorldGenSettings.MaxTerrainHeight, WorldGenSettings.MaxTerrainHeight);
+			HeightfieldData.HeightData[SampleIndex] = FMath::Min(HeightfieldData.HeightData[SampleIndex], ClampedHeight);
+
+			InOutMinHeight = FMath::Min(InOutMinHeight, HeightfieldData.HeightData[SampleIndex]);
+			InOutMaxHeight = FMath::Max(InOutMaxHeight, HeightfieldData.HeightData[SampleIndex]);
+		}
+	}
 }
 
 void UHeightfieldService::ApplyModificationToHeightfield(FHeightfieldData& HeightfieldData, const FHeightfieldModification& Modification)

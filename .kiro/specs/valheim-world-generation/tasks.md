@@ -101,14 +101,14 @@
   - Generate flow map data for river placement
   - _Requirements: 4_
 
-- [ ] 10. Add river carving and lake placement to HeightfieldService
-- [ ] 10.1 Implement pre-normals river carving
+- [x] 10. Add river carving and lake placement to HeightfieldService
+- [x] 10.1 Implement pre-normals river carving
   - Carve river channels based on flow map data
   - Apply carving before normal/slope calculation
   - Ensure cross-tile continuity for rivers
   - _Requirements: 4_
 
-- [ ] 10.2 Add lake placement system
+- [x] 10.2 Add lake placement system
   - Identify local minima in heightfield for lake placement
   - Apply shoreline stamping around lakes
   - Integrate with water body spawning

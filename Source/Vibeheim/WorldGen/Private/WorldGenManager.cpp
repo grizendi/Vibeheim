@@ -179,6 +179,11 @@ bool AWorldGenManager::InitializeWorldGenSystems()
         {
             RiverFlowService->Initialize(WorldGenSettings->Settings, RiverCfg);
         }
+        if (HeightfieldService)
+        {
+            HeightfieldService->SetRiverFlowService(RiverFlowService);
+            HeightfieldService->SetRiverSystemConfig(WorldGenSettings ? WorldGenSettings->RiverSystemConfig : TOptional<FRiverSystemConfig>());
+        }
 
 
         // Initialize POI Service
@@ -422,6 +427,10 @@ void AWorldGenManager::ReloadWorldGenAssets()
             NewRiverConfig = WorldGenSettings->RiverSystemConfig.GetValue();
         }
         RiverFlowService->SetConfig(NewRiverConfig);
+    }
+    if (HeightfieldService)
+    {
+        HeightfieldService->SetRiverSystemConfig(WorldGenSettings ? WorldGenSettings->RiverSystemConfig : TOptional<FRiverSystemConfig>());
     }
 }
 

@@ -8,6 +8,8 @@
 #include "Data/WorldGenTypes.h"
 #include "HeightfieldService.generated.h"
 
+class URiverFlowService;
+
 /**
  * Noise generation settings for heightfield creation
  */
@@ -123,6 +125,12 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Heightfield")
 	void UpdateGenerationSettings(const FHeightfieldGenerationSettings& NewSettings);
 
+	/** Inject the river flow service used for carving rivers and stamping lakes */
+	void SetRiverFlowService(URiverFlowService* InRiverFlowService);
+
+	/** Update river system configuration (unset disables river carving) */
+	void SetRiverSystemConfig(const TOptional<FRiverSystemConfig>& InRiverConfig);
+
 	/**
 	 * Get current generation settings
 	 */
@@ -193,6 +201,9 @@ private:
 
 	UPROPERTY()
 	UNoiseSystem* NoiseSystem;
+
+	UPROPERTY()
+	URiverFlowService* RiverFlowService;
 
 	// Heightfield cache
 	UPROPERTY()
@@ -299,4 +310,19 @@ private:
 	 * Apply all modifications to a tile's height data array
 	 */
 	void ApplyModificationsToTile(FTileCoord TileCoord, TArray<float>& HeightData);
+
+	/** Carve river channels into the heightfield based on flow data */
+	void ApplyRiverCarving(FHeightfieldData& HeightfieldData, const FRiverFlowTileData& FlowData, const TArray<float>& OriginalHeights);
+
+	/** Stamp lake basins at flow minima */
+	void ApplyLakePlacement(FHeightfieldData& HeightfieldData, const FRiverFlowTileData& FlowData, const TArray<float>& OriginalHeights);
+
+	/** River channel carving helper */
+	void CarveRiverChannelAtPoint(const FVector2D& LocalPointMeters, const FVector2D& FlowDir, float ChannelWidthMeters, float ChannelDepthMeters, FHeightfieldData& HeightfieldData, float& InOutMinHeight, float& InOutMaxHeight, const TArray<float>& OriginalHeights);
+
+	/** Lake stamping helper */
+	void StampLakeAtPoint(const FVector2D& LocalPointMeters, float LakeRadiusMeters, float LakeDepthMeters, FHeightfieldData& HeightfieldData, float& InOutMinHeight, float& InOutMaxHeight, const TArray<float>& OriginalHeights);
+
+	/** Active river system configuration */
+	TOptional<FRiverSystemConfig> RiverSystemConfig;
 };
