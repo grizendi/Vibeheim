@@ -16,6 +16,7 @@ class UPOIService;
 class UVHMTerrainRenderer;
 class UVHMDebugSystem;
 class UWaterSystemService;
+class URiverFlowService;
 class UWorldGenSettingsAsset;
 class UBiomeDefinitionsAsset;
 struct FTileCoord;
@@ -132,6 +133,9 @@ protected:
 
     UPROPERTY(BlueprintReadOnly, Category = "World Generation")
     UWaterSystemService* WaterSystemService;
+
+    UPROPERTY(BlueprintReadOnly, Category = "World Generation")
+    URiverFlowService* RiverFlowService;
 
     // Streaming parameters
     UPROPERTY(BlueprintReadOnly, Category = "World Generation")

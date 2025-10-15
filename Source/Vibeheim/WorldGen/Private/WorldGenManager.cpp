@@ -7,6 +7,7 @@
 #include "Services/TileStreamingService.h"
 #include "Services/WaterSystemService.h"
 #include "Services/POIService.h"
+#include "Services/RiverFlowService.h"
 #include "VHMTerrainRendering/VHMTerrainRenderer.h"
 #include "VHMTerrainRendering/VHMDebugSystem.h"
 #include "Data/WorldGenTypes.h"
@@ -46,6 +47,7 @@ AWorldGenManager::AWorldGenManager()
 	VHMTerrainRenderer = nullptr;
 	VHMDebugSystem = nullptr;
 	WaterSystemService = nullptr;
+	RiverFlowService = nullptr;
 }
 
 void AWorldGenManager::BeginPlay()
@@ -166,6 +168,18 @@ bool AWorldGenManager::InitializeWorldGenSystems()
             WaterSystemService->Initialize(WorldGenSettings->Settings, WaterCfg);
         }
 
+        // Initialize River Flow Service
+        FRiverSystemConfig RiverCfg;
+        if (WorldGenSettings && WorldGenSettings->RiverSystemConfig.IsSet())
+        {
+            RiverCfg = WorldGenSettings->RiverSystemConfig.GetValue();
+        }
+        RiverFlowService = NewObject<URiverFlowService>(this);
+        if (RiverFlowService)
+        {
+            RiverFlowService->Initialize(WorldGenSettings->Settings, RiverCfg);
+        }
+
 
         // Initialize POI Service
         POIService = NewObject<UPOIService>(this);
@@ -177,7 +191,7 @@ bool AWorldGenManager::InitializeWorldGenSystems()
 
 	// Initialize Tile Streaming Service
 	TileStreamingService = NewObject<UTileStreamingService>(this);
-	if (!TileStreamingService || !TileStreamingService->Initialize(WorldGenSettings->Settings, HeightfieldService, BiomeService, PCGWorldService, WaterSystemService))
+	if (!TileStreamingService || !TileStreamingService->Initialize(WorldGenSettings->Settings, HeightfieldService, BiomeService, PCGWorldService, WaterSystemService, RiverFlowService))
 	{
 		UE_LOG(LogWorldGenManager, Error, TEXT("Failed to initialize Tile Streaming Service"));
 		return false;
@@ -398,6 +412,16 @@ void AWorldGenManager::ReloadWorldGenAssets()
         {
             PCGWorldService->SetBiomeDefinitions(TMap<EBiomeType, FBiomeDefinition>());
         }
+    }
+
+    if (RiverFlowService)
+    {
+        FRiverSystemConfig NewRiverConfig;
+        if (WorldGenSettings && WorldGenSettings->RiverSystemConfig.IsSet())
+        {
+            NewRiverConfig = WorldGenSettings->RiverSystemConfig.GetValue();
+        }
+        RiverFlowService->SetConfig(NewRiverConfig);
     }
 }
 

@@ -412,6 +412,48 @@ struct VIBEHEIM_API FTileWaterData
 };
 
 /**
+ * Per-tile river flow data derived from heightfield gradients.
+ */
+USTRUCT(BlueprintType)
+struct VIBEHEIM_API FRiverFlowTileData
+{
+    GENERATED_BODY()
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rivers")
+    int32 Resolution = 0;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rivers")
+    float CellSizeMeters = 0.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rivers")
+    TArray<FVector2D> FlowDirections;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rivers")
+    TArray<float> FlowAccumulation;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rivers")
+    TArray<int32> DownstreamIndices;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rivers")
+    float MinAccumulation = 0.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rivers")
+    float MaxAccumulation = 0.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rivers")
+    float AccumulationThreshold = 0.0f;
+
+    bool IsValid() const
+    {
+        const int32 SampleCount = Resolution * Resolution;
+        return Resolution > 0
+            && FlowDirections.Num() == SampleCount
+            && FlowAccumulation.Num() == SampleCount
+            && DownstreamIndices.Num() == SampleCount;
+    }
+};
+
+/**
  * River and lake generation configuration
  */
 USTRUCT(BlueprintType)

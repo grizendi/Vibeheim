@@ -89,13 +89,13 @@
 
 ## Phase 6: Rivers and Lakes System
 
-- [ ] 9. Implement RiverFlowService for flow computation
-- [ ] 9.1 Create URiverFlowService class
+- [x] 9. Implement RiverFlowService for flow computation
+- [x] 9.1 Create URiverFlowService class
   - Implement service initialization with FRiverSystemConfig
   - Add flow map data structures per tile
   - _Requirements: 4_
 
-- [ ] 9.2 Implement flow accumulation algorithm
+- [x] 9.2 Implement flow accumulation algorithm
   - Calculate gradient-based flow direction per tile
   - Compute flow accumulation from neighborhood tiles
   - Generate flow map data for river placement
@@ -222,6 +222,6 @@
 ## Verification Gates Summary
 
 - Gate E: Macro topology — coastline ratio, histogram shape, seam check (COMPLETE)
-- Gate F: Water/rivers — river continuity = 0; coastal coverage >= 80% (PARTIAL - Water system complete, rivers pending)
+- Gate F: Water/rivers - river continuity = 0; coastal coverage >= 80% (PARTIAL - Water system complete, flow maps ready, carving pending)
 - Gate G: PCG/POI — validation commands; density within +/- 20% (PARTIAL - PCG complete, POI pending)
 - Gate H: Pipeline/perf — p50/p95/spikes within targets; memory <= limits (PARTIAL - basic metrics complete, spike detection and CSV export pending)

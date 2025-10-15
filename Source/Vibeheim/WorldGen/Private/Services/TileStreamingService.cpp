@@ -4,6 +4,7 @@
 #include "Services/BiomeService.h"
 #include "Services/PCGWorldService.h"
 #include "Services/WaterSystemService.h"
+#include "Services/RiverFlowService.h"
 #include "VHMTerrainRendering/VHMTerrainRenderer.h"
 #include "Data/WorldGenTypes.h"
 #include "Utils/WorldGenLogging.h"
@@ -24,6 +25,7 @@ UTileStreamingService::UTileStreamingService()
 	PCGWorldService = nullptr;
 	VHMTerrainRenderer = nullptr;
 	WaterSystemService = nullptr;
+	RiverFlowService = nullptr;
 	MaxCacheSize = 81; // 9x9 grid as per task requirements (Generate=9, so max 81 tiles)
 	CurrentTime = 0.0f;
 	LastPlayerTileCoord = FTileCoord(INT32_MAX, INT32_MAX); // Initialize to invalid coord
@@ -36,13 +38,15 @@ bool UTileStreamingService::Initialize(const FWorldGenConfig& Settings,
     UHeightfieldService* InHeightfieldService, 
     UBiomeService* InBiomeService, 
     UPCGWorldService* InPCGWorldService,
-    UWaterSystemService* InWaterSystemService)
+    UWaterSystemService* InWaterSystemService,
+    URiverFlowService* InRiverFlowService)
 {
     WorldGenSettings = Settings;
     HeightfieldService = InHeightfieldService;
     BiomeService = InBiomeService;
     PCGWorldService = InPCGWorldService;
     WaterSystemService = InWaterSystemService;
+    RiverFlowService = InRiverFlowService;
 
 	// Enhanced defensive checks with detailed error messages
     if (!HeightfieldService || !BiomeService || !PCGWorldService)
@@ -81,6 +85,11 @@ bool UTileStreamingService::Initialize(const FWorldGenConfig& Settings,
     // Ensure cache size respects configured limits and requested radii
     const int32 RequiredTiles = FMath::Square((WorldGenSettings.GenerateRadius * 2) + 1);
     MaxCacheSize = FMath::Max3(MaxCacheSize, StreamingBudgets.MaxActiveTiles, RequiredTiles);
+
+    if (WorldGenSettings.bEnableRivers && !RiverFlowService)
+    {
+        UE_LOG(LogTileStreaming, Warning, TEXT("RiverFlowService not provided while rivers are enabled. Flow maps will be skipped."));
+    }
 
     // Reset performance metrics
     PerformanceMetrics = FTileStreamingMetrics();
@@ -448,6 +457,10 @@ void UTileStreamingService::UpdateTileStates(const FTileCoord& PlayerTileCoord,
             {
                 WaterSystemService->OnTileActivated(TileCoord, TileData->HeightfieldData, TileData->WaterData);
             }
+            if (RiverFlowService && !TileData->RiverFlowData.IsValid())
+            {
+                RiverFlowService->ComputeFlowMap(TileCoord, TileData->HeightfieldData, TileData->RiverFlowData);
+            }
         }
     }
 
@@ -563,6 +576,7 @@ bool UTileStreamingService::GenerateSingleTileInternal(const FTileCoord& TileCoo
 		// Set state to generating
 		OutTileData.State = ETileState::Generating;
 		OutTileData.TileCoord = TileCoord;
+        OutTileData.RiverFlowData = FRiverFlowTileData();
 
 		// Heightfield generation
 		const double HeightStart = FPlatformTime::Seconds();
@@ -577,6 +591,15 @@ bool UTileStreamingService::GenerateSingleTileInternal(const FTileCoord& TileCoo
 		const double BiomeEnd = FPlatformTime::Seconds();
 		OutBiomeMs = static_cast<float>((BiomeEnd - BiomeStart) * 1000.0);
 		OutTileData.GenerationTimeMs = OutHeightMs + OutBiomeMs;
+
+        // River flow computation (optional dependency)
+        if (RiverFlowService)
+        {
+            if (!RiverFlowService->ComputeFlowMap(TileCoord, OutTileData.HeightfieldData, OutTileData.RiverFlowData))
+            {
+                UE_LOG(LogTileStreaming, Warning, TEXT("RiverFlowService failed for tile (%d, %d)"), TileCoord.X, TileCoord.Y);
+            }
+        }
 
 		// Generate PCG content
 		const double PCGStart = FPlatformTime::Seconds();
@@ -687,6 +710,10 @@ void UTileStreamingService::RemoveTileFromCache(const FTileCoord& TileCoord)
         if (WaterSystemService)
         {
                 WaterSystemService->OnTileDeactivated(TileCoord);
+        }
+        if (RiverFlowService)
+        {
+                RiverFlowService->OnTileDeactivated(TileCoord);
         }
         if (PCGWorldService)
         {
