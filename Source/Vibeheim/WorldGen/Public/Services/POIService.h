@@ -115,6 +115,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "POI")
 	void UpdateValidationSettings(const FPOIValidationSettings& NewSettings);
 
+	/** Validate current POI dataset against uniqueness and spacing rules */
+	void ValidateCurrentPOIs(TArray<FString>& OutErrors, TArray<FString>& OutWarnings, int32& OutTotalPOIs) const;
+
 	/**
 	 * Get all POIs for a specific tile
 	 */

@@ -12,8 +12,44 @@
 #include "Misc/DateTime.h"
 #include "Algo/Sort.h"
 #include "Templates/Greater.h"
+#include "Modules/ModuleManager.h"
+#include "IImageWrapperModule.h"
+#include "IImageWrapper.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogHeightfieldService, Log, All);
+
+namespace
+{
+	bool SavePngFromColors(const FString& AbsolutePath, const TArray<FColor>& Pixels, int32 Width, int32 Height)
+	{
+		if (Pixels.Num() != Width * Height || Width <= 0 || Height <= 0)
+		{
+			return false;
+		}
+
+		IImageWrapperModule& ImageWrapperModule = FModuleManager::LoadModuleChecked<IImageWrapperModule>(TEXT("ImageWrapper"));
+		TSharedPtr<IImageWrapper> ImageWrapper = ImageWrapperModule.CreateImageWrapper(EImageFormat::PNG);
+		if (!ImageWrapper.IsValid())
+		{
+			return false;
+		}
+
+		if (!ImageWrapper->SetRaw(Pixels.GetData(), Pixels.Num() * sizeof(FColor), Width, Height, ERGBFormat::RGBA, 8))
+		{
+			return false;
+		}
+
+		const TArray64<uint8>& Compressed = ImageWrapper->GetCompressed();
+		TArray<uint8> CompressedCopy;
+		CompressedCopy.SetNumUninitialized(Compressed.Num());
+		if (Compressed.Num() > 0)
+		{
+			FMemory::Memcpy(CompressedCopy.GetData(), Compressed.GetData(), Compressed.Num());
+		}
+
+		return FFileHelper::SaveArrayToFile(CompressedCopy, *AbsolutePath);
+	}
+}
 
 UHeightfieldService::UHeightfieldService()
 {
@@ -667,51 +703,84 @@ bool UHeightfieldService::ExportHeightfieldPNG(const FHeightfieldData& Heightfie
 	}
 
 	// Create output directory
-	FString FullOutputPath = FPaths::ProjectDir() / OutputPath;
+	const int32 Resolution = HeightfieldData.Resolution;
+	FString FullOutputPath = FPaths::IsRelative(OutputPath)
+		? FPaths::ConvertRelativePathToFull(FPaths::ProjectDir() / OutputPath)
+		: FPaths::ConvertRelativePathToFull(OutputPath);
 	IFileManager::Get().MakeDirectory(*FPaths::GetPath(FullOutputPath), true);
+
+	bool bSuccess = true;
 
 	// Export height map
 	{
 		TArray<FColor> HeightPixels;
-		HeightPixels.Reserve(HeightfieldData.Resolution * HeightfieldData.Resolution);
+		HeightPixels.Reserve(Resolution * Resolution);
 
 		float HeightRange = HeightfieldData.MaxHeight - HeightfieldData.MinHeight;
-		if (HeightRange <= 0.0f) HeightRange = 1.0f;
+		if (HeightRange <= 0.0f)
+		{
+			HeightRange = 1.0f;
+		}
 
 		for (float Height : HeightfieldData.HeightData)
 		{
-			float NormalizedHeight = (Height - HeightfieldData.MinHeight) / HeightRange;
-			uint8 Intensity = static_cast<uint8>(FMath::Clamp(NormalizedHeight, 0.0f, 1.0f) * 255);
+			const float NormalizedHeight = (Height - HeightfieldData.MinHeight) / HeightRange;
+			const uint8 Intensity = static_cast<uint8>(FMath::Clamp(NormalizedHeight, 0.0f, 1.0f) * 255.0f);
 			HeightPixels.Add(FColor(Intensity, Intensity, Intensity, 255));
 		}
 
-		FString HeightPath = FullOutputPath.Replace(TEXT(".png"), TEXT("_height.png"));
-		// TODO: Implement PNG export when ImageUtils is available
-		UE_LOG(LogHeightfieldService, Log, TEXT("Height data generated for export to %s (PNG export not implemented)"), *HeightPath);
+		const FString HeightPath = FullOutputPath.Replace(TEXT(".png"), TEXT("_height.png"));
+		if (SavePngFromColors(HeightPath, HeightPixels, Resolution, Resolution))
+		{
+			UE_LOG(LogHeightfieldService, Log, TEXT("Exported height map to %s"), *HeightPath);
+		}
+		else
+		{
+			UE_LOG(LogHeightfieldService, Error, TEXT("Failed to export height map to %s"), *HeightPath);
+			bSuccess = false;
+		}
 	}
 
 	// Export slope map
-	if (HeightfieldData.SlopeData.Num() > 0)
+	if (HeightfieldData.SlopeData.Num() == HeightfieldData.HeightData.Num())
 	{
 		TArray<FColor> SlopePixels;
-		SlopePixels.Reserve(HeightfieldData.Resolution * HeightfieldData.Resolution);
+		SlopePixels.Reserve(Resolution * Resolution);
 
 		for (float Slope : HeightfieldData.SlopeData)
 		{
-			float NormalizedSlope = FMath::Clamp(Slope / 90.0f, 0.0f, 1.0f);
-			uint8 Intensity = static_cast<uint8>(NormalizedSlope * 255);
+			const float NormalizedSlope = FMath::Clamp(Slope / 90.0f, 0.0f, 1.0f);
+			const uint8 Intensity = static_cast<uint8>(NormalizedSlope * 255.0f);
 			SlopePixels.Add(FColor(Intensity, Intensity, Intensity, 255));
 		}
 
-		FString SlopePath = FullOutputPath.Replace(TEXT(".png"), TEXT("_slope.png"));
-		// TODO: Implement PNG export when ImageUtils is available
-		UE_LOG(LogHeightfieldService, Log, TEXT("Slope data generated for export to %s (PNG export not implemented)"), *SlopePath);
+		const FString SlopePath = FullOutputPath.Replace(TEXT(".png"), TEXT("_slope.png"));
+		if (SavePngFromColors(SlopePath, SlopePixels, Resolution, Resolution))
+		{
+			UE_LOG(LogHeightfieldService, Log, TEXT("Exported slope map to %s"), *SlopePath);
+		}
+		else
+		{
+			UE_LOG(LogHeightfieldService, Warning, TEXT("Failed to export slope map to %s"), *SlopePath);
+			bSuccess = false;
+		}
+	}
+	else if (HeightfieldData.SlopeData.Num() > 0)
+	{
+		UE_LOG(LogHeightfieldService, Warning, TEXT("Slope data size mismatch; skipping slope export for tile (%d, %d)"),
+			HeightfieldData.TileCoord.X, HeightfieldData.TileCoord.Y);
 	}
 
-	UE_LOG(LogHeightfieldService, Log, TEXT("Successfully exported heightfield PNGs for tile (%d, %d)"),
-		HeightfieldData.TileCoord.X, HeightfieldData.TileCoord.Y);
-	return true;
-}// Remaining interface implementations
+	if (bSuccess)
+	{
+		UE_LOG(LogHeightfieldService, Log, TEXT("Exported heightfield PNGs for tile (%d, %d)"),
+			HeightfieldData.TileCoord.X, HeightfieldData.TileCoord.Y);
+	}
+
+	return bSuccess;
+}
+
+// Remaining interface implementations
 bool UHeightfieldService::ModifyHeightfield(FVector Location, float Radius, float Strength, EHeightfieldOperation Operation)
 {
 	FHeightfieldModification Modification;

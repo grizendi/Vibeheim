@@ -7,8 +7,93 @@
 #include "Data/WorldGenAssets.h"
 #include "WorldGenManager.h"
 #include "Services/TileStreamingService.h"
+#include "Services/HeightfieldService.h"
+#include "Services/BiomeService.h"
+#include "Services/POIService.h"
+#include "Services/RiverFlowService.h"
+#include "Misc/Paths.h"
+#include "Misc/DateTime.h"
+#include "Misc/FileHelper.h"
+#include "HAL/FileManager.h"
+#include "Modules/ModuleManager.h"
+#include "IImageWrapperModule.h"
+#include "IImageWrapper.h"
+#include "Algo/Sort.h"
+#include "UObject/EnumProperty.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogWorldGenConsole, Log, All);
+
+namespace WorldGenConsole
+{
+    FString ResolveExportDirectory(const FString& UserPath, const FString& DefaultSubDir)
+    {
+        const FString BaseSavedDir = FPaths::ProjectSavedDir();
+
+        if (!UserPath.IsEmpty())
+        {
+            if (FPaths::IsRelative(UserPath))
+            {
+                return FPaths::ConvertRelativePathToFull(FPaths::Combine(BaseSavedDir, UserPath));
+            }
+            return UserPath;
+        }
+
+        return FPaths::Combine(BaseSavedDir, DefaultSubDir);
+    }
+
+    bool EnsureDirectoryExists(const FString& Directory)
+    {
+        return IFileManager::Get().MakeDirectory(*Directory, /*Tree*/true);
+    }
+
+    bool SaveColorPNG(const FString& AbsolutePath, const TArray<FColor>& Pixels, int32 Width, int32 Height)
+    {
+        if (Pixels.Num() != Width * Height || Width <= 0 || Height <= 0)
+        {
+            return false;
+        }
+
+        IImageWrapperModule& ImageWrapperModule = FModuleManager::LoadModuleChecked<IImageWrapperModule>(TEXT("ImageWrapper"));
+        TSharedPtr<IImageWrapper> ImageWrapper = ImageWrapperModule.CreateImageWrapper(EImageFormat::PNG);
+        if (!ImageWrapper.IsValid())
+        {
+            return false;
+        }
+
+        if (!ImageWrapper->SetRaw(Pixels.GetData(), Pixels.Num() * sizeof(FColor), Width, Height, ERGBFormat::RGBA, 8))
+        {
+            return false;
+        }
+
+        const TArray64<uint8>& Compressed = ImageWrapper->GetCompressed();
+        TArray<uint8> CompressedCopy;
+        CompressedCopy.SetNumUninitialized(Compressed.Num());
+        if (Compressed.Num() > 0)
+        {
+            FMemory::Memcpy(CompressedCopy.GetData(), Compressed.GetData(), Compressed.Num());
+        }
+
+        return FFileHelper::SaveArrayToFile(CompressedCopy, *AbsolutePath);
+    }
+
+    bool SaveGrayscalePNG(const FString& AbsolutePath, const TArray<uint8>& GrayscalePixels, int32 Width, int32 Height)
+    {
+        if (GrayscalePixels.Num() != Width * Height || Width <= 0 || Height <= 0)
+        {
+            return false;
+        }
+
+        TArray<FColor> Colors;
+        Colors.Reserve(GrayscalePixels.Num());
+        for (uint8 Value : GrayscalePixels)
+        {
+            Colors.Add(FColor(Value, Value, Value, 255));
+        }
+
+        return SaveColorPNG(AbsolutePath, Colors, Width, Height);
+    }
+
+}
 
 static bool IsEngineReady()
 {
@@ -122,6 +207,149 @@ static FAutoConsoleCommand CmdPerfExport(
         {
             UE_LOG(LogWorldGenConsole, Error, TEXT("Export failed"));
         }
+    })
+);
+
+static FAutoConsoleCommand CmdMapExport(
+    TEXT("wg.map.export"),
+    TEXT("Export tile height/biome debug data. Usage: wg.map.export <TileX> <TileY> [png|csv|all] [OutputDir]"),
+    FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+    {
+        if (Args.Num() < 2)
+        {
+            UE_LOG(LogWorldGenConsole, Error, TEXT("Usage: wg.map.export <TileX> <TileY> [png|csv|all] [OutputDir]"));
+            return;
+        }
+
+        int32 TileX = 0;
+        int32 TileY = 0;
+        if (!LexTryParseString(TileX, *Args[0]) || !LexTryParseString(TileY, *Args[1]))
+        {
+            UE_LOG(LogWorldGenConsole, Error, TEXT("Invalid tile coordinates. Expected integers."));
+            return;
+        }
+
+        const FString FormatArg = (Args.Num() > 2) ? Args[2].ToLower() : FString(TEXT("all"));
+        const FString OutputArg = (Args.Num() > 3) ? Args[3] : FString();
+
+        const bool bExportPNG = (FormatArg == TEXT("png") || FormatArg == TEXT("all"));
+        const bool bExportCSV = (FormatArg == TEXT("csv") || FormatArg == TEXT("all"));
+
+        if (!bExportPNG && !bExportCSV)
+        {
+            UE_LOG(LogWorldGenConsole, Error, TEXT("Unknown format '%s'. Expected png, csv, or all."), *FormatArg);
+            return;
+        }
+
+        if (!IsEngineReady())
+        {
+            UE_LOG(LogWorldGenConsole, Warning, TEXT("Engine not ready - try after PIE starts"));
+            return;
+        }
+
+        UWorld* World = GetAnyWorld();
+        AWorldGenManager* Mgr = FindWorldGenManager(World);
+        if (!Mgr)
+        {
+            UE_LOG(LogWorldGenConsole, Warning, TEXT("No AWorldGenManager found in world"));
+            return;
+        }
+
+        UTileStreamingService* Streaming = Mgr->GetTileStreamingService();
+        UHeightfieldService* Heightfield = Mgr->GetHeightfieldService();
+        UBiomeService* BiomeService = Mgr->GetBiomeService();
+
+        if (!Streaming || !Heightfield || !BiomeService)
+        {
+            UE_LOG(LogWorldGenConsole, Error, TEXT("Required services missing (Streaming=%p Height=%p Biome=%p)"),
+                Streaming, Heightfield, BiomeService);
+            return;
+        }
+
+        const FTileCoord Tile(TileX, TileY);
+        FTileStreamingData TileData;
+        if (!Streaming->GetTileData(Tile, TileData) || TileData.HeightfieldData.HeightData.Num() == 0)
+        {
+            UE_LOG(LogWorldGenConsole, Error, TEXT("Failed to fetch tile data for (%d, %d)"), TileX, TileY);
+            return;
+        }
+
+        const FString OutputDirAbs = WorldGenConsole::ResolveExportDirectory(OutputArg, TEXT("Vibeheim/WorldGen/MapExports"));
+        if (!WorldGenConsole::EnsureDirectoryExists(OutputDirAbs))
+        {
+            UE_LOG(LogWorldGenConsole, Error, TEXT("Unable to create export directory: %s"), *OutputDirAbs);
+            return;
+        }
+
+        FString RelativeDir = OutputDirAbs;
+        const bool bHasRelative = FPaths::MakePathRelativeTo(RelativeDir, *FPaths::ProjectDir());
+        if (!bHasRelative)
+        {
+            RelativeDir = OutputDirAbs;
+        }
+
+        const FString FileBase = FString::Printf(TEXT("tile_%d_%d"), TileX, TileY);
+
+        if (bExportPNG)
+        {
+            const FString RelativeBase = FPaths::Combine(RelativeDir, FileBase + TEXT(".png"));
+            if (!Heightfield->ExportHeightfieldPNG(TileData.HeightfieldData, RelativeBase))
+            {
+                UE_LOG(LogWorldGenConsole, Error, TEXT("Failed to export heightfield PNG for tile (%d, %d)"), TileX, TileY);
+            }
+            if (!BiomeService->ExportBiomePNG(Tile, TileData.HeightfieldData.HeightData, RelativeBase))
+            {
+                UE_LOG(LogWorldGenConsole, Error, TEXT("Failed to export biome PNG for tile (%d, %d)"), TileX, TileY);
+            }
+        }
+
+        if (bExportCSV)
+        {
+            const FString CsvPath = FPaths::Combine(OutputDirAbs, FileBase + TEXT("_map.csv"));
+            const int32 Resolution = TileData.HeightfieldData.Resolution;
+            const int32 SampleCount = Resolution * Resolution;
+
+            TArray<FBiomeResult> BiomeSamples = BiomeService->GenerateTileBiomeData(Tile, TileData.HeightfieldData.HeightData);
+
+            if (Resolution <= 0 || TileData.HeightfieldData.HeightData.Num() != SampleCount || BiomeSamples.Num() != SampleCount)
+            {
+                UE_LOG(LogWorldGenConsole, Error, TEXT("Tile data inconsistent for CSV export (Resolution=%d, Height=%d, Biome=%d)"),
+                    Resolution, TileData.HeightfieldData.HeightData.Num(), BiomeSamples.Num());
+            }
+            else
+            {
+                FString Csv;
+                Csv.Reserve(SampleCount * 32);
+                Csv += TEXT("SampleX,SampleY,Height,Biome\n");
+
+                UEnum* BiomeEnum = StaticEnum<EBiomeType>();
+                for (int32 Y = 0; Y < Resolution; ++Y)
+                {
+                    for (int32 X = 0; X < Resolution; ++X)
+                    {
+                        const int32 Index = Y * Resolution + X;
+                        const float HeightValue = TileData.HeightfieldData.HeightData[Index];
+                        const FBiomeResult& Sample = BiomeSamples[Index];
+                        const FString BiomeLabel = BiomeEnum
+                            ? BiomeEnum->GetNameStringByValue(static_cast<int64>(Sample.PrimaryBiome))
+                            : FString::Printf(TEXT("Biome_%d"), static_cast<int32>(Sample.PrimaryBiome));
+
+                        Csv += FString::Printf(TEXT("%d,%d,%.2f,%s\n"), X, Y, HeightValue, *BiomeLabel);
+                    }
+                }
+
+                if (FFileHelper::SaveStringToFile(Csv, *CsvPath))
+                {
+                    UE_LOG(LogWorldGenConsole, Log, TEXT("Exported map CSV to %s"), *CsvPath);
+                }
+                else
+                {
+                    UE_LOG(LogWorldGenConsole, Error, TEXT("Failed to write map CSV to %s"), *CsvPath);
+                }
+            }
+        }
+
+        UE_LOG(LogWorldGenConsole, Log, TEXT("wg.map.export completed for tile (%d, %d)"), TileX, TileY);
     })
 );
 
@@ -331,5 +559,380 @@ static FAutoConsoleCommand CmdSettingsReload(
         AWorldGenManager* Mgr = FindWorldGenManager(World);
         if (!Mgr) { UE_LOG(LogWorldGenConsole, Warning, TEXT("No AWorldGenManager found")); return; }
         Mgr->ReloadWorldGenAssets();
+    })
+);
+static FAutoConsoleCommand CmdRingsValidate(
+    TEXT("wg.rings.validate"),
+    TEXT("Validate biome ring definitions and neighbor constraints"),
+    FConsoleCommandDelegate::CreateLambda([]()
+    {
+        if (!IsEngineReady())
+        {
+            UE_LOG(LogWorldGenConsole, Warning, TEXT("Engine not ready - try after PIE starts"));
+            return;
+        }
+
+        UWorld* World = GetAnyWorld();
+        AWorldGenManager* Mgr = FindWorldGenManager(World);
+        if (!Mgr)
+        {
+            UE_LOG(LogWorldGenConsole, Warning, TEXT("No AWorldGenManager found in world"));
+            return;
+        }
+
+        UBiomeService* BiomeService = Mgr->GetBiomeService();
+        if (!BiomeService)
+        {
+            UE_LOG(LogWorldGenConsole, Error, TEXT("BiomeService unavailable"));
+            return;
+        }
+
+        const UWorldGenSettings* Settings = UWorldGenSettings::GetWorldGenSettings();
+        if (Settings && !Settings->Settings.bEnableRings)
+        {
+            UE_LOG(LogWorldGenConsole, Warning, TEXT("Biome rings are disabled via world settings (wg.flags rings=0)."));
+        }
+
+        const TArray<FBiomeRingDefinition>& Rings = BiomeService->GetBiomeRingDefinitions();
+        if (Rings.Num() == 0)
+        {
+            UE_LOG(LogWorldGenConsole, Warning, TEXT("No biome ring definitions loaded."));
+            return;
+        }
+
+        UEnum* BiomeEnum = StaticEnum<EBiomeType>();
+        auto DescribeRing = [&](int32 Index) -> FString
+        {
+            const FBiomeRingDefinition& Ring = Rings[Index];
+            const FString BiomeName = BiomeEnum ? BiomeEnum->GetNameStringByValue(static_cast<int64>(Ring.BiomeType)) : FString::Printf(TEXT("Biome_%d"), static_cast<int32>(Ring.BiomeType));
+            return FString::Printf(TEXT("[%d] %s (Inner=%.1f Outer=%.1f Blend=%.1f)"), Index, *BiomeName, Ring.InnerRadius, Ring.OuterRadius, Ring.BlendWidth);
+        };
+
+        int32 ErrorCount = 0;
+        int32 WarningCount = 0;
+
+        auto ReportError = [&](const FString& Message)
+        {
+            ++ErrorCount;
+            UE_LOG(LogWorldGenConsole, Error, TEXT("%s"), *Message);
+        };
+
+        auto ReportWarning = [&](const FString& Message)
+        {
+            ++WarningCount;
+            UE_LOG(LogWorldGenConsole, Warning, TEXT("%s"), *Message);
+        };
+
+        TSet<EBiomeType> PresentBiomes;
+        for (int32 Index = 0; Index < Rings.Num(); ++Index)
+        {
+            const FBiomeRingDefinition& Ring = Rings[Index];
+            PresentBiomes.Add(Ring.BiomeType);
+
+            if (Ring.InnerRadius < 0.0f || Ring.OuterRadius <= Ring.InnerRadius)
+            {
+                ReportError(FString::Printf(TEXT("%s has invalid radii"), *DescribeRing(Index)));
+            }
+            if (Ring.BlendWidth < 0.0f)
+            {
+                ReportError(FString::Printf(TEXT("%s has negative blend width"), *DescribeRing(Index)));
+            }
+        }
+
+        for (int32 Index = 0; Index < Rings.Num(); ++Index)
+        {
+            const FBiomeRingDefinition& Ring = Rings[Index];
+            for (EBiomeType Neighbor : Ring.AllowedNeighbors)
+            {
+                if (!PresentBiomes.Contains(Neighbor))
+                {
+                    const FString NeighborName = BiomeEnum ? BiomeEnum->GetNameStringByValue(static_cast<int64>(Neighbor)) : FString::Printf(TEXT("Biome_%d"), static_cast<int32>(Neighbor));
+                    ReportWarning(FString::Printf(TEXT("%s lists unknown neighbor %s"), *DescribeRing(Index), *NeighborName));
+                }
+            }
+        }
+
+        TArray<int32> Sorted;
+        Sorted.Reserve(Rings.Num());
+        for (int32 i = 0; i < Rings.Num(); ++i)
+        {
+            Sorted.Add(i);
+        }
+        Sorted.Sort([&](int32 A, int32 B)
+        {
+            return Rings[A].InnerRadius < Rings[B].InnerRadius;
+        });
+
+        for (int32 OrderIndex = 0; OrderIndex + 1 < Sorted.Num(); ++OrderIndex)
+        {
+            const int32 CurrentIndex = Sorted[OrderIndex];
+            const int32 NextIndex = Sorted[OrderIndex + 1];
+            const FBiomeRingDefinition& CurrentRing = Rings[CurrentIndex];
+            const FBiomeRingDefinition& NextRing = Rings[NextIndex];
+
+            if (CurrentRing.OuterRadius > NextRing.InnerRadius)
+            {
+                ReportWarning(FString::Printf(TEXT("Ring overlap detected between %s and %s"), *DescribeRing(CurrentIndex), *DescribeRing(NextIndex)));
+            }
+
+            const float Gap = NextRing.InnerRadius - CurrentRing.OuterRadius;
+            const float AllowedBlend = FMath::Max(CurrentRing.BlendWidth, NextRing.BlendWidth);
+            if (Gap > AllowedBlend)
+            {
+                ReportWarning(FString::Printf(TEXT("Gap of %.1f exceeds blend width between %s and %s"), Gap, *DescribeRing(CurrentIndex), *DescribeRing(NextIndex)));
+            }
+            else if (Gap <= AllowedBlend)
+            {
+                const bool bForward = CurrentRing.AllowedNeighbors.Contains(NextRing.BiomeType);
+                const bool bReverse = NextRing.AllowedNeighbors.Contains(CurrentRing.BiomeType);
+                if (!bForward || !bReverse)
+                {
+                    ReportError(FString::Printf(TEXT("Neighbor permissions missing between %s and %s"), *DescribeRing(CurrentIndex), *DescribeRing(NextIndex)));
+                }
+            }
+        }
+
+        if (ErrorCount == 0 && WarningCount == 0)
+        {
+            UE_LOG(LogWorldGenConsole, Log, TEXT("Biome ring validation passed (%d rings)."), Rings.Num());
+        }
+        else
+        {
+            UE_LOG(LogWorldGenConsole, Log, TEXT("Biome ring validation complete: %d rings, %d errors, %d warnings."), Rings.Num(), ErrorCount, WarningCount);
+        }
+    })
+);
+
+static FAutoConsoleCommand CmdRiversExport(
+    TEXT("wg.rivers.export"),
+    TEXT("Export river flow data. Usage: wg.rivers.export <TileX> <TileY> [png|csv|all] [OutputDir]"),
+    FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+    {
+        if (Args.Num() < 2)
+        {
+            UE_LOG(LogWorldGenConsole, Error, TEXT("Usage: wg.rivers.export <TileX> <TileY> [png|csv|all] [OutputDir]"));
+            return;
+        }
+
+        int32 TileX = 0;
+        int32 TileY = 0;
+        if (!LexTryParseString(TileX, *Args[0]) || !LexTryParseString(TileY, *Args[1]))
+        {
+            UE_LOG(LogWorldGenConsole, Error, TEXT("Invalid tile coordinates. Expected integers."));
+            return;
+        }
+
+        const FString FormatArg = (Args.Num() > 2) ? Args[2].ToLower() : FString(TEXT("all"));
+        const FString OutputArg = (Args.Num() > 3) ? Args[3] : FString();
+
+        const bool bExportPNG = (FormatArg == TEXT("png") || FormatArg == TEXT("all"));
+        const bool bExportCSV = (FormatArg == TEXT("csv") || FormatArg == TEXT("all"));
+
+        if (!bExportPNG && !bExportCSV)
+        {
+            UE_LOG(LogWorldGenConsole, Error, TEXT("Unknown format '%s'. Expected png, csv, or all."), *FormatArg);
+            return;
+        }
+
+        if (!IsEngineReady())
+        {
+            UE_LOG(LogWorldGenConsole, Warning, TEXT("Engine not ready - try after PIE starts"));
+            return;
+        }
+
+        UWorld* World = GetAnyWorld();
+        AWorldGenManager* Mgr = FindWorldGenManager(World);
+        if (!Mgr)
+        {
+            UE_LOG(LogWorldGenConsole, Warning, TEXT("No AWorldGenManager found in world"));
+            return;
+        }
+
+        UTileStreamingService* Streaming = Mgr->GetTileStreamingService();
+        URiverFlowService* RiverService = Mgr->GetRiverFlowService();
+        if (!Streaming || !RiverService)
+        {
+            UE_LOG(LogWorldGenConsole, Error, TEXT("River export requires TileStreamingService and RiverFlowService"));
+            return;
+        }
+
+        const FTileCoord Tile(TileX, TileY);
+        FTileStreamingData TileData;
+        if (!Streaming->GetTileData(Tile, TileData))
+        {
+            UE_LOG(LogWorldGenConsole, Error, TEXT("Failed to fetch tile data for (%d, %d)"), TileX, TileY);
+            return;
+        }
+
+        FRiverFlowTileData FlowData = TileData.RiverFlowData;
+        if (!FlowData.IsValid())
+        {
+            if (!RiverService->ComputeFlowMap(Tile, TileData.HeightfieldData, FlowData) || !FlowData.IsValid())
+            {
+                UE_LOG(LogWorldGenConsole, Error, TEXT("River flow data unavailable for tile (%d, %d)"), TileX, TileY);
+                return;
+            }
+        }
+
+        const FString OutputDirAbs = WorldGenConsole::ResolveExportDirectory(OutputArg, TEXT("Vibeheim/WorldGen/RiverExports"));
+        if (!WorldGenConsole::EnsureDirectoryExists(OutputDirAbs))
+        {
+            UE_LOG(LogWorldGenConsole, Error, TEXT("Unable to create export directory: %s"), *OutputDirAbs);
+            return;
+        }
+
+        FString RelativeDir = OutputDirAbs;
+        const bool bHasRelative = FPaths::MakePathRelativeTo(RelativeDir, *FPaths::ProjectDir());
+        if (!bHasRelative)
+        {
+            RelativeDir = OutputDirAbs;
+        }
+
+        const FString FileBase = FString::Printf(TEXT("tile_%d_%d"), TileX, TileY);
+
+        if (bExportPNG)
+        {
+            const FString PngPath = FPaths::Combine(OutputDirAbs, FileBase + TEXT("_accum.png"));
+            const int32 Resolution = FlowData.Resolution;
+            const int32 SampleCount = Resolution * Resolution;
+
+            if (Resolution <= 0 || FlowData.FlowAccumulation.Num() != SampleCount)
+            {
+                UE_LOG(LogWorldGenConsole, Error, TEXT("Invalid flow accumulation data for tile (%d, %d)"), TileX, TileY);
+            }
+            else
+            {
+                float MinAccum = FlowData.MinAccumulation;
+                float MaxAccum = FlowData.MaxAccumulation;
+                if (!FMath::IsFinite(MinAccum) || !FMath::IsFinite(MaxAccum) || MaxAccum <= MinAccum)
+                {
+                    MinAccum = TNumericLimits<float>::Max();
+                    MaxAccum = -TNumericLimits<float>::Max();
+                    for (float Value : FlowData.FlowAccumulation)
+                    {
+                        MinAccum = FMath::Min(MinAccum, Value);
+                        MaxAccum = FMath::Max(MaxAccum, Value);
+                    }
+                    if (!FMath::IsFinite(MinAccum) || !FMath::IsFinite(MaxAccum) || MaxAccum <= MinAccum)
+                    {
+                        MinAccum = 0.0f;
+                        MaxAccum = 1.0f;
+                    }
+                }
+
+                const float Range = FMath::Max(MaxAccum - MinAccum, KINDA_SMALL_NUMBER);
+                TArray<uint8> Pixels;
+                Pixels.Reserve(SampleCount);
+                for (float Value : FlowData.FlowAccumulation)
+                {
+                    const float Normalized = FMath::Clamp((Value - MinAccum) / Range, 0.0f, 1.0f);
+                    Pixels.Add(static_cast<uint8>(Normalized * 255.0f));
+                }
+
+                if (WorldGenConsole::SaveGrayscalePNG(PngPath, Pixels, Resolution, Resolution))
+                {
+                    UE_LOG(LogWorldGenConsole, Log, TEXT("Exported river accumulation PNG to %s"), *PngPath);
+                }
+                else
+                {
+                    UE_LOG(LogWorldGenConsole, Error, TEXT("Failed to export river accumulation PNG to %s"), *PngPath);
+                }
+            }
+        }
+
+        if (bExportCSV)
+        {
+            const FString CsvPath = FPaths::Combine(OutputDirAbs, FileBase + TEXT("_flow.csv"));
+            const int32 Resolution = FlowData.Resolution;
+            const int32 SampleCount = Resolution * Resolution;
+
+            if (Resolution <= 0 || FlowData.FlowDirections.Num() != SampleCount || FlowData.FlowAccumulation.Num() != SampleCount)
+            {
+                UE_LOG(LogWorldGenConsole, Error, TEXT("River flow data inconsistent for tile (%d, %d)"), TileX, TileY);
+            }
+            else
+            {
+                FString Csv;
+                Csv.Reserve(SampleCount * 48);
+                Csv += TEXT("SampleX,SampleY,DirX,DirY,Accumulation,DownstreamX,DownstreamY\n");
+
+                for (int32 Y = 0; Y < Resolution; ++Y)
+                {
+                    for (int32 X = 0; X < Resolution; ++X)
+                    {
+                        const int32 Index = Y * Resolution + X;
+                        const FVector2D Dir = FlowData.FlowDirections[Index];
+                        const float Accum = FlowData.FlowAccumulation[Index];
+                        const int32 DownstreamIndex = FlowData.DownstreamIndices.IsValidIndex(Index) ? FlowData.DownstreamIndices[Index] : INDEX_NONE;
+                        const int32 DownstreamX = (DownstreamIndex != INDEX_NONE) ? (DownstreamIndex % Resolution) : -1;
+                        const int32 DownstreamY = (DownstreamIndex != INDEX_NONE) ? (DownstreamIndex / Resolution) : -1;
+
+                        Csv += FString::Printf(TEXT("%d,%d,%.3f,%.3f,%.3f,%d,%d\n"), X, Y, Dir.X, Dir.Y, Accum, DownstreamX, DownstreamY);
+                    }
+                }
+
+                if (FFileHelper::SaveStringToFile(Csv, *CsvPath))
+                {
+                    UE_LOG(LogWorldGenConsole, Log, TEXT("Exported river flow CSV to %s"), *CsvPath);
+                }
+                else
+                {
+                    UE_LOG(LogWorldGenConsole, Error, TEXT("Failed to write river flow CSV to %s"), *CsvPath);
+                }
+            }
+        }
+
+        UE_LOG(LogWorldGenConsole, Log, TEXT("wg.rivers.export completed for tile (%d, %d)"), TileX, TileY);
+    })
+);
+
+static FAutoConsoleCommand CmdPOIValidate(
+    TEXT("wg.poi.validate"),
+    TEXT("Validate POI placement rules for currently loaded data"),
+    FConsoleCommandDelegate::CreateLambda([]()
+    {
+        if (!IsEngineReady())
+        {
+            UE_LOG(LogWorldGenConsole, Warning, TEXT("Engine not ready - try after PIE starts"));
+            return;
+        }
+
+        UWorld* World = GetAnyWorld();
+        AWorldGenManager* Mgr = FindWorldGenManager(World);
+        if (!Mgr)
+        {
+            UE_LOG(LogWorldGenConsole, Warning, TEXT("No AWorldGenManager found in world"));
+            return;
+        }
+
+        UPOIService* POIService = Mgr->GetPOIService();
+        if (!POIService)
+        {
+            UE_LOG(LogWorldGenConsole, Error, TEXT("POIService unavailable"));
+            return;
+        }
+
+        TArray<FString> Errors;
+        TArray<FString> Warnings;
+        int32 TotalPOIs = 0;
+        POIService->ValidateCurrentPOIs(Errors, Warnings, TotalPOIs);
+
+        for (const FString& Error : Errors)
+        {
+            UE_LOG(LogWorldGenConsole, Error, TEXT("%s"), *Error);
+        }
+        for (const FString& Warning : Warnings)
+        {
+            UE_LOG(LogWorldGenConsole, Warning, TEXT("%s"), *Warning);
+        }
+
+        if (Errors.Num() == 0 && Warnings.Num() == 0)
+        {
+            UE_LOG(LogWorldGenConsole, Log, TEXT("POI validation passed (%d POIs)."), TotalPOIs);
+        }
+        else
+        {
+            UE_LOG(LogWorldGenConsole, Log, TEXT("POI validation complete: %d POIs, %d errors, %d warnings."), TotalPOIs, Errors.Num(), Warnings.Num());
+        }
     })
 );

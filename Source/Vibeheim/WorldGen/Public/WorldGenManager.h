@@ -88,6 +88,15 @@ public:
     UFUNCTION(BlueprintCallable, Category = "World Generation")
     UTileStreamingService* GetTileStreamingService() const { return TileStreamingService; }
 
+    /** Access biome service (for validation/exports) */
+    UBiomeService* GetBiomeService() const { return BiomeService; }
+
+    /** Access POI service for validation tools */
+    UPOIService* GetPOIService() const { return POIService; }
+
+    /** Access river flow service for debug exports */
+    URiverFlowService* GetRiverFlowService() const { return RiverFlowService; }
+
     /**
      * Data Assets selected for world generation
      */

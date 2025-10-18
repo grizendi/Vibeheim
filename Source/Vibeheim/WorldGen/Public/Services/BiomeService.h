@@ -107,16 +107,19 @@ public:
 	 */
 	void SetBiomeRingDefinitions(const TArray<FBiomeRingDefinition>& InBiomeRings);
 
-	/**
-	 * Override the world center used for ring calculations
-	 */
-	void SetRingWorldCenter(const FVector2D& InWorldCenter);
+    /**
+     * Override the world center used for ring calculations
+     */
+    void SetRingWorldCenter(const FVector2D& InWorldCenter);
 
-	/**
-	 * Load biome definitions from JSON configuration file
-	 */
-	UFUNCTION(BlueprintCallable, Category = "Biome")
-	bool LoadBiomesFromJSON(const FString& ConfigPath = TEXT("Config/BiomeDefinitions.json"));
+    /** Retrieve current ring definitions for validation tooling */
+    const TArray<FBiomeRingDefinition>& GetBiomeRingDefinitions() const { return BiomeRingDefinitions; }
+
+    /**
+     * Load biome definitions from JSON configuration file
+     */
+    UFUNCTION(BlueprintCallable, Category = "Biome")
+    bool LoadBiomesFromJSON(const FString& ConfigPath = TEXT("Config/BiomeDefinitions.json"));
 
 	/**
 	 * Save biome definitions to JSON configuration file

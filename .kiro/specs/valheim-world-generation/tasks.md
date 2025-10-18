@@ -167,23 +167,23 @@
 
 ## Phase 9: Enhanced Configuration and Runtime Control
 
-- [ ] 13. Implement remaining validation commands
-- [ ] 13.1 Add map export command
+- [x] 13. Implement remaining validation commands
+- [x] 13.1 Add map export command
   - Implement `wg.map.export` to export heightfield/biome data
   - Support various export formats (PNG, CSV)
   - _Requirements: 9_
 
-- [ ] 13.2 Add ring validation command
+- [x] 13.2 Add ring validation command
   - Implement `wg.rings.validate` to check biome ring consistency
   - Validate ring boundaries and neighbor constraints
   - _Requirements: 2, 9_
 
-- [ ] 13.3 Add river export command
+- [x] 13.3 Add river export command
   - Implement `wg.rivers.export` to export flow map data
   - Visualize river networks and flow accumulation
   - _Requirements: 4, 9_
 
-- [ ] 13.4 Add POI validation command
+- [x] 13.4 Add POI validation command
   - Implement `wg.poi.validate` to check POI placement rules
   - Validate uniqueness and spacing constraints
   - _Requirements: 6, 9_

@@ -348,8 +348,115 @@ void UPOIService::UpdateSamplingConfig(const FStratifiedSamplingConfig& NewConfi
 void UPOIService::UpdateValidationSettings(const FPOIValidationSettings& NewSettings)
 {
 	ValidationSettings = NewSettings;
-	UE_LOG(LogPOIService, Log, TEXT("Updated POI validation settings: FlatGroundRadius=%f, Tolerance=%f"), 
+	UE_LOG(LogPOIService, Log, TEXT("Updated POI validation settings: FlatGroundRadius=%f, Tolerance=%f"),
 		NewSettings.FlatGroundCheckRadius, NewSettings.FlatGroundTolerance);
+}
+
+void UPOIService::ValidateCurrentPOIs(TArray<FString>& OutErrors, TArray<FString>& OutWarnings, int32& OutTotalPOIs) const
+{
+	OutErrors.Reset();
+	OutWarnings.Reset();
+	OutTotalPOIs = AllPOIs.Num();
+
+	if (AllPOIs.Num() == 0)
+	{
+		return;
+	}
+
+	struct FRuleValidationInfo
+	{
+		float SpacingMeters = 0.0f;
+		bool bEnforceSpacing = false;
+		bool bUnique = false;
+	};
+
+	TMap<FString, TArray<const FPOIData*>> POIsByRule;
+	TMap<FString, FRuleValidationInfo> RuleInfo;
+	TSet<FGuid> SeenGuids;
+	TSet<FString> MissingRuleNames;
+
+	for (const TPair<FGuid, FPOIData>& Pair : AllPOIs)
+	{
+		const FPOIData& POI = Pair.Value;
+
+		if (!POI.POIId.IsValid())
+		{
+			OutErrors.Add(FString::Printf(TEXT("POI '%s' has invalid id"), *POI.POIName));
+		}
+		else if (SeenGuids.Contains(POI.POIId))
+		{
+			OutErrors.Add(FString::Printf(TEXT("Duplicate POIId detected: %s (%s)"), *POI.POIId.ToString(), *POI.POIName));
+		}
+		else
+		{
+			SeenGuids.Add(POI.POIId);
+		}
+
+		const FString RuleKey = !POI.POIName.IsEmpty() ? POI.POIName : POI.POIId.ToString();
+		TArray<const FPOIData*>& Bucket = POIsByRule.FindOrAdd(RuleKey);
+		Bucket.Add(&POI);
+
+		const TOptional<FPOISpawnRule> Rule = ResolveSpawnRuleForPOI(POI);
+		if (Rule.IsSet())
+		{
+			FRuleValidationInfo& Info = RuleInfo.FindOrAdd(RuleKey);
+			Info.SpacingMeters = FMath::Max(Info.SpacingMeters, GetReservationRadiusMeters(Rule.GetValue()));
+			Info.bEnforceSpacing |= Rule->bEnforceGlobalSpacing;
+			Info.bUnique |= Rule->bUniquePerWorld;
+		}
+		else if (!POI.POIName.IsEmpty() && !MissingRuleNames.Contains(RuleKey))
+		{
+			MissingRuleNames.Add(RuleKey);
+			OutWarnings.Add(FString::Printf(TEXT("No spawn rule found for POI '%s'; skipping rule validation"), *RuleKey));
+		}
+	}
+
+	for (const TPair<FString, TArray<const FPOIData*>>& Entry : POIsByRule)
+	{
+		const FString& RuleKey = Entry.Key;
+		const TArray<const FPOIData*>& Bucket = Entry.Value;
+
+		const FRuleValidationInfo* Info = RuleInfo.Find(RuleKey);
+		const float SpacingMeters = Info ? Info->SpacingMeters : 0.0f;
+		const bool bEnforceSpacing = Info ? Info->bEnforceSpacing : false;
+		const bool bUnique = Info ? Info->bUnique : false;
+
+		if (bUnique && Bucket.Num() > 1)
+		{
+			OutErrors.Add(FString::Printf(TEXT("POI rule '%s' marked unique but %d instances exist"), *RuleKey, Bucket.Num()));
+		}
+
+		if (SpacingMeters > KINDA_SMALL_NUMBER && Bucket.Num() > 1)
+		{
+			const float RequiredDistanceCm = SpacingMeters * 100.0f;
+			for (int32 IndexA = 0; IndexA < Bucket.Num(); ++IndexA)
+			{
+				for (int32 IndexB = IndexA + 1; IndexB < Bucket.Num(); ++IndexB)
+				{
+					const float ActualDistance = FVector::Dist2D(Bucket[IndexA]->Location, Bucket[IndexB]->Location);
+					if (ActualDistance + 1.0f < RequiredDistanceCm)
+					{
+						const FString Violation = FString::Printf(
+							TEXT("POIs '%s' (IDs %s / %s) are %.1fcm apart (< %.1fcm required)"),
+							*RuleKey,
+							*Bucket[IndexA]->POIId.ToString(),
+							*Bucket[IndexB]->POIId.ToString(),
+							ActualDistance,
+							RequiredDistanceCm);
+
+						if (bEnforceSpacing)
+						{
+							OutErrors.Add(Violation);
+						}
+						else
+						{
+							OutWarnings.Add(Violation);
+						}
+					}
+				}
+			}
+		}
+	}
 }
 
 TArray<FVector2D> UPOIService::GenerateBlueNoiseSamples(FTileCoord TileCoord, float MinDistanceMeters, int32 Seed) const

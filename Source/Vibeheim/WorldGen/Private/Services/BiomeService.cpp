@@ -10,8 +10,44 @@
 #include "Serialization/JsonWriter.h"
 #include "UObject/EnumProperty.h"
 #include "Algo/Sort.h"
+#include "Modules/ModuleManager.h"
+#include "IImageWrapperModule.h"
+#include "IImageWrapper.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogBiomeService, Log, All);
+
+namespace
+{
+	bool SaveBiomePng(const FString& AbsolutePath, const TArray<FColor>& Pixels, int32 Width, int32 Height)
+	{
+		if (Pixels.Num() != Width * Height || Width <= 0 || Height <= 0)
+		{
+			return false;
+		}
+
+		IImageWrapperModule& ImageWrapperModule = FModuleManager::LoadModuleChecked<IImageWrapperModule>(TEXT("ImageWrapper"));
+		TSharedPtr<IImageWrapper> ImageWrapper = ImageWrapperModule.CreateImageWrapper(EImageFormat::PNG);
+		if (!ImageWrapper.IsValid())
+		{
+			return false;
+		}
+
+		if (!ImageWrapper->SetRaw(Pixels.GetData(), Pixels.Num() * sizeof(FColor), Width, Height, ERGBFormat::RGBA, 8))
+		{
+			return false;
+		}
+
+		const TArray64<uint8>& Compressed = ImageWrapper->GetCompressed();
+		TArray<uint8> CompressedCopy;
+		CompressedCopy.SetNumUninitialized(Compressed.Num());
+		if (Compressed.Num() > 0)
+		{
+			FMemory::Memcpy(CompressedCopy.GetData(), Compressed.GetData(), Compressed.Num());
+		}
+
+		return FFileHelper::SaveArrayToFile(CompressedCopy, *AbsolutePath);
+	}
+}
 
 UBiomeService::UBiomeService()
 {
@@ -439,7 +475,10 @@ bool UBiomeService::ExportBiomePNG(FTileCoord TileCoord, const TArray<float>& He
         }
 	
 	// Create output directory
-	FString FullOutputPath = FPaths::ProjectDir() / OutputPath;
+	const int32 Resolution = SamplesPerTile;
+	FString FullOutputPath = FPaths::IsRelative(OutputPath)
+		? FPaths::ConvertRelativePathToFull(FPaths::ProjectDir() / OutputPath)
+		: FPaths::ConvertRelativePathToFull(OutputPath);
 	IFileManager::Get().MakeDirectory(*FPaths::GetPath(FullOutputPath), true);
 	
 	// Export biome map
@@ -452,12 +491,15 @@ bool UBiomeService::ExportBiomePNG(FTileCoord TileCoord, const TArray<float>& He
 		BiomePixels.Add(BiomeColor);
 	}
 	
-	FString BiomePath = FullOutputPath.Replace(TEXT(".png"), TEXT("_biome.png"));
-	// TODO: Implement PNG export when ImageUtils is available
-	UE_LOG(LogBiomeService, Log, TEXT("Biome data generated for export to %s (PNG export not implemented)"), *BiomePath);
-	
-	UE_LOG(LogBiomeService, Log, TEXT("Successfully exported biome PNG for tile (%d, %d)"), TileCoord.X, TileCoord.Y);
-	return true;
+	const FString BiomePath = FullOutputPath.Replace(TEXT(".png"), TEXT("_biome.png"));
+	if (SaveBiomePng(BiomePath, BiomePixels, Resolution, Resolution))
+	{
+		UE_LOG(LogBiomeService, Log, TEXT("Exported biome map to %s"), *BiomePath);
+		return true;
+	}
+
+	UE_LOG(LogBiomeService, Error, TEXT("Failed to export biome map to %s"), *BiomePath);
+	return false;
 }
 
 FColor UBiomeService::GetBiomeColor(EBiomeType BiomeType) const

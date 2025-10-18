@@ -34,7 +34,8 @@ public class Vibeheim : ModuleRules
             "JsonUtilities",
             "Projects", // FPaths, IPluginManager, config helpers, etc.
             "RHI", // Needed for PixelFormat.h
-            "AssetRegistry"
+            "AssetRegistry",
+            "ImageWrapper"
         });
 
         // Compile dev automation tests in non-shipping configs
