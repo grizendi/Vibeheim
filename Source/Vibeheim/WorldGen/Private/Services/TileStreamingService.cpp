@@ -1020,3 +1020,82 @@ bool UTileStreamingService::ExportPerformanceCSV(const FString& OptionalFileName
     }
     return bSaved;
 }
+
+bool UTileStreamingService::TryApplyStageBudget(const FString& StageName, float NewBudgetMs, FString& OutMessage)
+{
+    if (!FMath::IsFinite(NewBudgetMs) || NewBudgetMs <= 0.0f)
+    {
+        OutMessage = FString::Printf(TEXT("Invalid budget %.2f ms. Value must be > 0."), NewBudgetMs);
+        UE_LOG(LogTileStreaming, Error, TEXT("%s"), *OutMessage);
+        return false;
+    }
+
+    const FString NormalizedStage = StageName.ToLower();
+    float* TargetField = nullptr;
+    float PreviousValue = 0.0f;
+
+    if (NormalizedStage == TEXT("total"))
+    {
+        TargetField = &StreamingBudgets.StreamingBudgetMsPerTick;
+    }
+    else if (NormalizedStage == TEXT("height"))
+    {
+        TargetField = &StreamingBudgets.HeightGenerationBudget;
+    }
+    else if (NormalizedStage == TEXT("biome"))
+    {
+        TargetField = &StreamingBudgets.BiomeCalculationBudget;
+    }
+    else if (NormalizedStage == TEXT("pcg"))
+    {
+        TargetField = &StreamingBudgets.PCGGenerationBudget;
+    }
+    else if (NormalizedStage == TEXT("vhm"))
+    {
+        TargetField = &StreamingBudgets.VHMMeshBudget;
+    }
+
+    if (!TargetField)
+    {
+        OutMessage = FString::Printf(TEXT("Unknown streaming budget stage '%s'. Valid stages: total, height, biome, pcg, vhm."), *StageName);
+        UE_LOG(LogTileStreaming, Error, TEXT("%s"), *OutMessage);
+        return false;
+    }
+
+    PreviousValue = *TargetField;
+    *TargetField = NewBudgetMs;
+    bHasStreamingBudgets = true;
+    CurrentBudgets.Reset(StreamingBudgets);
+
+    if (UWorldGenSettings* Settings = UWorldGenSettings::GetWorldGenSettings())
+    {
+        Settings->StreamingBudgetsConfig = StreamingBudgets;
+    }
+
+    OutMessage = FString::Printf(TEXT("Streaming budget '%s' updated from %.2f ms to %.2f ms."),
+        *NormalizedStage, PreviousValue, NewBudgetMs);
+    UE_LOG(LogTileStreaming, Log, TEXT("%s"), *OutMessage);
+    return true;
+}
+
+bool UTileStreamingService::TrySetPrefetchRings(int32 NewPrefetchRings, FString& OutMessage)
+{
+    if (NewPrefetchRings < 0)
+    {
+        OutMessage = FString::Printf(TEXT("Invalid prefetch ring count %d. Value must be >= 0."), NewPrefetchRings);
+        UE_LOG(LogTileStreaming, Error, TEXT("%s"), *OutMessage);
+        return false;
+    }
+
+    const int32 PreviousRings = StreamingBudgets.PrefetchRings;
+    StreamingBudgets.PrefetchRings = NewPrefetchRings;
+
+    if (UWorldGenSettings* Settings = UWorldGenSettings::GetWorldGenSettings())
+    {
+        Settings->StreamingBudgetsConfig = StreamingBudgets;
+    }
+
+    OutMessage = FString::Printf(TEXT("Streaming prefetch rings updated from %d to %d."), PreviousRings, NewPrefetchRings);
+    UE_LOG(LogTileStreaming, Log, TEXT("%s"), *OutMessage);
+    return true;
+}

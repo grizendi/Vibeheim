@@ -125,6 +125,110 @@ static FAutoConsoleCommand CmdPerfExport(
     })
 );
 
+static FAutoConsoleCommand CmdStreamingBudget(
+    TEXT("wg.streaming.budget"),
+    TEXT("Adjust streaming budget stage in milliseconds. Usage: wg.streaming.budget <total|height|biome|pcg|vhm> <ms>"),
+    FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+    {
+        if (Args.Num() < 2)
+        {
+            UE_LOG(LogWorldGenConsole, Error, TEXT("Usage: wg.streaming.budget <total|height|biome|pcg|vhm> <ms>"));
+            return;
+        }
+
+        if (!IsEngineReady())
+        {
+            UE_LOG(LogWorldGenConsole, Warning, TEXT("Engine not ready - try after PIE starts"));
+            return;
+        }
+
+        float NewBudgetMs = 0.0f;
+        if (!LexTryParseString(NewBudgetMs, *Args[1]))
+        {
+            UE_LOG(LogWorldGenConsole, Error, TEXT("Invalid budget value '%s' - expected number of milliseconds"), *Args[1]);
+            return;
+        }
+
+        UWorld* World = GetAnyWorld();
+        AWorldGenManager* Mgr = FindWorldGenManager(World);
+        if (!Mgr)
+        {
+            UE_LOG(LogWorldGenConsole, Warning, TEXT("No AWorldGenManager found in world"));
+            return;
+        }
+
+        UTileStreamingService* Streaming = Mgr->GetTileStreamingService();
+        if (!Streaming)
+        {
+            UE_LOG(LogWorldGenConsole, Warning, TEXT("TileStreamingService unavailable"));
+            return;
+        }
+
+        FString Message;
+        const bool bSuccess = Streaming->TryApplyStageBudget(Args[0], NewBudgetMs, Message);
+        if (bSuccess)
+        {
+            UE_LOG(LogWorldGenConsole, Log, TEXT("%s"), *Message);
+        }
+        else
+        {
+            UE_LOG(LogWorldGenConsole, Error, TEXT("%s"), *Message);
+        }
+    })
+);
+
+static FAutoConsoleCommand CmdStreamingPrefetch(
+    TEXT("wg.prefetch"),
+    TEXT("Set streaming prefetch ring count. Usage: wg.prefetch <rings>"),
+    FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+    {
+        if (Args.Num() < 1)
+        {
+            UE_LOG(LogWorldGenConsole, Error, TEXT("Usage: wg.prefetch <rings>"));
+            return;
+        }
+
+        if (!IsEngineReady())
+        {
+            UE_LOG(LogWorldGenConsole, Warning, TEXT("Engine not ready - try after PIE starts"));
+            return;
+        }
+
+        int32 NewRings = 0;
+        if (!LexTryParseString(NewRings, *Args[0]))
+        {
+            UE_LOG(LogWorldGenConsole, Error, TEXT("Invalid ring count '%s' - expected integer"), *Args[0]);
+            return;
+        }
+
+        UWorld* World = GetAnyWorld();
+        AWorldGenManager* Mgr = FindWorldGenManager(World);
+        if (!Mgr)
+        {
+            UE_LOG(LogWorldGenConsole, Warning, TEXT("No AWorldGenManager found in world"));
+            return;
+        }
+
+        UTileStreamingService* Streaming = Mgr->GetTileStreamingService();
+        if (!Streaming)
+        {
+            UE_LOG(LogWorldGenConsole, Warning, TEXT("TileStreamingService unavailable"));
+            return;
+        }
+
+        FString Message;
+        const bool bSuccess = Streaming->TrySetPrefetchRings(NewRings, Message);
+        if (bSuccess)
+        {
+            UE_LOG(LogWorldGenConsole, Log, TEXT("%s"), *Message);
+        }
+        else
+        {
+            UE_LOG(LogWorldGenConsole, Error, TEXT("%s"), *Message);
+        }
+    })
+);
+
 // Show feature flags
 static FAutoConsoleCommand CmdFlagsShow(
     TEXT("wg.flags.show"),

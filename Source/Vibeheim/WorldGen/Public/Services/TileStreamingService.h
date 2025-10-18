@@ -236,6 +236,21 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Tile Streaming")
     bool ExportPerformanceCSV(const FString& OptionalFileName = TEXT(""));
 
+    /**
+     * Adjust an individual streaming budget stage at runtime (console support).
+     * @param StageName Expected values: "total", "height", "biome", "pcg", "vhm"
+     * @param NewBudgetMs New budget in milliseconds (must be > 0)
+     * @param OutMessage Success or failure message for caller logging
+     */
+    bool TryApplyStageBudget(const FString& StageName, float NewBudgetMs, FString& OutMessage);
+
+    /**
+     * Update the number of prefetch rings used by the streaming service.
+     * @param NewPrefetchRings Number of outer rings to prefetch (>= 0)
+     * @param OutMessage Success or failure message for caller logging
+     */
+    bool TrySetPrefetchRings(int32 NewPrefetchRings, FString& OutMessage);
+
 private:
 	UPROPERTY()
 	FWorldGenConfig WorldGenSettings;

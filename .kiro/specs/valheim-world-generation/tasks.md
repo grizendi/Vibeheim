@@ -158,7 +158,7 @@
   - Add console command `wg.perf.export` integration (already declared)
   - _Requirements: 7, 8_
 
-- [ ] 12.3 Implement runtime budget adjustment commands
+- [x] 12.3 Implement runtime budget adjustment commands
   - Add `wg.streaming.budget <stage> <ms>` console command to modify per-stage budgets
   - Support stages: height, biome, pcg, vhm, total
   - Add `wg.prefetch <rings>` command to control prefetch ring count at runtime
@@ -233,4 +233,4 @@
 - Gate E: Macro topology — coastline ratio, histogram shape, seam check (COMPLETE)
 - Gate F: Water/rivers - river continuity = 0; coastal coverage >= 80% (COMPLETE - Water system, flow maps, and carving implemented)
 - Gate G: PCG/POI — validation commands; density within +/- 20% (PARTIAL - PCG complete, POI basic implementation complete, global uniqueness and validation commands pending)
-- Gate H: Pipeline/perf — p50/p95/spikes within targets; memory <= limits (MOSTLY COMPLETE - spike detection and CSV export implemented, runtime budget commands and validation commands pending)
+- Gate H: Pipeline/perf - p50/p95/spikes within targets; memory <= limits (MOSTLY COMPLETE - spike detection, CSV export, and runtime budget commands implemented; validation commands pending)
