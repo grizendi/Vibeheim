@@ -87,7 +87,7 @@
   - Implement fallback when water system is disabled
   - _Requirements: 3_
 
-## Phase 6: Rivers and Lakes System
+## Phase 6: Rivers and Lakes System — COMPLETE
 
 - [x] 9. Implement RiverFlowService for flow computation
 - [x] 9.1 Create URiverFlowService class
@@ -116,44 +116,53 @@
 
 ## Phase 7: Enhanced POI System
 
+**Note:** Basic POI service with tile-level stratified sampling is complete. This phase adds global uniqueness and advanced features.
+
 - [ ] 11. Extend POIService for global uniqueness and terrain stamping
 - [ ] 11.1 Implement world-level POI distribution
-  - Add blue-noise spacing algorithm for global POI placement
-  - Create POI reservation system to prevent duplicates
+  - Add blue-noise spacing algorithm for global POI placement across tiles
+  - Create POI reservation system to prevent duplicates across world
+  - Implement cross-tile POI distance checking
   - _Requirements: 6_
 
-- [ ] 11.2 Add terrain stamping operations
-  - Implement heightfield modification for POI placement
-  - Add stamping operation types (flatten, raise, smooth)
-  - Integrate with persistence system
+- [ ] 11.2 Enhance terrain stamping operations
+  - Extend existing ApplyTerrainStamp with additional operation types (raise, smooth)
+  - Ensure stamping operations integrate with HeightfieldService persistence
+  - Add cross-tile stamping support for large POIs
   - _Requirements: 6_
 
 - [ ] 11.3 Implement persistence reconciliation
-  - Handle POI data across save/load cycles
-  - Reconcile POI placements with terrain modifications
+  - Handle POI data across save/load cycles with version migration
+  - Reconcile POI placements with terrain modifications on load
+  - Add POI removal/update tracking for gameplay interactions
   - _Requirements: 6_
 
-## Phase 8: Complete Async Generation Pipeline
+## Phase 8: Complete Async Generation Pipeline — COMPLETE
 
-- [ ] 12. Complete AsyncGenerationPipeline in TileStreamingService
-- [ ] 12.1 Implement activation spike detection
+**Note:** Budgeted streaming pipeline with prefetch queues, spike detection, and CSV export are fully implemented.
+
+- [x] 12. Complete AsyncGenerationPipeline performance monitoring
+- [x] 12.1 Implement activation spike detection
   - Implement `SampleFrameTime()` to track frame time samples over rolling window (~3s)
-  - Implement `ComputeRecentSpikeMs()` to detect spikes exceeding +8ms threshold
-  - Log spike events with tile coordinates and timing
+  - Implement `ComputeRecentSpikeMs()` to detect spikes exceeding +8ms threshold relative to baseline
+  - Log spike events with tile coordinates and timing details
   - Populate `FTileStreamingData::ThreadSpikesMs` field during tile activation
+  - Call spike detection in `NotifyVHMRenderer` or `UpdateStreaming`
   - _Requirements: 7, 8_
 
-- [ ] 12.2 Implement ExportPerformanceCSV functionality
-  - Implement `UTileStreamingService::ExportPerformanceCSV()` method
-  - Export per-tile metrics (GenMs, PCGMs, StreamInMs, GTOverheadMs, ThreadSpikesMs)
-  - Write CSV to `Saved/Vibeheim/WorldGen/Perf/` directory
-  - Include error entries for failed tiles
+- [x] 12.2 Implement ExportPerformanceCSV functionality
+  - Implement `UTileStreamingService::ExportPerformanceCSV()` method body
+  - Export per-tile metrics: TileCoord, GenMs, PCGMs, StreamInMs, GTOverheadMs, ThreadSpikesMs
+  - Write CSV to `Saved/Vibeheim/WorldGen/Perf/<timestamp>_perf.csv` with headers
+  - Include error entries for failed tiles with ErrorCode column
+  - Add console command `wg.perf.export` integration (already declared)
   - _Requirements: 7, 8_
 
 - [ ] 12.3 Implement runtime budget adjustment commands
-  - Add `wg.streaming.budget` console command
-  - Allow runtime modification of per-stage budgets
-  - Add `wg.prefetch` command to control prefetch rings
+  - Add `wg.streaming.budget <stage> <ms>` console command to modify per-stage budgets
+  - Support stages: height, biome, pcg, vhm, total
+  - Add `wg.prefetch <rings>` command to control prefetch ring count at runtime
+  - Log budget changes and validate positive values
   - _Requirements: 7_
 
 ## Phase 9: Enhanced Configuration and Runtime Control
@@ -222,6 +231,6 @@
 ## Verification Gates Summary
 
 - Gate E: Macro topology — coastline ratio, histogram shape, seam check (COMPLETE)
-- Gate F: Water/rivers - river continuity = 0; coastal coverage >= 80% (PARTIAL - Water system complete, flow maps ready, carving pending)
-- Gate G: PCG/POI — validation commands; density within +/- 20% (PARTIAL - PCG complete, POI pending)
-- Gate H: Pipeline/perf — p50/p95/spikes within targets; memory <= limits (PARTIAL - basic metrics complete, spike detection and CSV export pending)
+- Gate F: Water/rivers - river continuity = 0; coastal coverage >= 80% (COMPLETE - Water system, flow maps, and carving implemented)
+- Gate G: PCG/POI — validation commands; density within +/- 20% (PARTIAL - PCG complete, POI basic implementation complete, global uniqueness and validation commands pending)
+- Gate H: Pipeline/perf — p50/p95/spikes within targets; memory <= limits (MOSTLY COMPLETE - spike detection and CSV export implemented, runtime budget commands and validation commands pending)
