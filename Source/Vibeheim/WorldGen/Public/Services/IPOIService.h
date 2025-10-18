@@ -43,7 +43,7 @@ public:
 	/**
 	 * Apply terrain flattening/clearing stamp for POI placement
 	 */
-	virtual bool ApplyTerrainStamp(FVector Location, float Radius, TArray<float>& HeightData, FTileCoord TileCoord) = 0;
+	virtual bool ApplyTerrainStamp(FVector Location, float Radius, TArray<float>& HeightData, FTileCoord TileCoord, const FPOITerrainStampSettings& StampSettings = FPOITerrainStampSettings()) = 0;
 
 	/**
 	 * Get all POIs within a specific area

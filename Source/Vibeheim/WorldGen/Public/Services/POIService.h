@@ -84,7 +84,7 @@ public:
 	virtual TArray<FPOIData> GenerateTilePOIs(FTileCoord TileCoord, EBiomeType BiomeType, const TArray<float>& HeightData) override;
 	virtual bool ValidatePOIPlacement(FVector Location, const FPOISpawnRule& Rule, const TArray<float>& HeightData, FTileCoord TileCoord) override;
 	virtual bool CheckPOIDistanceRequirements(FVector Location, const FPOISpawnRule& Rule, const TArray<FPOIData>& ExistingPOIs) override;
-	virtual bool ApplyTerrainStamp(FVector Location, float Radius, TArray<float>& HeightData, FTileCoord TileCoord) override;
+	virtual bool ApplyTerrainStamp(FVector Location, float Radius, TArray<float>& HeightData, FTileCoord TileCoord, const FPOITerrainStampSettings& StampSettings = FPOITerrainStampSettings()) override;
 	virtual TArray<FPOIData> GetPOIsInArea(FVector Center, float Radius) override;
 	virtual bool SavePOIData() override;
 	virtual bool LoadPOIData() override;
@@ -156,6 +156,28 @@ private:
 	UPROPERTY()
 	TMap<FGuid, FPOIData> AllPOIs;
 
+	UPROPERTY()
+	TMap<FGuid, FPOIData> RemovedPOIs;
+
+	struct FPOIReservation
+	{
+		FGuid POIId;
+		FVector Location;
+		float RadiusMeters;
+		FString RuleName;
+		FTileCoord OwningTile;
+		bool bUniqueRule = false;
+	};
+
+	// Active reservation lookup by POI id
+	TMap<FGuid, FPOIReservation> ActiveReservations;
+
+	// Spatial hash for quick overlap checks (cell -> POI ids)
+	TMultiMap<int64, FGuid> ReservationSpatialIndex;
+
+	// Base size for reservation grid cells (meters)
+	float ReservationCellSizeMeters = 256.0f;
+
 	// Performance tracking
 	TArray<float> GenerationTimes;
 	float TotalGenerationTime;
@@ -208,6 +230,8 @@ private:
 	 * Apply terrain flattening stamp to heightfield data
 	 */
 	void ApplyFlatteningStamp(FVector2D Center, float Radius, float Strength, TArray<float>& HeightData, FTileCoord TileCoord) const;
+	void ApplyRaiseStamp(FVector2D Center, float Radius, float Strength, float RaiseHeightMeters, TArray<float>& HeightData, FTileCoord TileCoord) const;
+	void ApplySmoothStamp(FVector2D Center, float Radius, int32 Iterations, TArray<float>& HeightData, FTileCoord TileCoord) const;
 
 	/**
 	 * Update performance statistics
@@ -222,12 +246,12 @@ private:
 	/**
 	 * Serialize POI data to binary format
 	 */
-	bool SerializePOIData(const TArray<FPOIData>& POIs, TArray<uint8>& OutData) const;
+	bool SerializePOIData(const TArray<FPOIData>& ActivePOIs, const TArray<FPOIData>& RemovedPOIsForTile, TArray<uint8>& OutData) const;
 
 	/**
 	 * Deserialize POI data from binary format
 	 */
-	bool DeserializePOIData(const TArray<uint8>& InData, TArray<FPOIData>& OutPOIs) const;
+	bool DeserializePOIData(const TArray<uint8>& InData, TArray<FPOIData>& OutActivePOIs, TArray<FPOIData>& OutRemovedPOIs, int32& OutVersion) const;
 
 	/**
 	 * Convert world position to tile-local coordinates
@@ -243,4 +267,59 @@ private:
 	 * Hash function for deterministic POI placement
 	 */
 	uint32 HashTilePosition(FTileCoord TileCoord, int32 SampleIndex, int32 Seed) const;
+
+	/**
+	 * Calculate reservation radius based on spawn rule.
+	 */
+	float GetReservationRadiusMeters(const FPOISpawnRule& Rule) const;
+
+	/**
+	 * Compute world position blue-noise samples using Poisson disk generation.
+	 */
+	TArray<FVector2D> GenerateBlueNoiseSamples(FTileCoord TileCoord, float MinDistanceMeters, int32 Seed) const;
+
+	/**
+	 * Ensure a location is free according to global reservations.
+	 */
+	bool CanReserveLocation(const FVector& WorldLocation, float RadiusMeters, const FPOISpawnRule& Rule, FGuid IgnoreId, FGuid& OutConflictId) const;
+
+	/**
+	 * Add reservation entry for POI.
+	 */
+	void ReserveLocationForPOI(const FPOIData& POIData, float RadiusMeters, const FPOISpawnRule& Rule);
+
+	/**
+	 * Remove reservation associated with POI id.
+	 */
+	void ReleaseReservation(const FGuid& POIId);
+
+	/**
+	 * Build cell key for reservation spatial hash.
+	 */
+	int64 MakeReservationCellKey(int32 CellX, int32 CellY) const;
+
+	/**
+	 * Convert world XY to reservation cell.
+	 */
+	FIntPoint GetReservationCell(const FVector& WorldLocation, float CellSizeMeters) const;
+
+	/**
+	 * Gather neighboring cells that should be checked for overlaps.
+	 */
+	void GatherReservationCells(const FVector& WorldLocation, float RadiusMeters, TArray<int64>& OutCellKeys) const;
+
+	/**
+	 * Check if a POI with the specified name already exists globally.
+	 */
+	bool HasExistingPOIByName(const FString& Name) const;
+
+	/**
+	 * Attempt to resolve spawn rule metadata for a persisted POI.
+	 */
+	TOptional<FPOISpawnRule> ResolveSpawnRuleForPOI(const FPOIData& POIData) const;
+
+	/**
+	 * Adjust loaded POIs to match current terrain state.
+	 */
+	void ReconcileLoadedPOI(FPOIData& POIData, const TOptional<FPOISpawnRule>& Rule, bool bLegacyData, const FTileCoord& OwningTile);
 };

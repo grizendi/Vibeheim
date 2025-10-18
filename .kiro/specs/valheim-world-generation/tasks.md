@@ -118,20 +118,20 @@
 
 **Note:** Basic POI service with tile-level stratified sampling is complete. This phase adds global uniqueness and advanced features.
 
-- [ ] 11. Extend POIService for global uniqueness and terrain stamping
-- [ ] 11.1 Implement world-level POI distribution
+- [x] 11. Extend POIService for global uniqueness and terrain stamping
+- [x] 11.1 Implement world-level POI distribution
   - Add blue-noise spacing algorithm for global POI placement across tiles
   - Create POI reservation system to prevent duplicates across world
   - Implement cross-tile POI distance checking
   - _Requirements: 6_
 
-- [ ] 11.2 Enhance terrain stamping operations
+- [x] 11.2 Enhance terrain stamping operations
   - Extend existing ApplyTerrainStamp with additional operation types (raise, smooth)
   - Ensure stamping operations integrate with HeightfieldService persistence
   - Add cross-tile stamping support for large POIs
   - _Requirements: 6_
 
-- [ ] 11.3 Implement persistence reconciliation
+- [x] 11.3 Implement persistence reconciliation
   - Handle POI data across save/load cycles with version migration
   - Reconcile POI placements with terrain modifications on load
   - Add POI removal/update tracking for gameplay interactions

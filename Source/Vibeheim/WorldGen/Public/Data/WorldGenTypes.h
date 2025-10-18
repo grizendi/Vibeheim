@@ -589,6 +589,51 @@ struct VIBEHEIM_API FPCGSpawnParams
 };
 
 /**
+ * Operation mode to use when stamping terrain for POI placement.
+ */
+UENUM(BlueprintType)
+enum class EPOITerrainStampMode : uint8
+{
+	None = 0,
+	Flatten,
+	Raise,
+	Smooth
+};
+
+/**
+ * Configures how terrain should be modified for a POI spawn.
+ */
+USTRUCT(BlueprintType)
+struct VIBEHEIM_API FPOITerrainStampSettings
+{
+	GENERATED_BODY()
+
+	/** Operation that will be applied when stamping the terrain. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "POI")
+	EPOITerrainStampMode Operation = EPOITerrainStampMode::Flatten;
+
+	/** Radius of the stamp in meters. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "POI")
+	float RadiusMeters = 5.0f;
+
+	/** Blend strength for flatten/raise/smooth operations (0..1). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "POI")
+	float Strength = 1.0f;
+
+	/** Additional height to raise the center (meters) when Operation == Raise. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "POI")
+	float RaiseHeightMeters = 1.0f;
+
+	/** Number of smoothing iterations when Operation == Smooth. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "POI")
+	int32 SmoothIterations = 2;
+
+	/** If true, stamp checks include neighboring tiles to avoid seams. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "POI")
+	bool bAffectNeighborTiles = false;
+};
+
+/**
  * POI spawn rule configuration
  */
 USTRUCT(BlueprintType)
@@ -613,6 +658,22 @@ struct VIBEHEIM_API FPOISpawnRule
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "POI")
 	bool bRequiresFlatGround = true;
+
+	/** Enforce blue-noise spacing across tiles using global reservations. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "POI")
+	bool bEnforceGlobalSpacing = true;
+
+	/** Optional override for world scale spacing (meters). Uses MinDistanceFromOthers when <= 0. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "POI")
+	float GlobalSpacingOverride = 0.0f;
+
+	/** When true the system will spawn at most one POI with this rule across the world. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "POI")
+	bool bUniquePerWorld = false;
+
+	/** Terrain stamping behaviour to apply after spawning this POI. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "POI")
+	FPOITerrainStampSettings TerrainStampSettings;
 };
 
 /**
