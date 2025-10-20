@@ -140,9 +140,9 @@
 
 ## Phase 8: Complete Async Generation Pipeline
 
-**Note:** Budgeted streaming pipeline with prefetch queues is implemented. Performance monitoring methods need implementation.
+**Note:** Budgeted streaming pipeline with prefetch queues is implemented, including real-time monitoring and runtime controls.
 
-- [ ] 12. Complete AsyncGenerationPipeline performance monitoring
+- [x] 12. Complete AsyncGenerationPipeline performance monitoring
 - [x] 12.1 Implement activation spike detection
   - Implement `SampleFrameTime()` to track frame time samples over rolling window (~3s)
   - Implement `ComputeRecentSpikeMs()` to detect spikes exceeding +8ms threshold relative to baseline
@@ -159,7 +159,7 @@
   - Console command `wg.perf.export` is already wired up
   - _Requirements: 7, 8_
 
-- [ ] 12.3 Implement runtime budget adjustment commands
+- [x] 12.3 Implement runtime budget adjustment commands
   - Implement `wg.streaming.budget <stage> <ms>` console command to modify per-stage budgets
   - Support stages: height, biome, pcg, vhm, total
   - Implement `wg.prefetch <rings>` command to control prefetch ring count at runtime
@@ -168,26 +168,26 @@
 
 ## Phase 9: Enhanced Configuration and Runtime Control
 
-- [ ] 13. Implement remaining validation commands
-- [ ] 13.1 Add map export command
+- [x] 13. Implement remaining validation commands
+- [x] 13.1 Add map export command
   - Implement `wg.map.export` to export heightfield/biome data as PNG or CSV
   - Support exporting single tiles or tile ranges
   - Include heightfield, biome map, and water mask exports
   - _Requirements: 9_
 
-- [ ] 13.2 Add ring validation command
+- [x] 13.2 Add ring validation command
   - Implement `wg.rings.validate` to check biome ring consistency
   - Validate ring boundaries and neighbor constraints
   - Report violations with tile coordinates and biome transitions
   - _Requirements: 2, 9_
 
-- [ ] 13.3 Add river export command
+- [x] 13.3 Add river export command
   - Implement `wg.rivers.export` to export flow map data as PNG or CSV
   - Visualize river networks and flow accumulation
   - Include flow direction vectors and accumulation values
   - _Requirements: 4, 9_
 
-- [ ] 13.4 Add POI validation command
+- [x] 13.4 Add POI validation command
   - Implement `wg.poi.validate` to check POI placement rules
   - Validate uniqueness and spacing constraints
   - Report violations with POI names and world coordinates
@@ -195,20 +195,20 @@
 
 ## Phase 10: Persistence and Determinism
 
-- [ ] 14. Macro world changes & determinism
-- [ ] 14.1 Implement terrain edit replay system
+- [x] 14. Macro world changes & determinism
+- [x] 14.1 Implement terrain edit replay system
   - Add system to replay terrain modifications over macro changes
   - Handle version migration for heightfield modifications
   - Store modification journals with world generation version tags
   - _Requirements: 8_
 
-- [ ] 14.2 Add journal compatibility system
+- [x] 14.2 Add journal compatibility system
   - Ensure modification journals work across world generation versions
   - Implement compatibility checks and migration paths
   - Add version-specific replay handlers for breaking changes
   - _Requirements: 8_
 
-- [ ] 14.3 Implement determinism diagnostics
+- [x] 14.3 Implement determinism diagnostics
   - Add detailed logging for non-deterministic behavior
   - Create diagnostic tools to identify determinism issues
   - Extend `wg.test.determinism` with detailed reporting (checksum comparison, tile-by-tile diff)
@@ -216,21 +216,21 @@
 
 ## Phase 11: Integration and Performance Validation
 
-- [ ] 15. Full service integration validation
-- [ ] 15.1 Implement cross-tile continuity validation
+- [x] 15. Full service integration validation
+- [x] 15.1 Implement cross-tile continuity validation
   - Implement validation for river continuity across tile boundaries (flow direction alignment)
   - Check shoreline consistency at tile edges (water mask agreement)
   - Validate biome ring transitions (smooth blending, no abrupt changes)
   - Wire into `UTileStreamingService::ValidateContinuity()` method (already declared)
   - _Requirements: 1, 2, 3, 4_
 
-- [ ] 15.2 Add texture memory validation
+- [x] 15.2 Add texture memory validation
   - Implement memory tracking for heightfield textures in HeightfieldTextureManager
   - Validate memory usage stays within 512MB limit
   - Implement `wg.memory.report` command to display current usage
   - _Requirements: 8_
 
-- [ ] 15.3 Implement performance target validation
+- [x] 15.3 Implement performance target validation
   - Implement `UTileStreamingService::ValidatePerformanceTargets()` method body (already declared)
   - Validate p50 <= 10ms, p95 <= 20ms for tile generation from cached metrics
   - Check activation spikes <= +8ms over 3s window
@@ -240,6 +240,6 @@
 ## Verification Gates Summary
 
 - Gate E: Macro topology — coastline ratio, histogram shape, seam check (COMPLETE)
-- Gate F: Water/rivers - river continuity = 0; coastal coverage >= 80% (COMPLETE - Water system, flow maps, and carving implemented; validation commands pending)
-- Gate G: PCG/POI — validation commands; density within +/- 20% (PARTIAL - PCG complete, POI blue-noise and uniqueness complete, terrain stamping and validation commands pending)
-- Gate H: Pipeline/perf - p50/p95/spikes within targets; memory <= limits (PARTIAL - Infrastructure in place; spike detection, CSV export, runtime budget commands, and validation methods need implementation)
+- Gate F: Water/rivers - river continuity = 0; coastal coverage >= 80% (COMPLETE - Water system, flow maps, carving, and validation tooling implemented)
+- Gate G: PCG/POI — validation commands; density within +/- 20% (COMPLETE - PCG, POI stamping, and validation tooling implemented)
+- Gate H: Pipeline/perf - p50/p95/spikes within targets; memory <= limits (COMPLETE - Spike detection, CSV export, runtime budgets, and validation methods implemented)
