@@ -11,6 +11,8 @@
 #include "Services/BiomeService.h"
 #include "Services/POIService.h"
 #include "Services/RiverFlowService.h"
+#include "VHMTerrainRendering/VHMTerrainRenderer.h"
+#include "VHMTerrainRendering/VHMTypes.h"
 #include "Misc/Paths.h"
 #include "Misc/DateTime.h"
 #include "Misc/FileHelper.h"
@@ -933,6 +935,193 @@ static FAutoConsoleCommand CmdPOIValidate(
         else
         {
             UE_LOG(LogWorldGenConsole, Log, TEXT("POI validation complete: %d POIs, %d errors, %d warnings."), TotalPOIs, Errors.Num(), Warnings.Num());
+        }
+    })
+);
+
+static FAutoConsoleCommand CmdContinuityValidate(
+    TEXT("wg.validate.continuity"),
+    TEXT("Validate cross-tile continuity (rivers, shoreline, biome rings). Usage: wg.validate.continuity [riverScale=1.0] [shoreTolerance=2]"),
+    FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+    {
+        if (!IsEngineReady())
+        {
+            UE_LOG(LogWorldGenConsole, Warning, TEXT("Engine not ready - try after PIE starts"));
+            return;
+        }
+
+        UWorld* World = GetAnyWorld();
+        AWorldGenManager* Mgr = FindWorldGenManager(World);
+        if (!Mgr)
+        {
+            UE_LOG(LogWorldGenConsole, Warning, TEXT("No AWorldGenManager found in world"));
+            return;
+        }
+
+        UTileStreamingService* Streaming = Mgr->GetTileStreamingService();
+        if (!Streaming)
+        {
+            UE_LOG(LogWorldGenConsole, Error, TEXT("TileStreamingService unavailable"));
+            return;
+        }
+
+        float RiverScale = 1.0f;
+        int32 ShoreTolerance = 2;
+        if (Args.Num() >= 1)
+        {
+            RiverScale = FMath::Max(0.01f, static_cast<float>(FCString::Atof(*Args[0])));
+        }
+        if (Args.Num() >= 2)
+        {
+            ShoreTolerance = FMath::Max(0, FCString::Atoi(*Args[1]));
+        }
+
+        const FContinuityValidationResult Result = Streaming->ValidateContinuity(false, RiverScale, ShoreTolerance);
+
+        UE_LOG(LogWorldGenConsole, Log,
+            TEXT("Continuity validation: Edges=%d River failures=%d/%d Shoreline failures=%d/%d Biome failures=%d/%d"),
+            Result.EdgesEvaluated,
+            Result.RiverEdgesFailed, Result.RiverEdgesChecked,
+            Result.ShorelineEdgesFailed, Result.ShorelineEdgesChecked,
+            Result.BiomeEdgesFailed, Result.BiomeEdgesChecked);
+
+        if (!Result.bAllContinuitySatisfied)
+        {
+            for (const FTileEdgeValidationIssue& Issue : Result.Issues)
+            {
+                UE_LOG(LogWorldGenConsole, Warning, TEXT("[%s] Tile (%d,%d) <-> (%d,%d): %s"),
+                    *Issue.Category,
+                    Issue.TileA.X, Issue.TileA.Y,
+                    Issue.TileB.X, Issue.TileB.Y,
+                    *Issue.Details);
+            }
+        }
+        else
+        {
+            UE_LOG(LogWorldGenConsole, Log, TEXT("Continuity validation passed with no issues."));
+        }
+    })
+);
+
+static FAutoConsoleCommand CmdPerfValidate(
+    TEXT("wg.perf.validate"),
+    TEXT("Validate in-memory generation performance against targets. Usage: wg.perf.validate [p50=10] [p95=20] [spike=8]"),
+    FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+    {
+        if (!IsEngineReady())
+        {
+            UE_LOG(LogWorldGenConsole, Warning, TEXT("Engine not ready - try after PIE starts"));
+            return;
+        }
+
+        UWorld* World = GetAnyWorld();
+        AWorldGenManager* Mgr = FindWorldGenManager(World);
+        if (!Mgr)
+        {
+            UE_LOG(LogWorldGenConsole, Warning, TEXT("No AWorldGenManager found in world"));
+            return;
+        }
+
+        UTileStreamingService* Streaming = Mgr->GetTileStreamingService();
+        if (!Streaming)
+        {
+            UE_LOG(LogWorldGenConsole, Error, TEXT("TileStreamingService unavailable"));
+            return;
+        }
+
+        float TargetP50 = 10.0f;
+        float TargetP95 = 20.0f;
+        float SpikeThreshold = 8.0f;
+        if (Args.Num() >= 1)
+        {
+            TargetP50 = FMath::Max(0.0f, static_cast<float>(FCString::Atof(*Args[0])));
+        }
+        if (Args.Num() >= 2)
+        {
+            TargetP95 = FMath::Max(TargetP50, static_cast<float>(FCString::Atof(*Args[1])));
+        }
+        if (Args.Num() >= 3)
+        {
+            SpikeThreshold = FMath::Max(0.0f, static_cast<float>(FCString::Atof(*Args[2])));
+        }
+
+        const FPerformanceValidationResult Result = Streaming->ValidatePerformanceTargets(false, TargetP50, TargetP95, SpikeThreshold);
+
+        UE_LOG(LogWorldGenConsole, Log,
+            TEXT("Performance validation: Samples=%d p50=%.2fms (<=%.2f) p95=%.2fms (<=%.2f) MaxSpike=%.2fms (<=%.2f)"),
+            Result.SampleCount,
+            Result.ObservedP50Ms, Result.TargetP50Ms,
+            Result.ObservedP95Ms, Result.TargetP95Ms,
+            Result.ObservedMaxSpikeMs, Result.SpikeThresholdMs);
+
+        if (!Result.bWithinTargets)
+        {
+            for (const FString& Msg : Result.Messages)
+            {
+                UE_LOG(LogWorldGenConsole, Warning, TEXT("%s"), *Msg);
+            }
+            UE_LOG(LogWorldGenConsole, Error, TEXT("Performance validation FAILED."));
+        }
+        else
+        {
+            UE_LOG(LogWorldGenConsole, Log, TEXT("Performance validation passed."));
+        }
+    })
+);
+
+static FAutoConsoleCommand CmdMemoryReport(
+    TEXT("wg.memory.report"),
+    TEXT("Report heightfield texture memory usage and validate against budget. Usage: wg.memory.report [budgetMB=512]"),
+    FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+    {
+        if (!IsEngineReady())
+        {
+            UE_LOG(LogWorldGenConsole, Warning, TEXT("Engine not ready - try after PIE starts"));
+            return;
+        }
+
+        UWorld* World = GetAnyWorld();
+        AWorldGenManager* Mgr = FindWorldGenManager(World);
+        if (!Mgr)
+        {
+            UE_LOG(LogWorldGenConsole, Warning, TEXT("No AWorldGenManager found in world"));
+            return;
+        }
+
+        float BudgetMB = 512.0f;
+        if (Args.Num() >= 1)
+        {
+            BudgetMB = FMath::Max(1.0f, static_cast<float>(FCString::Atof(*Args[0])));
+        }
+
+        UVHMTerrainRenderer* Renderer = Mgr->GetVHMTerrainRenderer();
+        if (!Renderer)
+        {
+            UE_LOG(LogWorldGenConsole, Error, TEXT("VHMTerrainRenderer unavailable"));
+            return;
+        }
+
+        const FVHMPerformanceStats Stats = Renderer->GetPerformanceStats();
+        const bool bWithinBudget = Stats.TextureMemoryUsageMB <= BudgetMB + KINDA_SMALL_NUMBER;
+
+        UTileStreamingService* Streaming = Mgr->GetTileStreamingService();
+        const FTileStreamingMetrics StreamingMetrics = Streaming ? Streaming->GetPerformanceMetrics() : FTileStreamingMetrics();
+
+        UE_LOG(LogWorldGenConsole, Log,
+            TEXT("Texture memory usage: %.2f MB (budget %.2f MB) ActiveVHM=%d LoadedTiles=%d ActiveTiles=%d"),
+            Stats.TextureMemoryUsageMB,
+            BudgetMB,
+            Stats.ActiveVHMComponents,
+            StreamingMetrics.LoadedTiles,
+            StreamingMetrics.ActiveTiles);
+
+        if (!bWithinBudget)
+        {
+            UE_LOG(LogWorldGenConsole, Error, TEXT("Texture memory validation FAILED (usage exceeds budget)."));
+        }
+        else
+        {
+            UE_LOG(LogWorldGenConsole, Log, TEXT("Texture memory validation passed."));
         }
     })
 );

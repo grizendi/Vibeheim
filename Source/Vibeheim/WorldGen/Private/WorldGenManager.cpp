@@ -381,9 +381,14 @@ void AWorldGenManager::ReloadWorldGenAssets()
             {
                 UE_LOG(LogWorldGenManager, Verbose, TEXT("Asset apply: %s"), *W);
             }
-            UE_LOG(LogWorldGenManager, Log, TEXT("Applied Data Assets to world generation settings"));
-        }
-    }
+			UE_LOG(LogWorldGenManager, Log, TEXT("Applied Data Assets to world generation settings"));
+		}
+	}
+
+	if (HeightfieldService)
+	{
+		HeightfieldService->HandleWorldConfigUpdated();
+	}
 
     if (BiomeService)
     {

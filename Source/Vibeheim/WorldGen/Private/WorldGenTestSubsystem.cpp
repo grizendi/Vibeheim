@@ -1218,29 +1218,59 @@ void UWorldGenTestSubsystem::ExecuteDeterminismTestCommand(const TArray<FString>
         return;
     }
 
-    if (Args.Num() < 1)
-    {
-        UE_LOG(LogWorldGenTest, Error, TEXT("wg.test.determinism: Usage: wg.test.determinism <seed> [tiles] [-writebaseline]"));
-        return;
-    }
+	if (Args.Num() < 1)
+	{
+		UE_LOG(LogWorldGenTest, Error, TEXT("wg.test.determinism: Usage: wg.test.determinism <seed> [tiles] [-writebaseline] [-report [file]] [-doublepass]"));
+		return;
+	}
 
-    int32 Seed = FCString::Atoi(*Args[0]);
-    int32 Tiles = 10;
-    bool bWriteBaseline = false;
-    if (Args.Num() >= 2)
-    {
-        if (!Args[1].StartsWith(TEXT("-")))
-        {
-            Tiles = FMath::Max(1, FCString::Atoi(*Args[1]));
-        }
-    }
-    for (int32 i = 1; i < Args.Num(); ++i)
-    {
-        if (Args[i].Equals(TEXT("-writebaseline"), ESearchCase::IgnoreCase))
-        {
-            bWriteBaseline = true;
-        }
-    }
+	int32 Seed = FCString::Atoi(*Args[0]);
+	int32 Tiles = 10;
+	bool bWriteBaseline = false;
+	bool bWriteReport = false;
+	bool bDoublePass = false;
+	FString ReportFileArg;
+	if (Args.Num() >= 2)
+	{
+		if (!Args[1].StartsWith(TEXT("-")))
+		{
+			Tiles = FMath::Max(1, FCString::Atoi(*Args[1]));
+		}
+	}
+	for (int32 i = 1; i < Args.Num(); ++i)
+	{
+		const FString& Arg = Args[i];
+		if (Arg.Equals(TEXT("-writebaseline"), ESearchCase::IgnoreCase))
+		{
+			bWriteBaseline = true;
+			continue;
+		}
+
+		if (Arg.StartsWith(TEXT("-report"), ESearchCase::IgnoreCase))
+		{
+			bWriteReport = true;
+
+			// Allow forms: -report / -report=File / -report File
+			FString Override;
+			if (Arg.Contains(TEXT("=")))
+			{
+				Arg.Split(TEXT("="), nullptr, &Override);
+				ReportFileArg = Override;
+			}
+			else if ((i + 1) < Args.Num() && !Args[i + 1].StartsWith(TEXT("-")))
+			{
+				ReportFileArg = Args[i + 1];
+				++i;
+			}
+			continue;
+		}
+
+		if (Arg.Equals(TEXT("-doublepass"), ESearchCase::IgnoreCase))
+		{
+			bDoublePass = true;
+			continue;
+		}
+	}
 
     // Find manager and services
     UWorld* World = GetWorld();
@@ -1277,37 +1307,185 @@ void UWorldGenTestSubsystem::ExecuteDeterminismTestCommand(const TArray<FString>
     // Generate spiral tiles
     TArray<FTileCoord> TilesList = MakeSpiralFromOrigin(Tiles);
 
-    // Compute checksums per tile
-    struct FTileChecksum { FTileCoord Tile; uint64 Hash; };
-    TArray<FTileChecksum> Results; Results.Reserve(Tiles);
+	// Compute determinism metrics per tile
+	struct FTileDeterminismRecord
+	{
+		FTileCoord Tile;
+		uint64 CombinedHash = 0;
+		uint64 HeightHash = 0;
+		uint64 NormalHash = 0;
+		uint64 SlopeHash = 0;
+		uint64 BiomeHash = 0;
+		uint64 ClimateHash = 0;
+		uint64 ModHash = 0;
+		int32 ModificationCount = 0;
+		EBiomeType Biome = EBiomeType::None;
+		float ClimateTemperature = 0.0f;
+		float ClimateMoisture = 0.0f;
+		float ClimateRing = 0.0f;
+	};
 
-    for (const FTileCoord& T : TilesList)
-    {
-        // Generate pristine heightfield deterministically for given seed (ignore terrain deltas)
-        FHeightfieldData HFData = HF->GenerateHeightfieldPristine(Seed, T);
+	auto BuildRecord = [&](const FTileCoord& Tile) -> FTileDeterminismRecord
+	{
+		FTileDeterminismRecord Record;
+		Record.Tile = Tile;
 
-        // Biome ID using generated data and local climate seeded with 'Seed'
-        EBiomeType BiomeType = LocalBiome->DetermineTileBiome(T, HFData.HeightData);
+		FHeightfieldData HFData = HF->GenerateHeightfieldPristine(Seed, Tile);
 
-        // Climate at tile center (altitude = center height)
-        FVector TileWorldPos = T.ToWorldPosition(WGConfig.TileSizeMeters);
-        FVector2D Center(TileWorldPos.X, TileWorldPos.Y);
-        float CenterHeight = HFData.GetHeightAtSample(HFData.Resolution/2, HFData.Resolution/2);
-        FClimateData Clim = LocalClimate->CalculateClimate(Center, CenterHeight);
+		// Biome ID using generated data and local climate seeded with 'Seed'
+		EBiomeType BiomeType = LocalBiome->DetermineTileBiome(Tile, HFData.HeightData);
+		Record.Biome = BiomeType;
 
-        // Combine into 64-bit hash
-        uint64 H = 1469598103934665603ull;
-        // Heights
-        for (float v : HFData.HeightData) { H = HashFloat64(v, H); }
-        // Biome id
-        H = HashInt32_64(static_cast<int32>(BiomeType), H);
-        // Climate (limit to temp, moisture, ringbias)
-        H = HashFloat64(Clim.Temperature, H);
-        H = HashFloat64(Clim.Moisture, H);
-        H = HashFloat64(Clim.RingBias, H);
+		// Climate at tile center (altitude = center height)
+		FVector TileWorldPos = Tile.ToWorldPosition(WGConfig.TileSizeMeters);
+		FVector2D Center(TileWorldPos.X, TileWorldPos.Y);
+		const int32 SampleIndex = HFData.Resolution / 2;
+		float CenterHeight = HFData.GetHeightAtSample(SampleIndex, SampleIndex);
+		FClimateData Clim = LocalClimate->CalculateClimate(Center, CenterHeight);
 
-        Results.Add({T, H});
-    }
+		Record.ClimateTemperature = Clim.Temperature;
+		Record.ClimateMoisture = Clim.Moisture;
+		Record.ClimateRing = Clim.RingBias;
+
+		// Height hash
+		uint64 HeightHash = 1469598103934665603ull;
+		for (float Value : HFData.HeightData)
+		{
+			HeightHash = HashFloat64(Value, HeightHash);
+		}
+		Record.HeightHash = HeightHash;
+
+		// Normal hash
+		uint64 NormalHash = 1469598103934665603ull;
+		for (const FVector& Normal : HFData.NormalData)
+		{
+			NormalHash = HashFloat64(Normal.X, NormalHash);
+			NormalHash = HashFloat64(Normal.Y, NormalHash);
+			NormalHash = HashFloat64(Normal.Z, NormalHash);
+		}
+		Record.NormalHash = NormalHash;
+
+		// Slope hash
+		uint64 SlopeHash = 1469598103934665603ull;
+		for (float Slope : HFData.SlopeData)
+		{
+			SlopeHash = HashFloat64(Slope, SlopeHash);
+		}
+		Record.SlopeHash = SlopeHash;
+
+		// Climate hash
+		uint64 ClimateHash = 1469598103934665603ull;
+		ClimateHash = HashFloat64(Clim.Temperature, ClimateHash);
+		ClimateHash = HashFloat64(Clim.Moisture, ClimateHash);
+		ClimateHash = HashFloat64(Clim.RingBias, ClimateHash);
+		Record.ClimateHash = ClimateHash;
+
+		// Biome hash
+		uint64 BiomeHash = 1469598103934665603ull;
+		BiomeHash = HashInt32_64(static_cast<int32>(BiomeType), BiomeHash);
+		Record.BiomeHash = BiomeHash;
+
+		// Combined hash (for baseline compatibility)
+		uint64 CombinedHash = HeightHash;
+		CombinedHash = HashInt32_64(static_cast<int32>(BiomeType), CombinedHash);
+		CombinedHash = HashFloat64(Clim.Temperature, CombinedHash);
+		CombinedHash = HashFloat64(Clim.Moisture, CombinedHash);
+		CombinedHash = HashFloat64(Clim.RingBias, CombinedHash);
+		Record.CombinedHash = CombinedHash;
+
+		// Modification journal summary
+		const TArray<FHeightfieldModification> Mods = HF->GetTileModifications(Tile);
+		Record.ModificationCount = Mods.Num();
+		uint64 ModHash = 1469598103934665603ull;
+		for (const FHeightfieldModification& Mod : Mods)
+		{
+			ModHash = HashInt32_64(static_cast<int32>(GetTypeHash(Mod.ModificationId)), ModHash);
+			ModHash = HashInt32_64(static_cast<int32>(Mod.Order), ModHash);
+			ModHash = HashFloat64(Mod.Radius, ModHash);
+			ModHash = HashFloat64(Mod.Strength, ModHash);
+		}
+		Record.ModHash = ModHash;
+
+		return Record;
+	};
+
+	TArray<FTileDeterminismRecord> Records;
+	Records.Reserve(Tiles);
+	for (const FTileCoord& Tile : TilesList)
+	{
+		Records.Add(BuildRecord(Tile));
+	}
+
+	TArray<FTileDeterminismRecord> SecondPassRecords;
+	TMap<FTileCoord, FTileDeterminismRecord> SecondPassLookup;
+	TSet<FTileCoord> DoublePassMismatchTiles;
+	int32 DoublePassMismatches = 0;
+
+	if (bDoublePass)
+	{
+		SecondPassRecords.Reserve(Tiles);
+		SecondPassLookup.Reserve(Tiles);
+		HF->ClearHeightfieldCache();
+
+		for (const FTileCoord& Tile : TilesList)
+		{
+			FTileDeterminismRecord Record = BuildRecord(Tile);
+			SecondPassLookup.Add(Tile, Record);
+			SecondPassRecords.Add(MoveTemp(Record));
+		}
+
+		for (const FTileDeterminismRecord& First : Records)
+		{
+			if (const FTileDeterminismRecord* Second = SecondPassLookup.Find(First.Tile))
+			{
+				const bool bCombinedMismatch = First.CombinedHash != Second->CombinedHash;
+				const bool bComponentMismatch =
+					(First.HeightHash != Second->HeightHash) ||
+					(First.NormalHash != Second->NormalHash) ||
+					(First.SlopeHash != Second->SlopeHash) ||
+					(First.BiomeHash != Second->BiomeHash) ||
+					(First.ClimateHash != Second->ClimateHash) ||
+					(First.ModHash != Second->ModHash);
+
+				if (bCombinedMismatch || bComponentMismatch)
+				{
+					DoublePassMismatchTiles.Add(First.Tile);
+					DoublePassMismatches++;
+
+					if (DoublePassMismatches <= 3)
+					{
+						UE_LOG(LogWorldGenTest, Error,
+							TEXT("wg.test.determinism: double-pass divergence on tile (%d,%d) Run1=0x%016llX Run2=0x%016llX "
+								"[Height1=0x%016llX Height2=0x%016llX, Normal1=0x%016llX Normal2=0x%016llX, "
+								"Slope1=0x%016llX Slope2=0x%016llX, ModCount1=%d ModCount2=%d]"),
+							First.Tile.X, First.Tile.Y,
+							(unsigned long long)First.CombinedHash, (unsigned long long)Second->CombinedHash,
+							(unsigned long long)First.HeightHash, (unsigned long long)Second->HeightHash,
+							(unsigned long long)First.NormalHash, (unsigned long long)Second->NormalHash,
+							(unsigned long long)First.SlopeHash, (unsigned long long)Second->SlopeHash,
+							First.ModificationCount, Second->ModificationCount);
+					}
+				}
+			}
+			else
+			{
+				UE_LOG(LogWorldGenTest, Error,
+					TEXT("wg.test.determinism: double-pass result missing tile (%d,%d) in second run"),
+					First.Tile.X, First.Tile.Y);
+				DoublePassMismatchTiles.Add(First.Tile);
+				DoublePassMismatches++;
+			}
+		}
+
+		if (DoublePassMismatches == 0)
+		{
+			UE_LOG(LogWorldGenTest, Log, TEXT("wg.test.determinism: double-pass check PASS (%d tiles)"), Records.Num());
+		}
+		else
+		{
+			UE_LOG(LogWorldGenTest, Error, TEXT("wg.test.determinism: double-pass check FAIL - %d tiles diverged"), DoublePassMismatches);
+		}
+	}
 
     // Baseline path
     const FString Dir = FPaths::ProjectSavedDir() / TEXT("Vibeheim/WorldGen/Determinism");
@@ -1315,17 +1493,20 @@ void UWorldGenTestSubsystem::ExecuteDeterminismTestCommand(const TArray<FString>
     const FString FileName = FString::Printf(TEXT("seed_%d_tiles_%d.txt"), Seed, Tiles);
     const FString Path = Dir / FileName;
 
-    if (bWriteBaseline)
-    {
-        FString Out;
-        for (const FTileChecksum& R : Results)
-        {
-            Out += FString::Printf(TEXT("%d,%d,0x%016llX\n"), R.Tile.X, R.Tile.Y, (unsigned long long)R.Hash);
-        }
-        if (FFileHelper::SaveStringToFile(Out, *Path))
-        {
-            UE_LOG(LogWorldGenTest, Log, TEXT("wg.test.determinism: Wrote baseline to %s"), *Path);
-        }
+	if (bWriteBaseline)
+	{
+		FString Out;
+		for (const FTileDeterminismRecord& Record : Records)
+		{
+			Out += FString::Printf(TEXT("%d,%d,0x%016llX\n"),
+				Record.Tile.X,
+				Record.Tile.Y,
+				(unsigned long long)Record.CombinedHash);
+		}
+		if (FFileHelper::SaveStringToFile(Out, *Path))
+		{
+			UE_LOG(LogWorldGenTest, Log, TEXT("wg.test.determinism: Wrote baseline to %s"), *Path);
+		}
         else
         {
             UE_LOG(LogWorldGenTest, Error, TEXT("wg.test.determinism: Failed to write baseline to %s"), *Path);
@@ -1334,16 +1515,24 @@ void UWorldGenTestSubsystem::ExecuteDeterminismTestCommand(const TArray<FString>
     }
 
     // Compare with baseline if exists
-    if (!IFileManager::Get().FileExists(*Path))
-    {
-        UE_LOG(LogWorldGenTest, Warning, TEXT("wg.test.determinism: Baseline not found at %s. Use -writebaseline to create."), *Path);
-        // Still print computed checksums for convenience
-        for (const FTileChecksum& R : Results)
-        {
-            UE_LOG(LogWorldGenTest, Log, TEXT("Tile (%d,%d): 0x%016llX"), R.Tile.X, R.Tile.Y, (unsigned long long)R.Hash);
-        }
-        return;
-    }
+	if (!IFileManager::Get().FileExists(*Path))
+	{
+		UE_LOG(LogWorldGenTest, Warning, TEXT("wg.test.determinism: Baseline not found at %s. Use -writebaseline to create."), *Path);
+		// Still print computed metrics for convenience
+		for (const FTileDeterminismRecord& Record : Records)
+		{
+			UE_LOG(LogWorldGenTest, Log,
+				TEXT("Tile (%d,%d): Combined=0x%016llX Height=0x%016llX Normal=0x%016llX Slope=0x%016llX ModCount=%d ModHash=0x%016llX"),
+				Record.Tile.X, Record.Tile.Y,
+				(unsigned long long)Record.CombinedHash,
+				(unsigned long long)Record.HeightHash,
+				(unsigned long long)Record.NormalHash,
+				(unsigned long long)Record.SlopeHash,
+				Record.ModificationCount,
+				(unsigned long long)Record.ModHash);
+		}
+		return;
+	}
 
     TMap<FTileCoord, uint64> Baseline;
     {
@@ -1370,40 +1559,222 @@ void UWorldGenTestSubsystem::ExecuteDeterminismTestCommand(const TArray<FString>
         }
     }
 
-    int32 Mismatches = 0;
-    int32 Printed = 0;
-    for (const FTileChecksum& R : Results)
-    {
-        const uint64* Base = Baseline.Find(R.Tile);
-        if (!Base)
-        {
-            Mismatches++;
-            if (Printed < 3)
-            {
-                UE_LOG(LogWorldGenTest, Error, TEXT("Mismatch: Tile (%d,%d) missing in baseline. Current=0x%016llX"), R.Tile.X, R.Tile.Y, (unsigned long long)R.Hash);
-                Printed++;
-            }
-            continue;
-        }
-        if (*Base != R.Hash)
-        {
-            Mismatches++;
-            if (Printed < 3)
-            {
-                UE_LOG(LogWorldGenTest, Error, TEXT("Mismatch: Tile (%d,%d) baseline=0x%016llX current=0x%016llX"), R.Tile.X, R.Tile.Y, (unsigned long long)*Base, (unsigned long long)R.Hash);
-                Printed++;
-            }
-        }
-    }
+	int32 BaselineMismatches = 0;
+	int32 Printed = 0;
+	TSet<FTileCoord> BaselineMismatchTiles;
+	TSet<FTileCoord> BaselineMissingTiles;
+	TSet<FTileCoord> RecordTileSet;
+	RecordTileSet.Reserve(Records.Num());
 
-    if (Mismatches == 0)
-    {
-        UE_LOG(LogWorldGenTest, Log, TEXT("wg.test.determinism: PASS (%d/%d tiles match)"), Tiles, Tiles);
-    }
-    else
-    {
-        UE_LOG(LogWorldGenTest, Error, TEXT("wg.test.determinism: FAIL - %d mismatches out of %d tiles (showing first %d)"), Mismatches, Tiles, FMath::Min(3, Mismatches));
-    }
+	for (const FTileDeterminismRecord& Record : Records)
+	{
+		RecordTileSet.Add(Record.Tile);
+		const uint64* Base = Baseline.Find(Record.Tile);
+		if (!Base)
+		{
+			BaselineMismatches++;
+			BaselineMissingTiles.Add(Record.Tile);
+			if (Printed < 3)
+			{
+				UE_LOG(LogWorldGenTest, Error,
+					TEXT("wg.test.determinism: Baseline missing tile (%d,%d). Current Combined=0x%016llX Height=0x%016llX Normal=0x%016llX Slope=0x%016llX"),
+					Record.Tile.X, Record.Tile.Y,
+					(unsigned long long)Record.CombinedHash,
+					(unsigned long long)Record.HeightHash,
+					(unsigned long long)Record.NormalHash,
+					(unsigned long long)Record.SlopeHash);
+				Printed++;
+			}
+			continue;
+		}
+
+		if (*Base != Record.CombinedHash)
+		{
+			BaselineMismatches++;
+			BaselineMismatchTiles.Add(Record.Tile);
+			if (Printed < 3)
+			{
+				UE_LOG(LogWorldGenTest, Error,
+					TEXT("wg.test.determinism: Baseline mismatch tile (%d,%d) baseline=0x%016llX current=0x%016llX [Height=0x%016llX Normal=0x%016llX Slope=0x%016llX Mods=%d]"),
+					Record.Tile.X, Record.Tile.Y,
+					(unsigned long long)*Base,
+					(unsigned long long)Record.CombinedHash,
+					(unsigned long long)Record.HeightHash,
+					(unsigned long long)Record.NormalHash,
+					(unsigned long long)Record.SlopeHash,
+					Record.ModificationCount);
+				Printed++;
+			}
+		}
+	}
+
+	// Detect baseline entries not touched in current run
+	for (const TPair<FTileCoord, uint64>& Pair : Baseline)
+	{
+		if (!RecordTileSet.Contains(Pair.Key))
+		{
+			BaselineMismatches++;
+			BaselineMissingTiles.Add(Pair.Key);
+			if (Printed < 3)
+			{
+				UE_LOG(LogWorldGenTest, Error,
+					TEXT("wg.test.determinism: Current run missing baseline tile (%d,%d) baseline=0x%016llX"),
+					Pair.Key.X, Pair.Key.Y,
+					(unsigned long long)Pair.Value);
+				Printed++;
+			}
+		}
+	}
+
+	const bool bBaselinePass = BaselineMismatches == 0;
+	if (bBaselinePass)
+	{
+		UE_LOG(LogWorldGenTest, Log, TEXT("wg.test.determinism: Baseline comparison PASS (%d/%d tiles match)"), Records.Num(), Records.Num());
+	}
+	else
+	{
+		UE_LOG(LogWorldGenTest, Error,
+			TEXT("wg.test.determinism: Baseline comparison FAIL - %d mismatches out of %d tiles (showing first %d)"),
+			BaselineMismatches, Records.Num(), FMath::Min(3, BaselineMismatches));
+	}
+
+	const bool bDoublePassPass = !bDoublePass || DoublePassMismatches == 0;
+	if (bDoublePass && !bDoublePassPass)
+	{
+		UE_LOG(LogWorldGenTest, Error, TEXT("wg.test.determinism: Double-pass regression detected on %d tiles"), DoublePassMismatches);
+	}
+
+	const bool bOverallPass = bBaselinePass && bDoublePassPass;
+
+	if (bWriteReport)
+	{
+		FString ReportFileName = ReportFileArg;
+		if (ReportFileName.IsEmpty())
+		{
+			ReportFileName = FString::Printf(TEXT("seed_%d_tiles_%d_report.csv"), Seed, Tiles);
+		}
+		if (!ReportFileName.EndsWith(TEXT(".csv"), ESearchCase::IgnoreCase))
+		{
+			ReportFileName += TEXT(".csv");
+		}
+
+		const FString ReportPath = Dir / ReportFileName;
+
+		FString Header = TEXT("TileX,TileY,CombinedHash,HeightHash,NormalHash,SlopeHash,BiomeHash,ClimateHash,ModHash,ModCount,Temp,Moisture,Ring,BaselineCombined,BaselineStatus");
+		if (bDoublePass)
+		{
+			Header += TEXT(",CombinedHash2,HeightHash2,NormalHash2,SlopeHash2,BiomeHash2,ClimateHash2,ModHash2,ModCount2,DoublePassMismatch");
+		}
+		Header += TEXT("\n");
+
+		FString Csv;
+		Csv.Reserve(Header.Len() + Records.Num() * 340);
+		Csv += Header;
+
+		for (const FTileDeterminismRecord& Record : Records)
+		{
+			const uint64* Base = Baseline.Find(Record.Tile);
+			const bool bBaselineMismatch = BaselineMismatchTiles.Contains(Record.Tile);
+			const bool bBaselineMissing = BaselineMissingTiles.Contains(Record.Tile) || !Base;
+
+			const FString BaselineCombinedStr = Base
+				? FString::Printf(TEXT("0x%016llX"), (unsigned long long)*Base)
+				: FString();
+
+			FString BaselineStatus = TEXT("MATCH");
+			if (bBaselineMismatch)
+			{
+				BaselineStatus = TEXT("MISMATCH");
+			}
+			else if (bBaselineMissing)
+			{
+				BaselineStatus = TEXT("MISSING");
+			}
+
+			FString Line = FString::Printf(
+				TEXT("%d,%d,0x%016llX,0x%016llX,0x%016llX,0x%016llX,0x%016llX,0x%016llX,0x%016llX,%d,%.4f,%.4f,%.4f,%s,%s"),
+				Record.Tile.X, Record.Tile.Y,
+				(unsigned long long)Record.CombinedHash,
+				(unsigned long long)Record.HeightHash,
+				(unsigned long long)Record.NormalHash,
+				(unsigned long long)Record.SlopeHash,
+				(unsigned long long)Record.BiomeHash,
+				(unsigned long long)Record.ClimateHash,
+				(unsigned long long)Record.ModHash,
+				Record.ModificationCount,
+				Record.ClimateTemperature,
+				Record.ClimateMoisture,
+				Record.ClimateRing,
+				*BaselineCombinedStr,
+				*BaselineStatus);
+
+			if (bDoublePass)
+			{
+				const FTileDeterminismRecord* Second = SecondPassLookup.Find(Record.Tile);
+				const int32 DoublePassMismatchFlag = DoublePassMismatchTiles.Contains(Record.Tile) ? 1 : 0;
+				if (Second)
+				{
+					Line += FString::Printf(
+						TEXT(",0x%016llX,0x%016llX,0x%016llX,0x%016llX,0x%016llX,0x%016llX,0x%016llX,%d,%d"),
+						(unsigned long long)Second->CombinedHash,
+						(unsigned long long)Second->HeightHash,
+						(unsigned long long)Second->NormalHash,
+						(unsigned long long)Second->SlopeHash,
+						(unsigned long long)Second->BiomeHash,
+						(unsigned long long)Second->ClimateHash,
+						(unsigned long long)Second->ModHash,
+						Second->ModificationCount,
+						DoublePassMismatchFlag);
+				}
+				else
+				{
+					Line += FString::Printf(TEXT(",,,,,,,,%d"), DoublePassMismatchFlag);
+				}
+			}
+
+			Line += TEXT("\n");
+			Csv += Line;
+		}
+
+		for (const TPair<FTileCoord, uint64>& Pair : Baseline)
+		{
+			if (RecordTileSet.Contains(Pair.Key))
+			{
+				continue;
+			}
+
+			FString Line = FString::Printf(
+				TEXT("%d,%d,,,,,,,,,,,0x%016llX,MISSING"),
+				Pair.Key.X, Pair.Key.Y,
+				(unsigned long long)Pair.Value);
+
+			if (bDoublePass)
+			{
+				Line += TEXT(",,,,,,,,1");
+			}
+
+			Line += TEXT("\n");
+			Csv += Line;
+		}
+
+		if (FFileHelper::SaveStringToFile(Csv, *ReportPath))
+		{
+			UE_LOG(LogWorldGenTest, Log, TEXT("wg.test.determinism: Wrote diagnostics report to %s"), *ReportPath);
+		}
+		else
+		{
+			UE_LOG(LogWorldGenTest, Error, TEXT("wg.test.determinism: Failed to write diagnostics report to %s"), *ReportPath);
+		}
+	}
+
+	if (bOverallPass)
+	{
+		UE_LOG(LogWorldGenTest, Log, TEXT("wg.test.determinism: PASS"));
+	}
+	else
+	{
+		UE_LOG(LogWorldGenTest, Error, TEXT("wg.test.determinism: FAIL"));
+	}
 }
 void UWorldGenTestSubsystem::ExecutePerfExportCommand(const TArray<FString>& Args)
 {

@@ -15,11 +15,15 @@
 #include "Modules/ModuleManager.h"
 #include "IImageWrapperModule.h"
 #include "IImageWrapper.h"
+#include "Misc/Crc.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogHeightfieldService, Log, All);
 
 namespace
 {
+	static constexpr int32 GHeightfieldDeltaFormatVersion = 5;
+	static constexpr int32 GTerrainJournalVersion = 2;
+
 	bool SavePngFromColors(const FString& AbsolutePath, const TArray<FColor>& Pixels, int32 Width, int32 Height)
 	{
 		if (Pixels.Num() != Width * Height || Width <= 0 || Height <= 0)
@@ -186,6 +190,8 @@ FHeightfieldData UHeightfieldService::GenerateHeightfield(int32 Seed, FTileCoord
 		LoadTileTerrainDeltas(TileCoord);
 	}
 
+	EnsureJournalCompatibility(TileCoord);
+
 	// Check if we have modifications for this tile
 	const FHeightfieldModificationList* Mods = TileModifications.Find(TileCoord);
 	if (Mods && Mods->Modifications.Num() > 0)
@@ -229,6 +235,8 @@ FHeightfieldData UHeightfieldService::GenerateHeightfield(int32 Seed, FTileCoord
 
 		UE_LOG(LogHeightfieldService, Log, TEXT("Successfully applied terrain modifications to tile (%d, %d), height range: [%.2f, %.2f]"),
 			TileCoord.X, TileCoord.Y, NewMinHeight, NewMaxHeight);
+
+		MarkJournalReplayed(TileCoord);
 	}
 	else
 	{
@@ -870,7 +878,9 @@ bool UHeightfieldService::ModifyHeightfield(FVector Location, float Radius, floa
 
 		// Add modification to tile's modification list
 		FHeightfieldModificationList& List = TileModifications.FindOrAdd(TileCoord);
+        EnsureJournalMetadata(TileCoord, List);
 		List.Modifications.Add(TileModification);
+        List.bRequiresReplay = false;
 
 		// Mark tile as dirty for persistence
 		DirtyTiles.Add(TileCoord);
@@ -1059,6 +1069,47 @@ void UHeightfieldService::SetRiverFlowService(URiverFlowService* InRiverFlowServ
 void UHeightfieldService::SetRiverSystemConfig(const TOptional<FRiverSystemConfig>& InRiverConfig)
 {
 	RiverSystemConfig = InRiverConfig;
+}
+
+void UHeightfieldService::HandleWorldConfigUpdated()
+{
+	const int32 CurrentVersion = WorldGenSettings.WorldGenVersion;
+	const uint32 Signature = ComputeMacroConfigSignature();
+
+	int32 MarkedTiles = 0;
+
+	for (auto& Pair : TileModifications)
+	{
+		const FTileCoord TileCoord = Pair.Key;
+		FHeightfieldModificationList& List = Pair.Value;
+
+		const bool bNeedsReplay =
+			(List.AuthoredWorldGenVersion != CurrentVersion) ||
+			(List.MacroConfigSignature != Signature) ||
+			(List.JournalVersion != GTerrainJournalVersion);
+
+		if (bNeedsReplay)
+		{
+			List.bRequiresReplay = true;
+			List.AuthoredWorldGenVersion = CurrentVersion;
+			List.MacroConfigSignature = Signature;
+			List.JournalVersion = GTerrainJournalVersion;
+			DirtyTiles.Add(TileCoord);
+			HeightfieldCache.Remove(TileCoord);
+			MarkedTiles++;
+		}
+	}
+
+	if (MarkedTiles > 0)
+	{
+		UE_LOG(LogHeightfieldService, Log, TEXT("HandleWorldConfigUpdated: Flagged %d terrain journals for replay (WorldGenVersion=%d Signature=0x%08X)"),
+			MarkedTiles, CurrentVersion, Signature);
+	}
+	else
+	{
+		UE_LOG(LogHeightfieldService, VeryVerbose, TEXT("HandleWorldConfigUpdated: No persisted terrain journals required replay for WorldGenVersion=%d."),
+			CurrentVersion);
+	}
 }
 
 void UHeightfieldService::SetClimateSystem(UClimateSystem* InClimateSystem)
@@ -1309,24 +1360,25 @@ void UHeightfieldService::ClearVegetationInArea(FVector2D Center, float Radius)
 bool UHeightfieldService::SaveTileTerrainDeltas(FTileCoord TileCoord)
 {
 	FHeightfieldModificationList* List = TileModifications.Find(TileCoord);
-	TArray<FHeightfieldModification>* TileDeltas = List ? &List->Modifications : nullptr;
 
 	UE_LOG(LogHeightfieldService, Log, TEXT("SaveTileTerrainDeltas: Attempting to save deltas for tile (%d, %d)"),
 		TileCoord.X, TileCoord.Y);
 
-	if (!TileDeltas || TileDeltas->Num() == 0)
+	if (!List || List->Modifications.Num() == 0)
 	{
 		UE_LOG(LogHeightfieldService, VeryVerbose, TEXT("SaveTileTerrainDeltas: No deltas to save for tile (%d, %d)"),
 			TileCoord.X, TileCoord.Y);
 		return true; // No deltas to save
 	}
 
+	const int32 OriginalCount = List->Modifications.Num();
+
 	// Stable deduplication using TArray + TSet (preserves first-seen order)
 	TArray<FHeightfieldModification> DeduplicatedDeltas;
-	DeduplicatedDeltas.Reserve(TileDeltas->Num());
+	DeduplicatedDeltas.Reserve(List->Modifications.Num());
 	TSet<FGuid> SeenModifications;
 
-	for (const FHeightfieldModification& Modification : *TileDeltas)
+	for (const FHeightfieldModification& Modification : List->Modifications)
 	{
 		if (!SeenModifications.Contains(Modification.ModificationId))
 		{
@@ -1336,19 +1388,30 @@ bool UHeightfieldService::SaveTileTerrainDeltas(FTileCoord TileCoord)
 	}
 
 	// Sort by Order field for deterministic serialization
-	Algo::Sort(DeduplicatedDeltas, [](const FHeightfieldModification& A, const FHeightfieldModification& B) {
+	Algo::Sort(DeduplicatedDeltas, [](const FHeightfieldModification& A, const FHeightfieldModification& B)
+	{
 		return A.Order < B.Order;
-		});
+	});
 
-	UE_LOG(LogHeightfieldService, Log, TEXT("SaveTileTerrainDeltas: Found %d deltas to save for tile (%d, %d) (deduplicated from %d)"),
-		DeduplicatedDeltas.Num(), TileCoord.X, TileCoord.Y, TileDeltas->Num());
+	List->Modifications = MoveTemp(DeduplicatedDeltas);
+	List->JournalVersion = GTerrainJournalVersion;
+	List->AuthoredWorldGenVersion = WorldGenSettings.WorldGenVersion;
+	List->MacroConfigSignature = ComputeMacroConfigSignature();
+	List->bRequiresReplay = false;
+
+	NextOrderIndexPerTile.FindOrAdd(TileCoord) = List->Modifications.Num() > 0
+		? List->Modifications.Last().Order + 1
+		: 0;
+
+	UE_LOG(LogHeightfieldService, Log, TEXT("SaveTileTerrainDeltas: Writing %d deltas for tile (%d, %d) (deduplicated from %d)"),
+		List->Modifications.Num(), TileCoord.X, TileCoord.Y, OriginalCount);
 
 	double StartTime = FPlatformTime::Seconds();
 
 	FString FilePath = GetTerraDeltaPath(TileCoord);
 	TArray<uint8> SerializedData;
 
-	if (!SerializeTerrainDeltas(DeduplicatedDeltas, SerializedData))
+	if (!SerializeTerrainDeltas(*List, SerializedData))
 	{
 		UE_LOG(LogHeightfieldService, Error, TEXT("Failed to serialize terrain deltas for tile (%d, %d)"), TileCoord.X, TileCoord.Y);
 		return false;
@@ -1364,7 +1427,7 @@ bool UHeightfieldService::SaveTileTerrainDeltas(FTileCoord TileCoord)
 	float SaveTimeMs = static_cast<float>((EndTime - StartTime) * 1000.0);
 
 	UE_LOG(LogHeightfieldService, Log, TEXT("Saved %d terrain deltas for tile (%d, %d) to %s (%.2fms)"),
-		DeduplicatedDeltas.Num(), TileCoord.X, TileCoord.Y, *FilePath, SaveTimeMs);
+		List->Modifications.Num(), TileCoord.X, TileCoord.Y, *FilePath, SaveTimeMs);
 
 	return true;
 }
@@ -1396,29 +1459,40 @@ bool UHeightfieldService::LoadTileTerrainDeltas(FTileCoord TileCoord)
 		return false;
 	}
 
-	TArray<FHeightfieldModification> LoadedDeltas;
-	if (!DeserializeTerrainDeltas(SerializedData, LoadedDeltas))
+	FHeightfieldModificationList LoadedList;
+	if (!DeserializeTerrainDeltas(SerializedData, LoadedList))
 	{
 		UE_LOG(LogHeightfieldService, Error, TEXT("Failed to deserialize terrain deltas from file: %s"), *FilePath);
 		return false;
 	}
 
-	UE_LOG(LogHeightfieldService, Log, TEXT("LoadTileTerrainDeltas: Successfully deserialized %d deltas from file"),
-		LoadedDeltas.Num());
+	UE_LOG(LogHeightfieldService, Log, TEXT("LoadTileTerrainDeltas: Successfully deserialized %d deltas from file (JournalVersion=%d AuthoredWorldGenVersion=%d MacroSignature=0x%08X Replay=%s)"),
+		LoadedList.Modifications.Num(),
+		LoadedList.JournalVersion,
+		LoadedList.AuthoredWorldGenVersion,
+		LoadedList.MacroConfigSignature,
+		LoadedList.bRequiresReplay ? TEXT("true") : TEXT("false"));
 
 	// Add instrumentation logging to verify loaded sequence matches creation order
-	for (int32 i = 0; i < LoadedDeltas.Num(); ++i)
+	for (int32 i = 0; i < LoadedList.Modifications.Num(); ++i)
 	{
-		const FHeightfieldModification& Mod = LoadedDeltas[i];
+		const FHeightfieldModification& Mod = LoadedList.Modifications[i];
 		UE_LOG(LogHeightfieldService, Warning, TEXT("Loaded[%d]: Op=%d Order=%u Guid=%s Ticks=%lld"),
 			i, (int32)Mod.Operation, Mod.Order,
 			*Mod.ModificationId.ToString(), Mod.Timestamp.GetTicks());
 	}
 
 	// Store loaded modifications (replace any existing ones for this tile)
-	FHeightfieldModificationList List;
-	List.Modifications = MoveTemp(LoadedDeltas);
-	TileModifications.Add(TileCoord, MoveTemp(List));
+	TileModifications.Add(TileCoord, MoveTemp(LoadedList));
+	EnsureJournalCompatibility(TileCoord);
+
+	if (FHeightfieldModificationList* StoredList = TileModifications.Find(TileCoord))
+	{
+		NormalizeModificationList(*StoredList);
+		NextOrderIndexPerTile.FindOrAdd(TileCoord) = StoredList->Modifications.Num() > 0
+			? StoredList->Modifications.Last().Order + 1
+			: 0;
+	}
 
 	// Apply modifications to cached heightfield if it exists
 	FHeightfieldData* CachedData = HeightfieldCache.Find(TileCoord);
@@ -1447,6 +1521,8 @@ bool UHeightfieldService::LoadTileTerrainDeltas(FTileCoord TileCoord)
 		
 		// Recalculate normals and slopes after modifications with deterministic calculation order
 		CalculateNormalsAndSlopes(*CachedData);
+
+		MarkJournalReplayed(TileCoord);
 	}
 
 	double EndTime = FPlatformTime::Seconds();
@@ -1467,20 +1543,172 @@ FString UHeightfieldService::GetTerraDeltaPath(FTileCoord TileCoord) const
 	return PersistenceDirectory / FString::Printf(TEXT("tile_%d_%d.terra"), TileCoord.X, TileCoord.Y);
 }
 
-bool UHeightfieldService::SerializeTerrainDeltas(const TArray<FHeightfieldModification>& Deltas, TArray<uint8>& OutData) const
+uint32 UHeightfieldService::ComputeMacroConfigSignature() const
+{
+	uint32 Signature = 0;
+
+	const UWorldGenSettings* SettingsSingleton = UWorldGenSettings::GetWorldGenSettings();
+	if (SettingsSingleton && SettingsSingleton->MacroWorldConfig.IsSet())
+	{
+		const FMacroWorldConfig& Macro = SettingsSingleton->MacroWorldConfig.GetValue();
+		auto AccumulateFloat = [&Signature](float Value)
+		{
+			Signature = FCrc::TypeCrc32(Value, Signature);
+		};
+
+		AccumulateFloat(Macro.WorldRadiusMeters);
+		AccumulateFloat(Macro.ContinentScale);
+		AccumulateFloat(Macro.IslandFalloff);
+		AccumulateFloat(Macro.OceanDepth);
+		AccumulateFloat(Macro.CoastSharpness);
+
+		if (Macro.IslandFalloffCurve)
+		{
+			Signature = FCrc::StrCrc32(*Macro.IslandFalloffCurve->GetPathName(), Signature);
+		}
+	}
+
+	return Signature;
+}
+
+void UHeightfieldService::EnsureJournalMetadata(const FTileCoord& TileCoord, FHeightfieldModificationList& List)
+{
+	const int32 CurrentVersion = WorldGenSettings.WorldGenVersion;
+	const uint32 Signature = ComputeMacroConfigSignature();
+	bool bDirty = false;
+
+	if (List.JournalVersion != GTerrainJournalVersion)
+	{
+		List.JournalVersion = GTerrainJournalVersion;
+		bDirty = true;
+	}
+	if (List.AuthoredWorldGenVersion != CurrentVersion)
+	{
+		List.AuthoredWorldGenVersion = CurrentVersion;
+		bDirty = true;
+	}
+	if (List.MacroConfigSignature != Signature)
+	{
+		List.MacroConfigSignature = Signature;
+		bDirty = true;
+	}
+	if (List.bRequiresReplay)
+	{
+		List.bRequiresReplay = false;
+		bDirty = true;
+	}
+
+	if (bDirty)
+	{
+		DirtyTiles.Add(TileCoord);
+	}
+}
+
+void UHeightfieldService::EnsureJournalCompatibility(const FTileCoord& TileCoord)
+{
+	FHeightfieldModificationList* List = TileModifications.Find(TileCoord);
+	if (!List)
+	{
+		return;
+	}
+
+	const int32 CurrentVersion = WorldGenSettings.WorldGenVersion;
+	const uint32 Signature = ComputeMacroConfigSignature();
+
+	const bool bVersionMismatch = List->AuthoredWorldGenVersion != CurrentVersion;
+	const bool bMacroMismatch = List->MacroConfigSignature != Signature;
+	const bool bJournalMismatch = List->JournalVersion != GTerrainJournalVersion;
+
+	if (bVersionMismatch || bMacroMismatch || bJournalMismatch)
+	{
+		UE_LOG(LogHeightfieldService, Warning, TEXT("EnsureJournalCompatibility: Tile (%d,%d) marked for replay (Journal %d->%d, Version %d->%d, Macro 0x%08X->0x%08X)"),
+			TileCoord.X, TileCoord.Y,
+			List->JournalVersion, GTerrainJournalVersion,
+			List->AuthoredWorldGenVersion, CurrentVersion,
+			List->MacroConfigSignature, Signature);
+
+		List->bRequiresReplay = true;
+		List->JournalVersion = GTerrainJournalVersion;
+		List->AuthoredWorldGenVersion = CurrentVersion;
+		List->MacroConfigSignature = Signature;
+
+		DirtyTiles.Add(TileCoord);
+		HeightfieldCache.Remove(TileCoord);
+	}
+}
+
+void UHeightfieldService::MarkJournalReplayed(const FTileCoord& TileCoord)
+{
+	if (FHeightfieldModificationList* List = TileModifications.Find(TileCoord))
+	{
+		if (List->bRequiresReplay)
+		{
+			UE_LOG(LogHeightfieldService, Log, TEXT("MarkJournalReplayed: Terrain replay complete for tile (%d,%d)."),
+				TileCoord.X, TileCoord.Y);
+		}
+		List->bRequiresReplay = false;
+		DirtyTiles.Add(TileCoord);
+	}
+}
+
+void UHeightfieldService::NormalizeModificationList(FHeightfieldModificationList& List) const
+{
+	if (List.Modifications.Num() <= 1)
+	{
+		return;
+	}
+
+	TArray<FHeightfieldModification> UniqueMods;
+	UniqueMods.Reserve(List.Modifications.Num());
+	TSet<FGuid> Seen;
+
+	for (const FHeightfieldModification& Modification : List.Modifications)
+	{
+		if (!Seen.Contains(Modification.ModificationId))
+		{
+			Seen.Add(Modification.ModificationId);
+			UniqueMods.Add(Modification);
+		}
+	}
+
+	Algo::Sort(UniqueMods, [](const FHeightfieldModification& A, const FHeightfieldModification& B)
+	{
+		if (A.Order == B.Order)
+		{
+			return A.ModificationId < B.ModificationId;
+		}
+		return A.Order < B.Order;
+	});
+
+	List.Modifications = MoveTemp(UniqueMods);
+}
+
+bool UHeightfieldService::SerializeTerrainDeltas(const FHeightfieldModificationList& List, TArray<uint8>& OutData) const
 {
 	FMemoryWriter MemoryWriter(OutData, true);
 
-	// Write version number for future compatibility
-	int32 Version = 4;  // Bump to version 4 for derived parameters (KernelRadius, FlattenTargetZ, bFlattenUsesTarget)
+	// Write file/version header
+	int32 Version = GHeightfieldDeltaFormatVersion;
 	MemoryWriter << Version;
 
+	int32 JournalVersion = List.JournalVersion;
+	MemoryWriter << JournalVersion;
+
+	int32 AuthoredVersion = List.AuthoredWorldGenVersion;
+	MemoryWriter << AuthoredVersion;
+
+	uint32 MacroSignature = List.MacroConfigSignature;
+	MemoryWriter << MacroSignature;
+
+	uint8 Flags = List.bRequiresReplay ? 1 : 0;
+	MemoryWriter << Flags;
+
 	// Write number of deltas
-	int32 DeltaCount = Deltas.Num();
+	int32 DeltaCount = List.Modifications.Num();
 	MemoryWriter << DeltaCount;
 
 	// Write each delta
-	for (const FHeightfieldModification& Delta : Deltas)
+	for (const FHeightfieldModification& Delta : List.Modifications)
 	{
 		uint8 OperationType = static_cast<uint8>(Delta.Operation);
 		MemoryWriter << OperationType;
@@ -1493,15 +1721,15 @@ bool UHeightfieldService::SerializeTerrainDeltas(const TArray<FHeightfieldModifi
 
 		MemoryWriter << const_cast<FHeightfieldModification&>(Delta).ModificationId;
 
-		// Write Order field (new in version 3)
+		// Write Order field (version 3+)
 		MemoryWriter << const_cast<FHeightfieldModification&>(Delta).Order;
 
-		// Write derived parameters (new in version 4)
+		// Derived parameters (version 4+)
 		MemoryWriter << const_cast<FHeightfieldModification&>(Delta).KernelRadius;
 		MemoryWriter << const_cast<FHeightfieldModification&>(Delta).FlattenTargetZ;
 		MemoryWriter << const_cast<FHeightfieldModification&>(Delta).bFlattenUsesTarget;
 
-		// Write remaining fields
+		// Remaining fields
 		MemoryWriter << const_cast<FHeightfieldModification&>(Delta).Center;
 		MemoryWriter << const_cast<FHeightfieldModification&>(Delta).Radius;
 		MemoryWriter << const_cast<FHeightfieldModification&>(Delta).Strength;
@@ -1510,8 +1738,10 @@ bool UHeightfieldService::SerializeTerrainDeltas(const TArray<FHeightfieldModifi
 	return !MemoryWriter.IsError();
 }
 
-bool UHeightfieldService::DeserializeTerrainDeltas(const TArray<uint8>& InData, TArray<FHeightfieldModification>& OutDeltas) const
+bool UHeightfieldService::DeserializeTerrainDeltas(const TArray<uint8>& InData, FHeightfieldModificationList& OutList) const
 {
+	OutList = FHeightfieldModificationList();
+
 	if (InData.Num() == 0)
 	{
 		return true; // Empty data is valid
@@ -1523,10 +1753,29 @@ bool UHeightfieldService::DeserializeTerrainDeltas(const TArray<uint8>& InData, 
 	int32 Version = 0;
 	MemoryReader << Version;
 
-	if (Version < 1 || Version > 4)
+	if (Version < 1 || Version > GHeightfieldDeltaFormatVersion)
 	{
 		UE_LOG(LogHeightfieldService, Error, TEXT("Unsupported terrain delta version: %d"), Version);
 		return false;
+	}
+
+	if (Version >= 5)
+	{
+		MemoryReader << OutList.JournalVersion;
+		MemoryReader << OutList.AuthoredWorldGenVersion;
+		MemoryReader << OutList.MacroConfigSignature;
+
+		uint8 Flags = 0;
+		MemoryReader << Flags;
+		OutList.bRequiresReplay = (Flags & 1) != 0;
+	}
+	else
+	{
+		// Legacy journals never recorded metadata; flag for replay
+		OutList.JournalVersion = Version;
+		OutList.AuthoredWorldGenVersion = 0;
+		OutList.MacroConfigSignature = 0;
+		OutList.bRequiresReplay = true;
 	}
 
 	// Read number of deltas
@@ -1539,7 +1788,7 @@ bool UHeightfieldService::DeserializeTerrainDeltas(const TArray<uint8>& InData, 
 		return false;
 	}
 
-	OutDeltas.Reserve(DeltaCount);
+	OutList.Modifications.Reserve(DeltaCount);
 
 	// Read each delta
 	for (int32 i = 0; i < DeltaCount; i++)
@@ -1623,7 +1872,7 @@ bool UHeightfieldService::DeserializeTerrainDeltas(const TArray<uint8>& InData, 
 		// Validate that deserialized ModificationId is valid (should never be zero after proper serialization)
 		ensureMsgf(Delta.ModificationId.IsValid(), TEXT("Deserialized FHeightfieldModification::ModificationId should be valid"));
 
-		OutDeltas.Add(Delta);
+		OutList.Modifications.Add(Delta);
 	}
 
 	return !MemoryReader.IsError();
@@ -1647,6 +1896,9 @@ void UHeightfieldService::ClearTileModifications(FTileCoord TileCoord)
 
 	// Remove from dirty tiles set
 	DirtyTiles.Remove(TileCoord);
+
+	// Reset order tracking
+	NextOrderIndexPerTile.Remove(TileCoord);
 
 	// Remove from heightfield cache to force regeneration
 	HeightfieldCache.Remove(TileCoord);

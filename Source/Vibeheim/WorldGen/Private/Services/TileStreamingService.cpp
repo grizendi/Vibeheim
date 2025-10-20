@@ -781,6 +781,429 @@ FTileStreamingMetrics UTileStreamingService::GetPerformanceMetrics() const
 	return PerformanceMetrics;
 }
 
+namespace
+{
+	static FString DescribeEdgeDirection(const FTileCoord& A, const FTileCoord& B)
+	{
+		if (B.X == A.X + 1 && B.Y == A.Y)
+		{
+			return TEXT("East-West");
+		}
+		if (B.X == A.X - 1 && B.Y == A.Y)
+		{
+			return TEXT("West-East");
+		}
+		if (B.Y == A.Y + 1 && B.X == A.X)
+		{
+			return TEXT("North-South");
+		}
+		if (B.Y == A.Y - 1 && B.X == A.X)
+		{
+			return TEXT("South-North");
+		}
+		return TEXT("Diagonal/Unknown");
+	}
+
+	static float ComputePercentile(const TArray<float>& SortedSamples, float Fraction)
+	{
+		if (SortedSamples.Num() == 0)
+		{
+			return 0.0f;
+		}
+
+		const float ClampedFraction = FMath::Clamp(Fraction, 0.0f, 1.0f);
+		const float IndexFloat = ClampedFraction * (SortedSamples.Num() - 1);
+		const int32 IndexLower = FMath::Clamp(FMath::FloorToInt(IndexFloat), 0, SortedSamples.Num() - 1);
+		const int32 IndexUpper = FMath::Clamp(IndexLower + 1, 0, SortedSamples.Num() - 1);
+		const float Alpha = IndexFloat - static_cast<float>(IndexLower);
+
+		return FMath::Lerp(SortedSamples[IndexLower], SortedSamples[IndexUpper], Alpha);
+	}
+}
+
+FContinuityValidationResult UTileStreamingService::ValidateContinuity(bool bLogDetails, float RiverThresholdScale, int32 ShorelineToleranceSamples) const
+{
+	FContinuityValidationResult Result;
+	Result.RiverThresholdScale = RiverThresholdScale;
+	Result.ShorelineToleranceSamples = ShorelineToleranceSamples;
+
+	if (TileCache.Num() == 0)
+	{
+		if (bLogDetails)
+		{
+			UE_LOG(LogTileStreaming, Warning, TEXT("ValidateContinuity: Tile cache empty, nothing to validate."));
+		}
+		return Result;
+	}
+
+	auto AddIssue = [&Result](const FTileCoord& TileA, const FTileCoord& TileB, const FString& Category, const FString& Details)
+	{
+		FTileEdgeValidationIssue Issue;
+		Issue.TileA = TileA;
+		Issue.TileB = TileB;
+		Issue.Category = Category;
+		Issue.Details = Details;
+		Result.Issues.Add(MoveTemp(Issue));
+	};
+
+	TMap<EBiomeType, TSet<EBiomeType>> AllowedNeighborMap;
+	if (BiomeService)
+	{
+		const TArray<FBiomeRingDefinition>& RingDefs = BiomeService->GetBiomeRingDefinitions();
+		for (const FBiomeRingDefinition& Ring : RingDefs)
+		{
+			TSet<EBiomeType>& Set = AllowedNeighborMap.FindOrAdd(Ring.BiomeType);
+			for (EBiomeType Allowed : Ring.AllowedNeighbors)
+			{
+				Set.Add(Allowed);
+			}
+			Set.Add(Ring.BiomeType); // allow self by default
+		}
+	}
+
+	const TArray<FIntPoint> NeighborOffsets = { FIntPoint(1, 0), FIntPoint(0, 1) };
+	TArray<FTileCoord> Tiles;
+	TileCache.GetKeys(Tiles);
+	Tiles.Sort([](const FTileCoord& A, const FTileCoord& B)
+	{
+		return (A.X == B.X) ? (A.Y < B.Y) : (A.X < B.X);
+	});
+
+	for (const FTileCoord& BaseTile : Tiles)
+	{
+		const FTileStreamingData* BaseData = TileCache.Find(BaseTile);
+		if (!BaseData)
+		{
+			continue;
+		}
+
+		if (static_cast<int32>(BaseData->State) < static_cast<int32>(ETileState::Generated))
+		{
+			continue;
+		}
+
+		for (const FIntPoint& Offset : NeighborOffsets)
+		{
+			const FTileCoord NeighborTile(BaseTile.X + Offset.X, BaseTile.Y + Offset.Y);
+			const FTileStreamingData* NeighborData = TileCache.Find(NeighborTile);
+			if (!NeighborData)
+			{
+				continue;
+			}
+
+			if (static_cast<int32>(NeighborData->State) < static_cast<int32>(ETileState::Generated))
+			{
+				continue;
+			}
+
+			Result.EdgesEvaluated++;
+
+			const FString EdgeDirection = DescribeEdgeDirection(BaseTile, NeighborTile);
+
+			// --- River continuity ---
+			const bool bBaseHasRiver = BaseData->RiverFlowData.IsValid();
+			const bool bNeighborHasRiver = NeighborData->RiverFlowData.IsValid();
+
+			if (bBaseHasRiver || bNeighborHasRiver)
+			{
+				Result.RiverEdgesChecked++;
+
+				bool bRiverFailure = false;
+				int32 MismatchSamples = 0;
+
+				if (bBaseHasRiver && bNeighborHasRiver)
+				{
+					const FRiverFlowTileData& FlowA = BaseData->RiverFlowData;
+					const FRiverFlowTileData& FlowB = NeighborData->RiverFlowData;
+
+					const int32 Res = FlowA.Resolution;
+					if (Res > 0 && FlowB.Resolution == Res &&
+						FlowA.FlowAccumulation.Num() == Res * Res &&
+						FlowB.FlowAccumulation.Num() == Res * Res)
+					{
+						const float ThresholdA = (FlowA.AccumulationThreshold > 0.0f ? FlowA.AccumulationThreshold : FlowA.MaxAccumulation * 0.5f) * RiverThresholdScale;
+						const float ThresholdB = (FlowB.AccumulationThreshold > 0.0f ? FlowB.AccumulationThreshold : FlowB.MaxAccumulation * 0.5f) * RiverThresholdScale;
+
+						if (Offset.X != 0)
+						{
+							// East-west edge
+							const int32 EdgeIndexA = (Offset.X > 0) ? (Res - 1) : 0;
+							const int32 EdgeIndexB = (Offset.X > 0) ? 0 : (Res - 1);
+							for (int32 Row = 0; Row < Res; ++Row)
+							{
+								const int32 IndexA = Row * Res + EdgeIndexA;
+								const int32 IndexB = Row * Res + EdgeIndexB;
+								const bool bRiverA = FlowA.FlowAccumulation[IndexA] >= ThresholdA;
+								const bool bRiverB = FlowB.FlowAccumulation[IndexB] >= ThresholdB;
+								if (bRiverA != bRiverB)
+								{
+									++MismatchSamples;
+								}
+							}
+						}
+						else
+						{
+							// North-south edge
+							const int32 EdgeIndexA = (Offset.Y > 0) ? (Res - 1) : 0;
+							const int32 EdgeIndexB = (Offset.Y > 0) ? 0 : (Res - 1);
+							for (int32 Col = 0; Col < Res; ++Col)
+							{
+								const int32 IndexA = EdgeIndexA * Res + Col;
+								const int32 IndexB = EdgeIndexB * Res + Col;
+								const bool bRiverA = FlowA.FlowAccumulation[IndexA] >= ThresholdA;
+								const bool bRiverB = FlowB.FlowAccumulation[IndexB] >= ThresholdB;
+								if (bRiverA != bRiverB)
+								{
+									++MismatchSamples;
+								}
+							}
+						}
+
+						if (MismatchSamples > 0)
+						{
+							bRiverFailure = true;
+						}
+					}
+					else
+					{
+						bRiverFailure = true;
+						AddIssue(BaseTile, NeighborTile, TEXT("River"), FString::Printf(TEXT("%s edge: mismatched resolutions (%d vs %d) or accumulation data."),
+							*EdgeDirection, FlowA.Resolution, FlowB.Resolution));
+					}
+				}
+				else
+				{
+					// Only one tile has river data
+					bRiverFailure = true;
+					AddIssue(BaseTile, NeighborTile, TEXT("River"), FString::Printf(TEXT("%s edge: one tile missing river flow data (A=%s, B=%s)."),
+						*EdgeDirection,
+						bBaseHasRiver ? TEXT("present") : TEXT("missing"),
+						bNeighborHasRiver ? TEXT("present") : TEXT("missing")));
+				}
+
+				if (bRiverFailure && bBaseHasRiver && bNeighborHasRiver && MismatchSamples > 0)
+				{
+					AddIssue(BaseTile, NeighborTile, TEXT("River"), FString::Printf(TEXT("%s edge: %d river samples diverge."), *EdgeDirection, MismatchSamples));
+				}
+
+				if (bRiverFailure)
+				{
+					Result.RiverEdgesFailed++;
+				}
+			}
+
+			// --- Shoreline continuity ---
+			const FTileWaterData& WaterA = BaseData->WaterData;
+			const FTileWaterData& WaterB = NeighborData->WaterData;
+			const bool bHasWaterDataA = WaterA.Resolution > 0 && WaterA.WaterMask.Num() == WaterA.Resolution * WaterA.Resolution;
+			const bool bHasWaterDataB = WaterB.Resolution > 0 && WaterB.WaterMask.Num() == WaterB.Resolution * WaterB.Resolution;
+
+			if (bHasWaterDataA || bHasWaterDataB)
+			{
+				Result.ShorelineEdgesChecked++;
+
+				bool bShorelineFailure = false;
+				int32 ShorelineMismatchCount = 0;
+
+				if (bHasWaterDataA && bHasWaterDataB && WaterA.Resolution == WaterB.Resolution)
+				{
+					const int32 Res = WaterA.Resolution;
+					const auto EvalColumn = [&](int32 ColA, int32 ColB)
+					{
+						for (int32 Row = 0; Row < Res; ++Row)
+						{
+							const int32 IndexA = Row * Res + ColA;
+							const int32 IndexB = Row * Res + ColB;
+							const bool bWaterA = WaterA.WaterMask.IsValidIndex(IndexA) ? (WaterA.WaterMask[IndexA] > 0) : false;
+							const bool bWaterB = WaterB.WaterMask.IsValidIndex(IndexB) ? (WaterB.WaterMask[IndexB] > 0) : false;
+							if (bWaterA != bWaterB)
+							{
+								++ShorelineMismatchCount;
+							}
+						}
+					};
+
+					const auto EvalRow = [&](int32 RowA, int32 RowB)
+					{
+						for (int32 Col = 0; Col < Res; ++Col)
+						{
+							const int32 IndexA = RowA * Res + Col;
+							const int32 IndexB = RowB * Res + Col;
+							const bool bWaterA = WaterA.WaterMask.IsValidIndex(IndexA) ? (WaterA.WaterMask[IndexA] > 0) : false;
+							const bool bWaterB = WaterB.WaterMask.IsValidIndex(IndexB) ? (WaterB.WaterMask[IndexB] > 0) : false;
+							if (bWaterA != bWaterB)
+							{
+								++ShorelineMismatchCount;
+							}
+						}
+					};
+
+					if (Offset.X != 0)
+					{
+						const int32 EdgeA = (Offset.X > 0) ? (Res - 1) : 0;
+						const int32 EdgeB = (Offset.X > 0) ? 0 : (Res - 1);
+						EvalColumn(EdgeA, EdgeB);
+					}
+					else
+					{
+						const int32 EdgeA = (Offset.Y > 0) ? (Res - 1) : 0;
+						const int32 EdgeB = (Offset.Y > 0) ? 0 : (Res - 1);
+						EvalRow(EdgeA, EdgeB);
+					}
+
+					if (ShorelineMismatchCount > ShorelineToleranceSamples)
+					{
+						bShorelineFailure = true;
+						AddIssue(BaseTile, NeighborTile, TEXT("Shoreline"), FString::Printf(TEXT("%s edge: %d water mask mismatches (tolerance %d)."),
+							*EdgeDirection, ShorelineMismatchCount, ShorelineToleranceSamples));
+					}
+				}
+				else
+				{
+					bShorelineFailure = true;
+					AddIssue(BaseTile, NeighborTile, TEXT("Shoreline"), FString::Printf(TEXT("%s edge: inconsistent water data (Res A=%d, Res B=%d)."),
+						*EdgeDirection, WaterA.Resolution, WaterB.Resolution));
+				}
+
+				if (bShorelineFailure)
+				{
+					Result.ShorelineEdgesFailed++;
+				}
+			}
+
+			// --- Biome ring neighbor validation ---
+			if (AllowedNeighborMap.Num() > 0)
+			{
+				Result.BiomeEdgesChecked++;
+
+				const auto AllowsNeighbor = [&AllowedNeighborMap](EBiomeType Source, EBiomeType Neighbor)
+				{
+					if (Source == Neighbor)
+					{
+						return true;
+					}
+					if (const TSet<EBiomeType>* Allowed = AllowedNeighborMap.Find(Source))
+					{
+						return Allowed->Contains(Neighbor);
+					}
+					return true; // Missing definition implies no restriction
+				};
+
+				const bool bAllowedAB = AllowsNeighbor(BaseData->BiomeType, NeighborData->BiomeType);
+				const bool bAllowedBA = AllowsNeighbor(NeighborData->BiomeType, BaseData->BiomeType);
+
+				if (!bAllowedAB || !bAllowedBA)
+				{
+					Result.BiomeEdgesFailed++;
+					AddIssue(BaseTile, NeighborTile, TEXT("Biome"),
+						FString::Printf(TEXT("%s edge: biome transition %d -> %d (allowed=%s) / %d -> %d (allowed=%s)"),
+							*EdgeDirection,
+							static_cast<int32>(BaseData->BiomeType), static_cast<int32>(NeighborData->BiomeType),
+							bAllowedAB ? TEXT("true") : TEXT("false"),
+							static_cast<int32>(NeighborData->BiomeType), static_cast<int32>(BaseData->BiomeType),
+							bAllowedBA ? TEXT("true") : TEXT("false")));
+				}
+			}
+		}
+	}
+
+	Result.bAllContinuitySatisfied =
+		(Result.RiverEdgesFailed == 0) &&
+		(Result.ShorelineEdgesFailed == 0) &&
+		(Result.BiomeEdgesFailed == 0);
+
+	if (bLogDetails)
+	{
+		UE_LOG(LogTileStreaming, Log,
+			TEXT("ValidateContinuity: Edges=%d River=%d/%d failures, Shoreline=%d/%d failures, Biome=%d/%d failures"),
+			Result.EdgesEvaluated,
+			Result.RiverEdgesFailed, Result.RiverEdgesChecked,
+			Result.ShorelineEdgesFailed, Result.ShorelineEdgesChecked,
+			Result.BiomeEdgesFailed, Result.BiomeEdgesChecked);
+
+		for (const FTileEdgeValidationIssue& Issue : Result.Issues)
+		{
+			UE_LOG(LogTileStreaming, Warning, TEXT("[%s] Tile (%d,%d) <-> (%d,%d): %s"),
+				*Issue.Category,
+				Issue.TileA.X, Issue.TileA.Y,
+				Issue.TileB.X, Issue.TileB.Y,
+				*Issue.Details);
+		}
+	}
+
+	return Result;
+}
+
+FPerformanceValidationResult UTileStreamingService::ValidatePerformanceTargets(bool bLogDetails, float TargetP50Ms, float TargetP95Ms, float SpikeThresholdMs) const
+{
+	FPerformanceValidationResult Result;
+	Result.TargetP50Ms = TargetP50Ms;
+	Result.TargetP95Ms = TargetP95Ms;
+	Result.SpikeThresholdMs = SpikeThresholdMs;
+
+	Result.SampleCount = RecentGenerationTimes.Num();
+
+	if (Result.SampleCount > 0)
+	{
+		TArray<float> Samples = RecentGenerationTimes;
+		Samples.Sort();
+		Result.ObservedP50Ms = ComputePercentile(Samples, 0.5f);
+		Result.ObservedP95Ms = ComputePercentile(Samples, 0.95f);
+
+		if (Result.ObservedP50Ms > TargetP50Ms)
+		{
+			Result.bGenerationTargetsMet = false;
+			Result.Messages.Add(FString::Printf(TEXT("p50 exceeded target: %.2fms > %.2fms"), Result.ObservedP50Ms, TargetP50Ms));
+		}
+		if (Result.ObservedP95Ms > TargetP95Ms)
+		{
+			Result.bGenerationTargetsMet = false;
+			Result.Messages.Add(FString::Printf(TEXT("p95 exceeded target: %.2fms > %.2fms"), Result.ObservedP95Ms, TargetP95Ms));
+		}
+	}
+	else
+	{
+		Result.Messages.Add(TEXT("No generation samples recorded yet. Treating generation targets as satisfied."));
+	}
+
+	float MaxSpike = 0.0f;
+	for (const auto& Pair : TileCache)
+	{
+		MaxSpike = FMath::Max(MaxSpike, Pair.Value.ThreadSpikesMs);
+	}
+	Result.ObservedMaxSpikeMs = MaxSpike;
+	if (MaxSpike > SpikeThresholdMs)
+	{
+		Result.bSpikeTargetMet = false;
+		Result.Messages.Add(FString::Printf(TEXT("Activation spike exceeded threshold: %.2fms > %.2fms"), MaxSpike, SpikeThresholdMs));
+	}
+
+	Result.bWithinTargets = Result.bGenerationTargetsMet && Result.bSpikeTargetMet;
+
+	if (bLogDetails)
+	{
+		UE_LOG(LogTileStreaming, Log,
+			TEXT("ValidatePerformanceTargets: Samples=%d p50=%.2fms (<=%.2f) p95=%.2fms (<=%.2f) MaxSpike=%.2fms (<=%.2f)"),
+			Result.SampleCount,
+			Result.ObservedP50Ms, TargetP50Ms,
+			Result.ObservedP95Ms, TargetP95Ms,
+			Result.ObservedMaxSpikeMs, SpikeThresholdMs);
+
+		for (const FString& Msg : Result.Messages)
+		{
+			if (Result.bWithinTargets)
+			{
+				UE_LOG(LogTileStreaming, Log, TEXT("  %s"), *Msg);
+			}
+			else
+			{
+				UE_LOG(LogTileStreaming, Warning, TEXT("  %s"), *Msg);
+			}
+		}
+	}
+
+	return Result;
+}
 void UTileStreamingService::UpdatePerformanceMetrics() const
 {
 	// Count tiles by state

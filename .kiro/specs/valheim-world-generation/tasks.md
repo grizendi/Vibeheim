@@ -116,7 +116,7 @@
 
 ## Phase 7: Enhanced POI System
 
-**Note:** Basic POI service with tile-level stratified sampling is complete. This phase adds global uniqueness and advanced features.
+**Note:** Basic POI service with tile-level blue-noise sampling and global uniqueness is complete. Terrain stamping operations remain to be implemented.
 
 - [x] 11. Extend POIService for global uniqueness and terrain stamping
 - [x] 11.1 Implement world-level POI distribution
@@ -125,10 +125,11 @@
   - Implement cross-tile POI distance checking
   - _Requirements: 6_
 
-- [x] 11.2 Enhance terrain stamping operations
-  - Extend existing ApplyTerrainStamp with additional operation types (raise, smooth)
+- [ ] 11.2 Enhance terrain stamping operations
+  - Implement ApplyTerrainStamp with operation types (raise, lower, smooth, flatten)
   - Ensure stamping operations integrate with HeightfieldService persistence
   - Add cross-tile stamping support for large POIs
+  - Wire stamping into POI placement workflow
   - _Requirements: 6_
 
 - [x] 11.3 Implement persistence reconciliation
@@ -137,12 +138,12 @@
   - Add POI removal/update tracking for gameplay interactions
   - _Requirements: 6_
 
-## Phase 8: Complete Async Generation Pipeline — COMPLETE
+## Phase 8: Complete Async Generation Pipeline
 
-**Note:** Budgeted streaming pipeline with prefetch queues, spike detection, and CSV export are fully implemented.
+**Note:** Budgeted streaming pipeline with prefetch queues is implemented. Performance monitoring methods need implementation.
 
-- [x] 12. Complete AsyncGenerationPipeline performance monitoring
-- [x] 12.1 Implement activation spike detection
+- [ ] 12. Complete AsyncGenerationPipeline performance monitoring
+- [ ] 12.1 Implement activation spike detection
   - Implement `SampleFrameTime()` to track frame time samples over rolling window (~3s)
   - Implement `ComputeRecentSpikeMs()` to detect spikes exceeding +8ms threshold relative to baseline
   - Log spike events with tile coordinates and timing details
@@ -150,42 +151,46 @@
   - Call spike detection in `NotifyVHMRenderer` or `UpdateStreaming`
   - _Requirements: 7, 8_
 
-- [x] 12.2 Implement ExportPerformanceCSV functionality
+- [ ] 12.2 Implement ExportPerformanceCSV functionality
   - Implement `UTileStreamingService::ExportPerformanceCSV()` method body
   - Export per-tile metrics: TileCoord, GenMs, PCGMs, StreamInMs, GTOverheadMs, ThreadSpikesMs
   - Write CSV to `Saved/Vibeheim/WorldGen/Perf/<timestamp>_perf.csv` with headers
   - Include error entries for failed tiles with ErrorCode column
-  - Add console command `wg.perf.export` integration (already declared)
+  - Console command `wg.perf.export` is already wired up
   - _Requirements: 7, 8_
 
-- [x] 12.3 Implement runtime budget adjustment commands
-  - Add `wg.streaming.budget <stage> <ms>` console command to modify per-stage budgets
+- [ ] 12.3 Implement runtime budget adjustment commands
+  - Implement `wg.streaming.budget <stage> <ms>` console command to modify per-stage budgets
   - Support stages: height, biome, pcg, vhm, total
-  - Add `wg.prefetch <rings>` command to control prefetch ring count at runtime
+  - Implement `wg.prefetch <rings>` command to control prefetch ring count at runtime
   - Log budget changes and validate positive values
   - _Requirements: 7_
 
 ## Phase 9: Enhanced Configuration and Runtime Control
 
-- [x] 13. Implement remaining validation commands
-- [x] 13.1 Add map export command
-  - Implement `wg.map.export` to export heightfield/biome data
-  - Support various export formats (PNG, CSV)
+- [ ] 13. Implement remaining validation commands
+- [ ] 13.1 Add map export command
+  - Implement `wg.map.export` to export heightfield/biome data as PNG or CSV
+  - Support exporting single tiles or tile ranges
+  - Include heightfield, biome map, and water mask exports
   - _Requirements: 9_
 
-- [x] 13.2 Add ring validation command
+- [ ] 13.2 Add ring validation command
   - Implement `wg.rings.validate` to check biome ring consistency
   - Validate ring boundaries and neighbor constraints
+  - Report violations with tile coordinates and biome transitions
   - _Requirements: 2, 9_
 
-- [x] 13.3 Add river export command
-  - Implement `wg.rivers.export` to export flow map data
+- [ ] 13.3 Add river export command
+  - Implement `wg.rivers.export` to export flow map data as PNG or CSV
   - Visualize river networks and flow accumulation
+  - Include flow direction vectors and accumulation values
   - _Requirements: 4, 9_
 
-- [x] 13.4 Add POI validation command
+- [ ] 13.4 Add POI validation command
   - Implement `wg.poi.validate` to check POI placement rules
   - Validate uniqueness and spacing constraints
+  - Report violations with POI names and world coordinates
   - _Requirements: 6, 9_
 
 ## Phase 10: Persistence and Determinism
@@ -194,43 +199,47 @@
 - [ ] 14.1 Implement terrain edit replay system
   - Add system to replay terrain modifications over macro changes
   - Handle version migration for heightfield modifications
+  - Store modification journals with world generation version tags
   - _Requirements: 8_
 
 - [ ] 14.2 Add journal compatibility system
   - Ensure modification journals work across world generation versions
   - Implement compatibility checks and migration paths
+  - Add version-specific replay handlers for breaking changes
   - _Requirements: 8_
 
 - [ ] 14.3 Implement determinism diagnostics
   - Add detailed logging for non-deterministic behavior
   - Create diagnostic tools to identify determinism issues
-  - Extend `wg.test.determinism` with detailed reporting
+  - Extend `wg.test.determinism` with detailed reporting (checksum comparison, tile-by-tile diff)
   - _Requirements: 8_
 
 ## Phase 11: Integration and Performance Validation
 
 - [ ] 15. Full service integration validation
 - [ ] 15.1 Implement cross-tile continuity validation
-  - Add validation for river continuity across tile boundaries
-  - Check shoreline consistency at tile edges
-  - Validate biome ring transitions
+  - Implement validation for river continuity across tile boundaries (flow direction alignment)
+  - Check shoreline consistency at tile edges (water mask agreement)
+  - Validate biome ring transitions (smooth blending, no abrupt changes)
+  - Wire into `UTileStreamingService::ValidateContinuity()` method (already declared)
   - _Requirements: 1, 2, 3, 4_
 
 - [ ] 15.2 Add texture memory validation
-  - Implement memory tracking for heightfield textures
+  - Implement memory tracking for heightfield textures in HeightfieldTextureManager
   - Validate memory usage stays within 512MB limit
-  - Add `wg.memory.report` command
+  - Implement `wg.memory.report` command to display current usage
   - _Requirements: 8_
 
 - [ ] 15.3 Implement performance target validation
-  - Validate p50 <= 10ms, p95 <= 20ms for tile generation
+  - Implement `UTileStreamingService::ValidatePerformanceTargets()` method body (already declared)
+  - Validate p50 <= 10ms, p95 <= 20ms for tile generation from cached metrics
   - Check activation spikes <= +8ms over 3s window
-  - Create automated performance regression tests
+  - Return structured result with pass/fail and detailed metrics
   - _Requirements: 8_
 
 ## Verification Gates Summary
 
 - Gate E: Macro topology — coastline ratio, histogram shape, seam check (COMPLETE)
-- Gate F: Water/rivers - river continuity = 0; coastal coverage >= 80% (COMPLETE - Water system, flow maps, and carving implemented)
-- Gate G: PCG/POI — validation commands; density within +/- 20% (PARTIAL - PCG complete, POI basic implementation complete, global uniqueness and validation commands pending)
-- Gate H: Pipeline/perf - p50/p95/spikes within targets; memory <= limits (MOSTLY COMPLETE - spike detection, CSV export, and runtime budget commands implemented; validation commands pending)
+- Gate F: Water/rivers - river continuity = 0; coastal coverage >= 80% (COMPLETE - Water system, flow maps, and carving implemented; validation commands pending)
+- Gate G: PCG/POI — validation commands; density within +/- 20% (PARTIAL - PCG complete, POI blue-noise and uniqueness complete, terrain stamping and validation commands pending)
+- Gate H: Pipeline/perf - p50/p95/spikes within targets; memory <= limits (PARTIAL - Infrastructure in place; spike detection, CSV export, runtime budget commands, and validation methods need implementation)

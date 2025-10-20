@@ -102,6 +102,102 @@ struct VIBEHEIM_API FLRUCacheEntry
 		: TileCoord(InTileCoord), LastAccessTime(InLastAccessTime) {}
 };
 
+USTRUCT(BlueprintType)
+struct VIBEHEIM_API FTileEdgeValidationIssue
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly)
+	FTileCoord TileA;
+
+	UPROPERTY(BlueprintReadOnly)
+	FTileCoord TileB;
+
+	UPROPERTY(BlueprintReadOnly)
+	FString Category;
+
+	UPROPERTY(BlueprintReadOnly)
+	FString Details;
+};
+
+USTRUCT(BlueprintType)
+struct VIBEHEIM_API FContinuityValidationResult
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly)
+	bool bAllContinuitySatisfied = true;
+
+	UPROPERTY(BlueprintReadOnly)
+	int32 EdgesEvaluated = 0;
+
+	UPROPERTY(BlueprintReadOnly)
+	int32 RiverEdgesChecked = 0;
+
+	UPROPERTY(BlueprintReadOnly)
+	int32 RiverEdgesFailed = 0;
+
+	UPROPERTY(BlueprintReadOnly)
+	int32 ShorelineEdgesChecked = 0;
+
+	UPROPERTY(BlueprintReadOnly)
+	int32 ShorelineEdgesFailed = 0;
+
+	UPROPERTY(BlueprintReadOnly)
+	int32 BiomeEdgesChecked = 0;
+
+	UPROPERTY(BlueprintReadOnly)
+	int32 BiomeEdgesFailed = 0;
+
+	UPROPERTY(BlueprintReadOnly)
+	float RiverThresholdScale = 1.0f;
+
+	UPROPERTY(BlueprintReadOnly)
+	int32 ShorelineToleranceSamples = 2;
+
+	UPROPERTY(BlueprintReadOnly)
+	TArray<FTileEdgeValidationIssue> Issues;
+};
+
+USTRUCT(BlueprintType)
+struct VIBEHEIM_API FPerformanceValidationResult
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly)
+	bool bWithinTargets = true;
+
+	UPROPERTY(BlueprintReadOnly)
+	bool bGenerationTargetsMet = true;
+
+	UPROPERTY(BlueprintReadOnly)
+	bool bSpikeTargetMet = true;
+
+	UPROPERTY(BlueprintReadOnly)
+	int32 SampleCount = 0;
+
+	UPROPERTY(BlueprintReadOnly)
+	float ObservedP50Ms = 0.0f;
+
+	UPROPERTY(BlueprintReadOnly)
+	float ObservedP95Ms = 0.0f;
+
+	UPROPERTY(BlueprintReadOnly)
+	float ObservedMaxSpikeMs = 0.0f;
+
+	UPROPERTY(BlueprintReadOnly)
+	float TargetP50Ms = 10.0f;
+
+	UPROPERTY(BlueprintReadOnly)
+	float TargetP95Ms = 20.0f;
+
+	UPROPERTY(BlueprintReadOnly)
+	float SpikeThresholdMs = 8.0f;
+
+	UPROPERTY(BlueprintReadOnly)
+	TArray<FString> Messages;
+};
+
 /**
  * Performance metrics for tile streaming
  */
@@ -205,6 +301,18 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Tile Streaming")
 	FTileStreamingMetrics GetPerformanceMetrics() const;
+
+	/**
+	 * Validate cross-tile continuity (rivers, shorelines, biome rings)
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Tile Streaming|Validation")
+	FContinuityValidationResult ValidateContinuity(bool bLogDetails = true, float RiverThresholdScale = 1.0f, int32 ShorelineToleranceSamples = 2) const;
+
+	/**
+	 * Validate generation performance against targets
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Tile Streaming|Validation")
+	FPerformanceValidationResult ValidatePerformanceTargets(bool bLogDetails = true, float TargetP50Ms = 10.0f, float TargetP95Ms = 20.0f, float SpikeThresholdMs = 8.0f) const;
 
 	/**
 	 * Clear all cached tiles

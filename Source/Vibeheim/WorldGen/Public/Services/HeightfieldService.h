@@ -80,6 +80,18 @@ struct VIBEHEIM_API FHeightfieldModificationList
 
 	UPROPERTY()
 	TArray<FHeightfieldModification> Modifications; // or Mods, name it as you like
+
+	UPROPERTY()
+	int32 JournalVersion = 1;
+
+	UPROPERTY()
+	int32 AuthoredWorldGenVersion = 0;
+
+	UPROPERTY()
+	uint32 MacroConfigSignature = 0;
+
+	UPROPERTY()
+	bool bRequiresReplay = false;
 };
 
 
@@ -130,6 +142,12 @@ public:
 
 	/** Update river system configuration (unset disables river carving) */
 	void SetRiverSystemConfig(const TOptional<FRiverSystemConfig>& InRiverConfig);
+
+	/**
+	 * Notify the service that macro world parameters have changed and terrain journals must be replayed
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Heightfield")
+	void HandleWorldConfigUpdated();
 
 	/**
 	 * Get current generation settings
@@ -294,12 +312,12 @@ private:
 	/**
 	 * Serialize terrain delta data to binary format
 	 */
-	bool SerializeTerrainDeltas(const TArray<FHeightfieldModification>& Deltas, TArray<uint8>& OutData) const;
+	bool SerializeTerrainDeltas(const FHeightfieldModificationList& List, TArray<uint8>& OutData) const;
 
 	/**
 	 * Deserialize terrain delta data from binary format
 	 */
-	bool DeserializeTerrainDeltas(const TArray<uint8>& InData, TArray<FHeightfieldModification>& OutDeltas) const;
+	bool DeserializeTerrainDeltas(const TArray<uint8>& InData, FHeightfieldModificationList& OutList) const;
 
 	/**
 	* Apply heightfield modification directly to a heightfield data object
@@ -325,4 +343,11 @@ private:
 
 	/** Active river system configuration */
 	TOptional<FRiverSystemConfig> RiverSystemConfig;
+
+	/** Terrain delta serialization helpers */
+	uint32 ComputeMacroConfigSignature() const;
+	void EnsureJournalMetadata(const FTileCoord& TileCoord, FHeightfieldModificationList& List);
+	void EnsureJournalCompatibility(const FTileCoord& TileCoord);
+	void MarkJournalReplayed(const FTileCoord& TileCoord);
+	void NormalizeModificationList(FHeightfieldModificationList& List) const;
 };
