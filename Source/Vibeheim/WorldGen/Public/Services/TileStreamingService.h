@@ -559,7 +559,7 @@ private:
     /**
      * Compute spike in last WindowSec seconds relative to baseline
      */
-    float ComputeRecentSpikeMs(double NowSeconds, double WindowSec = 3.0) const;
+    float ComputeRecentSpikeMs(double NowSeconds, double WindowSec = 3.0, float* OutBaselineMs = nullptr) const;
 
 	/**
 	 * Drain queued generation work while respecting streaming budgets

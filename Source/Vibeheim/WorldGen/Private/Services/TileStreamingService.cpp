@@ -18,6 +18,12 @@
 
 DEFINE_LOG_CATEGORY_STATIC(LogTileStreaming, Log, All);
 
+namespace
+{
+    constexpr double FrameTimeHistorySeconds = 6.0;
+    constexpr float ActivationSpikeThresholdMs = 8.0f;
+}
+
 UTileStreamingService::UTileStreamingService()
 {
 	HeightfieldService = nullptr;
@@ -1324,10 +1330,16 @@ void UTileStreamingService::NotifyVHMRenderer(const TArray<FTileCoord>& ActiveTi
             TileData->GTOverheadMs = FMath::Max(0.0f, CallMs - MeshMs);
 
             // Compute recent thread spike around activation
-            const float SpikeMs = ComputeRecentSpikeMs(After, /*WindowSec=*/3.0);
+            float BaselineMs = 0.0f;
+            const float SpikeMs = ComputeRecentSpikeMs(After, /*WindowSec=*/3.0, &BaselineMs);
             TileData->ThreadSpikesMs = SpikeMs;
+            if (SpikeMs > ActivationSpikeThresholdMs && BaselineMs > KINDA_SMALL_NUMBER)
+            {
+                UE_LOG(LogTileStreaming, Warning, TEXT("Activation spike %.2fms detected for tile (%d,%d) above %.2fms baseline"),
+                    SpikeMs, TileCoord.X, TileCoord.Y, BaselineMs);
+            }
 
-			CurrentBudgets.ConsumeVHM(CallMs);
+                        CurrentBudgets.ConsumeVHM(CallMs);
         }
     }
 
@@ -1348,6 +1360,18 @@ void UTileStreamingService::SampleFrameTime()
     const float FrameMs = FApp::GetDeltaTime() * 1000.0f;
     const double Now = FPlatformTime::Seconds();
     FrameTimeSamples.Emplace(Now, FrameMs);
+
+    const double MinTime = Now - FrameTimeHistorySeconds;
+    int32 RemoveCount = 0;
+    while (RemoveCount < FrameTimeSamples.Num() && FrameTimeSamples[RemoveCount].Key < MinTime)
+    {
+        ++RemoveCount;
+    }
+    if (RemoveCount > 0)
+    {
+        FrameTimeSamples.RemoveAt(0, RemoveCount, EAllowShrinking::No);
+    }
+
     if (FrameTimeSamples.Num() > MaxFrameSamples)
     {
         const int32 Excess = FrameTimeSamples.Num() - MaxFrameSamples;
@@ -1355,10 +1379,14 @@ void UTileStreamingService::SampleFrameTime()
     }
 }
 
-float UTileStreamingService::ComputeRecentSpikeMs(double NowSeconds, double WindowSec) const
+float UTileStreamingService::ComputeRecentSpikeMs(double NowSeconds, double WindowSec, float* OutBaselineMs) const
 {
     if (FrameTimeSamples.Num() == 0)
     {
+        if (OutBaselineMs)
+        {
+            *OutBaselineMs = 0.0f;
+        }
         return 0.0f;
     }
 
@@ -1382,10 +1410,18 @@ float UTileStreamingService::ComputeRecentSpikeMs(double NowSeconds, double Wind
 
     if (CountInWindow == 0)
     {
+        if (OutBaselineMs)
+        {
+            *OutBaselineMs = (CountBefore > 0) ? (SumBefore / CountBefore) : 0.0f;
+        }
         return 0.0f;
     }
 
     const float Baseline = (CountBefore > 0) ? (SumBefore / CountBefore) : MaxInWindow;
+    if (OutBaselineMs)
+    {
+        *OutBaselineMs = Baseline;
+    }
     return FMath::Max(0.0f, MaxInWindow - Baseline);
 }
 
@@ -1400,7 +1436,7 @@ bool UTileStreamingService::ExportPerformanceCSV(const FString& OptionalFileName
     const FString Path = Dir / Filename;
 
     FString Out;
-    Out += TEXT("TileX,TileY,GenMs,PCGMs,StreamInMs,GTOverheadMs,ThreadSpikesMs\n");
+    Out += TEXT("TileX,TileY,GenMs,PCGMs,StreamInMs,GTOverheadMs,ThreadSpikesMs,ErrorCode\n");
 
     // Write rows for cached tiles
     for (const auto& Pair : TileCache)
@@ -1410,26 +1446,25 @@ bool UTileStreamingService::ExportPerformanceCSV(const FString& OptionalFileName
 
         if (!D.ErrorCode.IsEmpty())
         {
-            const FString Err = FString::Printf(TEXT("ERR:%s"), *D.ErrorCode);
-            Out += FString::Printf(TEXT("%d,%d,%s,%s,%s,%s,%s\n"), T.X, T.Y, *Err, *Err, *Err, *Err, *Err);
+            Out += FString::Printf(TEXT("%d,%d,,,,,%s\n"), T.X, T.Y, *D.ErrorCode);
         }
         else
         {
-            Out += FString::Printf(TEXT("%d,%d,%.2f,%.2f,%.2f,%.2f,%.2f\n"),
+            Out += FString::Printf(TEXT("%d,%d,%.2f,%.2f,%.2f,%.2f,%.2f,%s\n"),
                 T.X, T.Y,
                 D.GenerationTimeMs,
                 D.PCGGenerationTimeMs,
                 D.StreamInTimeMs,
                 D.GTOverheadMs,
-                D.ThreadSpikesMs);
+                D.ThreadSpikesMs,
+                TEXT(""));
         }
     }
 
     // Write rows for explicit error entries that may not be cached
     for (const FTileErrorEntry& E : ErrorEntries)
     {
-        const FString Err = FString::Printf(TEXT("ERR:%s"), *E.Code);
-        Out += FString::Printf(TEXT("%d,%d,%s,%s,%s,%s,%s\n"), E.Tile.X, E.Tile.Y, *Err, *Err, *Err, *Err, *Err);
+        Out += FString::Printf(TEXT("%d,%d,,,,,%s\n"), E.Tile.X, E.Tile.Y, *E.Code);
     }
 
     const bool bSaved = FFileHelper::SaveStringToFile(Out, *Path);

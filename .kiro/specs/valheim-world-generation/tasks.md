@@ -125,7 +125,7 @@
   - Implement cross-tile POI distance checking
   - _Requirements: 6_
 
-- [ ] 11.2 Enhance terrain stamping operations
+- [x] 11.2 Enhance terrain stamping operations
   - Implement ApplyTerrainStamp with operation types (raise, lower, smooth, flatten)
   - Ensure stamping operations integrate with HeightfieldService persistence
   - Add cross-tile stamping support for large POIs
@@ -143,7 +143,7 @@
 **Note:** Budgeted streaming pipeline with prefetch queues is implemented. Performance monitoring methods need implementation.
 
 - [ ] 12. Complete AsyncGenerationPipeline performance monitoring
-- [ ] 12.1 Implement activation spike detection
+- [x] 12.1 Implement activation spike detection
   - Implement `SampleFrameTime()` to track frame time samples over rolling window (~3s)
   - Implement `ComputeRecentSpikeMs()` to detect spikes exceeding +8ms threshold relative to baseline
   - Log spike events with tile coordinates and timing details
@@ -151,7 +151,7 @@
   - Call spike detection in `NotifyVHMRenderer` or `UpdateStreaming`
   - _Requirements: 7, 8_
 
-- [ ] 12.2 Implement ExportPerformanceCSV functionality
+- [x] 12.2 Implement ExportPerformanceCSV functionality
   - Implement `UTileStreamingService::ExportPerformanceCSV()` method body
   - Export per-tile metrics: TileCoord, GenMs, PCGMs, StreamInMs, GTOverheadMs, ThreadSpikesMs
   - Write CSV to `Saved/Vibeheim/WorldGen/Perf/<timestamp>_perf.csv` with headers

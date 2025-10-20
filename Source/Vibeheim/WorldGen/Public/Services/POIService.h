@@ -81,7 +81,7 @@ public:
 
 	// IPOIServiceInterface interface
 	virtual bool Initialize(const FWorldGenConfig& Settings) override;
-	virtual TArray<FPOIData> GenerateTilePOIs(FTileCoord TileCoord, EBiomeType BiomeType, const TArray<float>& HeightData) override;
+        virtual TArray<FPOIData> GenerateTilePOIs(FTileCoord TileCoord, EBiomeType BiomeType, TArray<float>& HeightData) override;
 	virtual bool ValidatePOIPlacement(FVector Location, const FPOISpawnRule& Rule, const TArray<float>& HeightData, FTileCoord TileCoord) override;
 	virtual bool CheckPOIDistanceRequirements(FVector Location, const FPOISpawnRule& Rule, const TArray<FPOIData>& ExistingPOIs) override;
 	virtual bool ApplyTerrainStamp(FVector Location, float Radius, TArray<float>& HeightData, FTileCoord TileCoord, const FPOITerrainStampSettings& StampSettings = FPOITerrainStampSettings()) override;
@@ -232,9 +232,11 @@ private:
 	/**
 	 * Apply terrain flattening stamp to heightfield data
 	 */
-	void ApplyFlatteningStamp(FVector2D Center, float Radius, float Strength, TArray<float>& HeightData, FTileCoord TileCoord) const;
-	void ApplyRaiseStamp(FVector2D Center, float Radius, float Strength, float RaiseHeightMeters, TArray<float>& HeightData, FTileCoord TileCoord) const;
-	void ApplySmoothStamp(FVector2D Center, float Radius, int32 Iterations, TArray<float>& HeightData, FTileCoord TileCoord) const;
+    void ApplyFlatteningStamp(FVector2D Center, float Radius, float Strength, TArray<float>& HeightData, FTileCoord TileCoord) const;
+    void ApplyRaiseStamp(FVector2D Center, float Radius, float Strength, float RaiseHeightMeters, TArray<float>& HeightData, FTileCoord TileCoord) const;
+    void ApplyLowerStamp(FVector2D Center, float Radius, float Strength, float LowerDepthMeters, TArray<float>& HeightData, FTileCoord TileCoord) const;
+    void ApplySmoothStamp(FVector2D Center, float Radius, int32 Iterations, TArray<float>& HeightData, FTileCoord TileCoord) const;
+    void SyncHeightDataFromService(const FTileCoord& TileCoord, TArray<float>& InOutHeightData) const;
 
 	/**
 	 * Update performance statistics

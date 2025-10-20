@@ -28,7 +28,7 @@ public:
 	/**
 	 * Generate POIs for a specific tile using stratified placement
 	 */
-	virtual TArray<FPOIData> GenerateTilePOIs(FTileCoord TileCoord, EBiomeType BiomeType, const TArray<float>& HeightData) = 0;
+        virtual TArray<FPOIData> GenerateTilePOIs(FTileCoord TileCoord, EBiomeType BiomeType, TArray<float>& HeightData) = 0;
 
 	/**
 	 * Validate POI placement location with slope and flat ground checks
