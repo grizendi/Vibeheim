@@ -56,7 +56,7 @@ bool UPOIService::Initialize(const FWorldGenConfig& Settings)
 	return true;
 }
 
-TArray<FPOIData> UPOIService::GenerateTilePOIs(FTileCoord TileCoord, EBiomeType BiomeType, const TArray<float>& HeightData)
+TArray<FPOIData> UPOIService::GenerateTilePOIs(FTileCoord TileCoord, EBiomeType BiomeType, TArray<float>& HeightData)
 {
 	double StartTime = FPlatformTime::Seconds();
 	TArray<FPOIData> GeneratedPOIs;
@@ -138,18 +138,31 @@ TArray<FPOIData> UPOIService::GenerateTilePOIs(FTileCoord TileCoord, EBiomeType 
 
 			// Check distance requirements
 			float ReservationRadius = GetReservationRadiusMeters(Rule);
-			// Create POI data
-			FPOIData NewPOI;
-			NewPOI.POIName = Rule.POIName;
-			NewPOI.Location = WorldLocation;
-			NewPOI.Location.Z = GetHeightAtTileLocation(WorldToTileLocal(WorldLocation, TileCoord), HeightData, TileCoord);
-			NewPOI.POIBlueprint = Rule.POIBlueprint;
-			NewPOI.OriginBiome = BiomeType;
-			
-			GeneratedPOIs.Add(NewPOI);
-			AllPOIs.Add(NewPOI.POIId, NewPOI);
-			RemovedPOIs.Remove(NewPOI.POIId);
-			ReserveLocationForPOI(NewPOI, ReservationRadius, Rule);
+                        // Create POI data and apply terrain stamp if requested
+                        FPOIData NewPOI;
+                        NewPOI.POIName = Rule.POIName;
+                        NewPOI.Location = WorldLocation;
+                        NewPOI.POIBlueprint = Rule.POIBlueprint;
+                        NewPOI.OriginBiome = BiomeType;
+
+                        const FPOITerrainStampSettings& StampSettings = Rule.TerrainStampSettings;
+                        if (StampSettings.Operation != EPOITerrainStampMode::None)
+                        {
+                                if (!ApplyTerrainStamp(WorldLocation, ReservationRadius, HeightData, TileCoord, StampSettings))
+                                {
+                                        UE_LOG(LogPOIService, Warning, TEXT("Failed to apply terrain stamp for POI '%s' at (%.1f, %.1f)"),
+                                                *Rule.POIName, WorldLocation.X, WorldLocation.Y);
+                                        continue;
+                                }
+                        }
+
+                        // Sample updated height after stamping
+                        NewPOI.Location.Z = GetHeightAtTileLocation(WorldToTileLocal(NewPOI.Location, TileCoord), HeightData, TileCoord);
+
+                        GeneratedPOIs.Add(NewPOI);
+                        AllPOIs.Add(NewPOI.POIId, NewPOI);
+                        RemovedPOIs.Remove(NewPOI.POIId);
+                        ReserveLocationForPOI(NewPOI, ReservationRadius, Rule);
 			if (Rule.bUniquePerWorld)
 			{
 				NewlySpawnedUniqueNames.Add(Rule.POIName);
@@ -238,75 +251,122 @@ bool UPOIService::CheckPOIDistanceRequirements(FVector Location, const FPOISpawn
 
 bool UPOIService::ApplyTerrainStamp(FVector Location, float Radius, TArray<float>& HeightData, FTileCoord TileCoord, const FPOITerrainStampSettings& StampSettings)
 {
-	const float EffectiveRadius = (StampSettings.RadiusMeters > KINDA_SMALL_NUMBER) ? StampSettings.RadiusMeters : Radius;
-	if (EffectiveRadius <= KINDA_SMALL_NUMBER)
-	{
-		UE_LOG(LogPOIService, Warning, TEXT("ApplyTerrainStamp skipped due to non-positive radius (%.2f)"), EffectiveRadius);
-		return false;
-	}
+        const float EffectiveRadius = (StampSettings.RadiusMeters > KINDA_SMALL_NUMBER) ? StampSettings.RadiusMeters : Radius;
+        if (EffectiveRadius <= KINDA_SMALL_NUMBER)
+        {
+                UE_LOG(LogPOIService, Warning, TEXT("ApplyTerrainStamp skipped due to non-positive radius (%.2f)"), EffectiveRadius);
+                return false;
+        }
 
-	// Determine operation and strength defaults
-	EPOITerrainStampMode Operation = StampSettings.Operation == EPOITerrainStampMode::None
-		? EPOITerrainStampMode::Flatten
-		: StampSettings.Operation;
+        // Determine operation and strength defaults
+        EPOITerrainStampMode Operation = StampSettings.Operation == EPOITerrainStampMode::None
+                ? EPOITerrainStampMode::Flatten
+                : StampSettings.Operation;
 
-	float Strength = StampSettings.Strength;
-	if (Strength <= KINDA_SMALL_NUMBER)
-	{
-		Strength = ValidationSettings.TerrainStampStrength;
-	}
-	Strength = FMath::Clamp(Strength, 0.0f, 1.0f);
+        float Strength = StampSettings.Strength;
+        if (Strength <= KINDA_SMALL_NUMBER)
+        {
+                Strength = ValidationSettings.TerrainStampStrength;
+        }
+        Strength = FMath::Clamp(Strength, 0.0f, 1.0f);
 
-	FVector2D LocalPos = WorldToTileLocal(Location, TileCoord);
+        const FVector2D LocalPos = WorldToTileLocal(Location, TileCoord);
+        const float TileHalfSize = WorldGenSettings.TileSizeMeters * 0.5f;
+        const bool bTouchesNeighborTiles = StampSettings.bAffectNeighborTiles
+                || (FMath::Abs(LocalPos.X) + EffectiveRadius > TileHalfSize)
+                || (FMath::Abs(LocalPos.Y) + EffectiveRadius > TileHalfSize);
 
-	switch (Operation)
-	{
-	case EPOITerrainStampMode::Flatten:
-		ApplyFlatteningStamp(LocalPos, EffectiveRadius, Strength, HeightData, TileCoord);
-		break;
-	case EPOITerrainStampMode::Raise:
-		ApplyRaiseStamp(LocalPos, EffectiveRadius, Strength, StampSettings.RaiseHeightMeters, HeightData, TileCoord);
-		break;
-	case EPOITerrainStampMode::Smooth:
-		ApplySmoothStamp(LocalPos, EffectiveRadius, FMath::Max(StampSettings.SmoothIterations, 1), HeightData, TileCoord);
-		break;
-	default:
-		UE_LOG(LogPOIService, Warning, TEXT("ApplyTerrainStamp received unsupported operation (%d)"), static_cast<int32>(Operation));
-		return false;
-	}
+        auto ResolveHeightOperation = [&](EHeightfieldOperation& OutOperation, float& OutStrength)
+        {
+                switch (Operation)
+                {
+                case EPOITerrainStampMode::Flatten:
+                        OutOperation = EHeightfieldOperation::Flatten;
+                        OutStrength = Strength;
+                        return Strength > KINDA_SMALL_NUMBER;
+                case EPOITerrainStampMode::Raise:
+                        OutOperation = EHeightfieldOperation::Add;
+                        OutStrength = StampSettings.RaiseHeightMeters * Strength;
+                        return OutStrength > KINDA_SMALL_NUMBER;
+                case EPOITerrainStampMode::Lower:
+                        OutOperation = EHeightfieldOperation::Subtract;
+                        OutStrength = StampSettings.LowerDepthMeters * Strength;
+                        return OutStrength > KINDA_SMALL_NUMBER;
+                case EPOITerrainStampMode::Smooth:
+                        OutOperation = EHeightfieldOperation::Smooth;
+                        OutStrength = Strength;
+                        return Strength > KINDA_SMALL_NUMBER;
+                default:
+                        return false;
+                }
+        };
 
-	// Record modification with heightfield service to persist across tiles/world loads
-	if (HeightfieldService)
-	{
-		EHeightfieldOperation HeightOp = EHeightfieldOperation::Flatten;
-		float PersistenceStrength = Strength;
+        bool bApplied = false;
+        bool bAppliedViaService = false;
+        EHeightfieldOperation HeightOp = EHeightfieldOperation::Flatten;
+        float PersistenceStrength = Strength;
+        const bool bHasValidHeightOp = ResolveHeightOperation(HeightOp, PersistenceStrength);
 
-		switch (Operation)
-		{
-		case EPOITerrainStampMode::Flatten:
-			HeightOp = EHeightfieldOperation::Flatten;
-			break;
-		case EPOITerrainStampMode::Raise:
-			HeightOp = EHeightfieldOperation::Add;
-			PersistenceStrength = StampSettings.RaiseHeightMeters * Strength;
-			break;
-		case EPOITerrainStampMode::Smooth:
-			HeightOp = EHeightfieldOperation::Smooth;
-			break;
-		default:
-			break;
-		}
+        if (HeightfieldService && bHasValidHeightOp)
+        {
+                if (HeightfieldService->ModifyHeightfield(Location, EffectiveRadius, PersistenceStrength, HeightOp))
+                {
+                        SyncHeightDataFromService(TileCoord, HeightData);
+                        bApplied = true;
+                        bAppliedViaService = true;
+                }
+                else
+                {
+                        UE_LOG(LogPOIService, Warning, TEXT("ModifyHeightfield failed for stamp operation %s at (%.1f, %.1f)"),
+                                *UEnum::GetDisplayValueAsText(Operation).ToString(), Location.X, Location.Y);
+                }
+        }
 
-		if (PersistenceStrength > KINDA_SMALL_NUMBER)
-		{
-			HeightfieldService->ModifyHeightfield(Location, EffectiveRadius, PersistenceStrength, HeightOp);
-		}
-	}
+        if (!bAppliedViaService)
+        {
+                switch (Operation)
+                {
+                case EPOITerrainStampMode::Flatten:
+                        ApplyFlatteningStamp(LocalPos, EffectiveRadius, Strength, HeightData, TileCoord);
+                        break;
+                case EPOITerrainStampMode::Raise:
+                        ApplyRaiseStamp(LocalPos, EffectiveRadius, Strength, StampSettings.RaiseHeightMeters, HeightData, TileCoord);
+                        break;
+                case EPOITerrainStampMode::Lower:
+                        ApplyLowerStamp(LocalPos, EffectiveRadius, Strength, StampSettings.LowerDepthMeters, HeightData, TileCoord);
+                        break;
+                case EPOITerrainStampMode::Smooth:
+                        ApplySmoothStamp(LocalPos, EffectiveRadius, FMath::Max(StampSettings.SmoothIterations, 1), HeightData, TileCoord);
+                        break;
+                default:
+                        UE_LOG(LogPOIService, Warning, TEXT("ApplyTerrainStamp received unsupported operation (%d)"), static_cast<int32>(Operation));
+                        return false;
+                }
 
-	UE_LOG(LogPOIService, Verbose, TEXT("Applied %s terrain stamp at (%.1f, %.1f, %.1f) with radius %.1f (strength %.2f)"),
-		*UEnum::GetDisplayValueAsText(Operation).ToString(), Location.X, Location.Y, Location.Z, EffectiveRadius, Strength);
+                bApplied = true;
 
-	return true;
+                if (HeightfieldService && bHasValidHeightOp)
+                {
+                        if (HeightfieldService->ModifyHeightfield(Location, EffectiveRadius, PersistenceStrength, HeightOp))
+                        {
+                                SyncHeightDataFromService(TileCoord, HeightData);
+                        }
+                        else
+                        {
+                                UE_LOG(LogPOIService, Warning, TEXT("Fallback ModifyHeightfield failed for stamp operation %s at (%.1f, %.1f)"),
+                                        *UEnum::GetDisplayValueAsText(Operation).ToString(), Location.X, Location.Y);
+                        }
+                }
+        }
+
+        if (bApplied)
+        {
+                const FString NeighborNote = bTouchesNeighborTiles ? TEXT(" (affects neighbor tiles)") : TEXT("");
+                UE_LOG(LogPOIService, Verbose, TEXT("Applied %s terrain stamp at (%.1f, %.1f, %.1f) with radius %.1f (strength %.2f)%s"),
+                        *UEnum::GetDisplayValueAsText(Operation).ToString(), Location.X, Location.Y, Location.Z, EffectiveRadius, Strength, *NeighborNote);
+        }
+
+        return bApplied;
 }
 
 TArray<FPOIData> UPOIService::GetPOIsInArea(FVector Center, float Radius)
@@ -720,14 +780,14 @@ void UPOIService::ApplyFlatteningStamp(FVector2D Center, float Radius, float Str
 
 void UPOIService::ApplyRaiseStamp(FVector2D Center, float Radius, float Strength, float RaiseHeightMeters, TArray<float>& HeightData, FTileCoord TileCoord) const
 {
-	if (RaiseHeightMeters == 0.0f || Strength <= KINDA_SMALL_NUMBER)
-	{
-		return;
-	}
+        if (RaiseHeightMeters == 0.0f || Strength <= KINDA_SMALL_NUMBER)
+        {
+                return;
+        }
 
-	const int32 Resolution = FMath::Sqrt(static_cast<float>(HeightData.Num()));
-	const float TileSize = WorldGenSettings.TileSizeMeters;
-	const float TargetHeight = GetHeightAtTileLocation(Center, HeightData, TileCoord) + RaiseHeightMeters;
+        const int32 Resolution = FMath::Sqrt(static_cast<float>(HeightData.Num()));
+        const float TileSize = WorldGenSettings.TileSizeMeters;
+        const float TargetHeight = GetHeightAtTileLocation(Center, HeightData, TileCoord) + RaiseHeightMeters;
 
 	for (int32 Y = 0; Y < Resolution; ++Y)
 	{
@@ -751,15 +811,51 @@ void UPOIService::ApplyRaiseStamp(FVector2D Center, float Radius, float Strength
 			const float CurrentHeight = HeightData[Index];
 			HeightData[Index] = FMath::Lerp(CurrentHeight, TargetHeight, Strength * Falloff);
 		}
-	}
+        }
+}
+
+void UPOIService::ApplyLowerStamp(FVector2D Center, float Radius, float Strength, float LowerDepthMeters, TArray<float>& HeightData, FTileCoord TileCoord) const
+{
+        if (LowerDepthMeters <= 0.0f || Strength <= KINDA_SMALL_NUMBER)
+        {
+                return;
+        }
+
+        const int32 Resolution = FMath::Sqrt(static_cast<float>(HeightData.Num()));
+        const float TileSize = WorldGenSettings.TileSizeMeters;
+        const float TargetHeight = GetHeightAtTileLocation(Center, HeightData, TileCoord) - LowerDepthMeters;
+
+        for (int32 Y = 0; Y < Resolution; ++Y)
+        {
+                for (int32 X = 0; X < Resolution; ++X)
+                {
+                        FVector2D LocalPos(
+                                (X / float(Resolution - 1) - 0.5f) * TileSize,
+                                (Y / float(Resolution - 1) - 0.5f) * TileSize
+                        );
+
+                        float Distance = FVector2D::Distance(LocalPos, Center);
+                        if (Distance > Radius)
+                        {
+                                continue;
+                        }
+
+                        float Falloff = 1.0f - (Distance / Radius);
+                        Falloff = FMath::SmoothStep(0.0f, 1.0f, Falloff);
+
+                        const int32 Index = Y * Resolution + X;
+                        const float CurrentHeight = HeightData[Index];
+                        HeightData[Index] = FMath::Lerp(CurrentHeight, TargetHeight, Strength * Falloff);
+                }
+        }
 }
 
 void UPOIService::ApplySmoothStamp(FVector2D Center, float Radius, int32 Iterations, TArray<float>& HeightData, FTileCoord TileCoord) const
 {
-	if (Iterations <= 0)
-	{
-		return;
-	}
+        if (Iterations <= 0)
+        {
+                return;
+        }
 
 	const int32 Resolution = FMath::Sqrt(static_cast<float>(HeightData.Num()));
 	const float TileSize = WorldGenSettings.TileSizeMeters;
@@ -838,14 +934,28 @@ void UPOIService::ApplySmoothStamp(FVector2D Center, float Radius, int32 Iterati
 				HeightData[Index] = WorkingHeights[Index];
 			}
 		}
-	}
+        }
+}
+
+void UPOIService::SyncHeightDataFromService(const FTileCoord& TileCoord, TArray<float>& InOutHeightData) const
+{
+        if (!HeightfieldService)
+        {
+                return;
+        }
+
+        FHeightfieldData CachedData;
+        if (HeightfieldService->GetCachedHeightfield(TileCoord, CachedData) && CachedData.HeightData.Num() > 0)
+        {
+                InOutHeightData = CachedData.HeightData;
+        }
 }
 
 // Utility and persistence functions
 FVector2D UPOIService::WorldToTileLocal(FVector WorldPosition, FTileCoord TileCoord) const
 {
-	FVector TileCenter = TileCoord.ToWorldPosition(WorldGenSettings.TileSizeMeters);
-	return FVector2D(WorldPosition.X - TileCenter.X, WorldPosition.Y - TileCenter.Y);
+        FVector TileCenter = TileCoord.ToWorldPosition(WorldGenSettings.TileSizeMeters);
+        return FVector2D(WorldPosition.X - TileCenter.X, WorldPosition.Y - TileCenter.Y);
 }
 
 FVector UPOIService::TileLocalToWorld(FVector2D LocalPosition, FTileCoord TileCoord) const
@@ -1526,12 +1636,15 @@ void UPOIService::ReconcileLoadedPOI(FPOIData& POIData, const TOptional<FPOISpaw
 	case EPOITerrainStampMode::Flatten:
 		HeightfieldService->ModifyHeightfield(POIData.Location, EffectiveRadius, EffectiveStrength, EHeightfieldOperation::Flatten);
 		break;
-	case EPOITerrainStampMode::Raise:
-		HeightfieldService->ModifyHeightfield(POIData.Location, EffectiveRadius, Stamp.RaiseHeightMeters * EffectiveStrength, EHeightfieldOperation::Add);
-		break;
-	case EPOITerrainStampMode::Smooth:
-		HeightfieldService->ModifyHeightfield(POIData.Location, EffectiveRadius, EffectiveStrength, EHeightfieldOperation::Smooth);
-		break;
+        case EPOITerrainStampMode::Raise:
+                HeightfieldService->ModifyHeightfield(POIData.Location, EffectiveRadius, Stamp.RaiseHeightMeters * EffectiveStrength, EHeightfieldOperation::Add);
+                break;
+        case EPOITerrainStampMode::Lower:
+                HeightfieldService->ModifyHeightfield(POIData.Location, EffectiveRadius, Stamp.LowerDepthMeters * EffectiveStrength, EHeightfieldOperation::Subtract);
+                break;
+        case EPOITerrainStampMode::Smooth:
+                HeightfieldService->ModifyHeightfield(POIData.Location, EffectiveRadius, EffectiveStrength, EHeightfieldOperation::Smooth);
+                break;
 	default:
 		break;
 	}

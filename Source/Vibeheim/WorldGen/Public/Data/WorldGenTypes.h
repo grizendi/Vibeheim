@@ -594,10 +594,11 @@ struct VIBEHEIM_API FPCGSpawnParams
 UENUM(BlueprintType)
 enum class EPOITerrainStampMode : uint8
 {
-	None = 0,
-	Flatten,
-	Raise,
-	Smooth
+        None = 0,
+        Flatten,
+        Raise,
+        Lower,
+        Smooth
 };
 
 /**
@@ -620,9 +621,13 @@ struct VIBEHEIM_API FPOITerrainStampSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "POI")
 	float Strength = 1.0f;
 
-	/** Additional height to raise the center (meters) when Operation == Raise. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "POI")
-	float RaiseHeightMeters = 1.0f;
+        /** Additional height to raise the center (meters) when Operation == Raise. */
+        UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "POI")
+        float RaiseHeightMeters = 1.0f;
+
+        /** Depth to lower the terrain (meters) when Operation == Lower. */
+        UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "POI")
+        float LowerDepthMeters = 1.0f;
 
 	/** Number of smoothing iterations when Operation == Smooth. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "POI")
