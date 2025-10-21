@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- [ ] 1. Project setup (fail fast)
+- [x] 1. Project setup (fail fast)
   - Update Vibeheim.Build.cs with: Core, CoreUObject, Engine, AIModule, NavigationSystem, GameplayTasks, GameplayTags, StateTreeModule, StructUtils
   - Project Settings → Collision: add channel Resource (ECC_GameTraceChannel2), set Resource actors to Block on this channel
   - Add Gameplay Tags in Config/DefaultGameplayTags.ini: Resource.Food, Resource.Water, Resource.Shelter, Need.Hunger/Thirst/Energy/Health

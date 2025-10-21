@@ -12,6 +12,8 @@ public class Vibeheim : ModuleRules
         // Add these two lines so �WorldGen/Public� and �WorldGen/Private� become include roots
         PublicIncludePaths.Add(Path.Combine(ModuleDirectory, "WorldGen", "Public"));
         PrivateIncludePaths.Add(Path.Combine(ModuleDirectory, "WorldGen", "Private"));
+        PublicIncludePaths.Add(Path.Combine(ModuleDirectory, "NPC", "Public"));
+        PrivateIncludePaths.Add(Path.Combine(ModuleDirectory, "NPC", "Private"));
 
         // Public because types from these modules appear in your PUBLIC headers.
         PublicDependencyModuleNames.AddRange(new string[]
@@ -19,9 +21,15 @@ public class Vibeheim : ModuleRules
             "Core",
             "CoreUObject",
             "Engine",
+            "AIModule",
             "InputCore",
             "EnhancedInput",
+            "GameplayTags",
+            "GameplayTasks",
+            "NavigationSystem",
             "PCG",
+            "StateTreeModule",
+            "StructUtils",
             "VirtualHeightfieldMesh",
             "RenderCore",
             "ProceduralMeshComponent"

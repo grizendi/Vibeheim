@@ -1,0 +1,8 @@
+#pragma once
+
+#include "CoreMinimal.h"
+
+DECLARE_LOG_CATEGORY_EXTERN(LogVHMNeeds, Log, All);
+DECLARE_LOG_CATEGORY_EXTERN(LogVHMNPC, Log, All);
+DECLARE_LOG_CATEGORY_EXTERN(LogVHMResource, Log, All);
+DECLARE_LOG_CATEGORY_EXTERN(LogVHMStateTree, Log, All);
