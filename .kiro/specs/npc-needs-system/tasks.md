@@ -8,15 +8,15 @@
   - Add logging categories (LogVHMNeeds, LogVHMNPC, LogVHMResource, LogVHMStateTree)
   - _Requirements: 15.1, 12.1_
 
-- [ ] 2. Core types & data
+- [x] 2. Core types & data
   - VHMNPCTypes.h: EVHMNeed, FNeedStat (with enter/exit low, critical), no side-effects
   - FVHMUseHandle (starts invalid; no GUID in constructor)
   - FAgentNeedContext (instance data for StateTree; target, score, blacklist)
   - FVHMSpeciesConfig + UVHMSpeciesDataAsset : UPrimaryDataAsset (nav filter, search radii, retry caps, LOD, stuck thresholds)
-  - Default assets for Human, Wolf species
+  - Default assets for Human, Wolf species (to be authored in Editor as `DA_Species_Human` / `DA_Species_Wolf` under `Content/NPC/Species`)
   - _Requirements: 1.1, 13.1, 13.2, 13.3_
 
-- [ ] 3. Needs component (single source of truth)
+- [x] 3. Needs component (single source of truth)
   - Decay loop (supports deterministic fixed timestep via cvar)
   - Health penalty when Hunger/Thirst == 0 for N seconds
   - GetMostPressingNeed(OutScore) implements scoring + post-satiation cooldown + hysteresis

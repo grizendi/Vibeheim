@@ -34,5 +34,14 @@
 			"Name": "VirtualHeightfieldMesh",
 			"Enabled": true
 		}
+		,
+		{
+			"Name": "StateTree",
+			"Enabled": true
+		},
+		{
+			"Name": "StructUtils",
+			"Enabled": true
+		}
 	]
 }
