@@ -25,7 +25,7 @@
   - Build & fix (fast compile checkpoint)
   - _Requirements: 1.1, 1.2, 1.3, 2.1, 2.2, 2.3, 2.4, 11.1, 11.2_
 
-- [ ] 4. Resource system (actor-local, no tick)
+- [x] 4. Resource system (actor-local, no tick)
   - IVHMUsableResource UInterface: CanUse, BeginUse, TickUse, EndUse
   - AVHMResourceActor: FGameplayTag ResourceTag, UseRadius, Quantity (<0 infinite), MaxConcurrentUsers
   - Reservations: TryReserve(User), HeartbeatReservation(Id), ReleaseReservation(Id); expire on heartbeat lapse
