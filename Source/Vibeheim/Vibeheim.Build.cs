@@ -27,6 +27,7 @@ public class Vibeheim : ModuleRules
             "GameplayTags",
             "GameplayTasks",
             "NavigationSystem",
+            "StateTreeModule",
             "PCG",
             
             "StructUtils",
@@ -38,7 +39,6 @@ public class Vibeheim : ModuleRules
         // Private-only usage
         PrivateDependencyModuleNames.AddRange(new string[]
         {
-            "StateTreeModule",
             "Json",
             "JsonUtilities",
             "Projects", // FPaths, IPluginManager, config helpers, etc.

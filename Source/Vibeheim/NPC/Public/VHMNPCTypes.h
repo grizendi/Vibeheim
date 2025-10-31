@@ -99,4 +99,13 @@ struct VIBEHEIM_API FAgentNeedContext
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite)
     TArray<AActor*> BlacklistedTargets;
+
+    // Active reservation token granted by resource during FindTarget.
+    // Valid until heartbeat fails or EndUse() releases it.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite)
+    FGuid ReservationId = FGuid();
+
+    // Cached acceptance radius when moving/using a resource.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite)
+    float UseAcceptanceRadius = 150.0f;
 };

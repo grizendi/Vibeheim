@@ -24,6 +24,11 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Needs|Config")
     TObjectPtr<const UVHMSpeciesDataAsset> SpeciesData = nullptr;
 
+    // Shared context across StateTree tasks. Bound in StateTree asset in step 7,
+    // but available here as a convenient runtime store in step 6.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Needs|Context")
+    FAgentNeedContext AgentContext;
+
     // Initialize from species data explicitly (can be called after spawning)
     UFUNCTION(BlueprintCallable, Category = "Needs")
     void InitializeFromSpecies(const UVHMSpeciesDataAsset* InSpecies);

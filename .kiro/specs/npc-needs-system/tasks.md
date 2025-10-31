@@ -43,13 +43,13 @@
   - AVHMNPCAIController: standard possession; expose helper to set nav filter per species
   - _Requirements: 13.2, 15.1_
 
-- [ ] 6. StateTree tasks (thin, robust)
-  - [ ] 6.1 STT_EvaluateNeed
+- [x] 6. StateTree tasks (thin, robust)
+  - [x] 6.1 STT_EvaluateNeed
     - Read from NeedsComponent->GetMostPressingNeed()
     - Write to FAgentNeedContext; do not redo hysteresis/cooldowns here
     - _Requirements: 2.1, 2.2, 2.3, 10.4_
 
-  - [ ] 6.2 STT_FindTarget
+  - [x] 6.2 STT_FindTarget
     - Overlap on Resource channel within species SearchRadius; escalate radius with retry up to SearchRadiusMax
     - Filter by tag + temporary blacklist; optional NavSys->TestPathSync() for reachability
     - Attempt reservation; on failure, try next candidate
@@ -57,7 +57,7 @@
     - For water candidates, project the target point to NavMesh within UseRadius; discard if projection fails
     - _Requirements: 6.1, 6.2, 6.3, 6.4_
 
-  - [ ] 6.3 STT_MoveTo
+  - [x] 6.3 STT_MoveTo
     - FAIMoveRequest to target (actor or location), SetNavigationFilter(Species.NavQueryFilter) (fallback to controller default if null)
     - Set MoveTo acceptance radius = Resource.UseRadius (from context)
     - If HeartbeatReservation(Id) returns false at any tick → abort, blacklist target, transition to FindTarget
@@ -65,13 +65,13 @@
     - While Running, heartbeat reservation every ~1–2 s
     - _Requirements: 7.1, 7.2, 7.4, 9.4_
 
-  - [ ] 6.4 STT_UseResource
+  - [x] 6.4 STT_UseResource
     - On enter: BeginUse(). While running: TickUse(); concurrently call NeedsComponent->Recover(CurrentNeed, dt)
     - Exit when ShouldExitLow() OR resource depletes/invalid
     - Always EndUse() in ExitState and on external invalidation (OnEndPlay)
     - _Requirements: 3.3, 4.4, 5.3, 8.1, 8.3, 8.4_
 
-  - [ ] 6.5 STT_Explore
+  - [x] 6.5 STT_Explore
     - Small random NavMesh wander for T seconds; then back to Evaluate
     - _Requirements: 7.3_
 

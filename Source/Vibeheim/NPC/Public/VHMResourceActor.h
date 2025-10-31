@@ -64,6 +64,12 @@ public:
     UFUNCTION(BlueprintPure, Category = "Resource")
     int32 GetActiveReservationCount() const { return ActiveReservations.Num(); }
 
+    UFUNCTION(BlueprintPure, Category = "Resource")
+    float GetUseRadius() const { return UseRadius; }
+
+    UFUNCTION(BlueprintPure, Category = "Resource")
+    FGameplayTag GetResourceTag() const { return ResourceTag; }
+
     UPROPERTY(BlueprintAssignable, Category = "Resource")
     FOnResourceDepletedSignature OnResourceDepleted;
 
