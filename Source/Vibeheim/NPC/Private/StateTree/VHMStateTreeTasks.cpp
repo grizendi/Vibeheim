@@ -20,6 +20,7 @@
 #endif
 
 #include "VHMNPCLogging.h"
+#include "VHMNPCVars.h"
 
 namespace
 {
@@ -84,6 +85,7 @@ EStateTreeRunStatus FSTT_EvaluateNeedTask::EnterState(FStateTreeExecutionContext
         Ctx.ReservationId = FGuid();
         Ctx.UseAcceptanceRadius = 150.0f;
         Ctx.LastEvaluationTime = NowSeconds(Needs->GetWorld());
+        UE_LOG(LogVHMStateTree, Verbose, TEXT("EvaluateNeed: Selected %d (Score=%.2f) for %s"), (int32)Need, Score, *GetNameSafe(GetOwnerPawn(Context)));
         return EStateTreeRunStatus::Succeeded;
     }
 
@@ -105,6 +107,18 @@ EStateTreeRunStatus FSTT_FindTargetTask::EnterState(FStateTreeExecutionContext& 
     const UVHMSpeciesDataAsset* Species = Needs->SpeciesData;
     const FVHMSpeciesConfig* Config = Species ? &Species->Config : nullptr;
 
+    // Throttle repeated searches based on species/cvar
+    const float Now = NowSeconds(Pawn->GetWorld());
+    float Throttle = CVarVHM_SearchThrottle.GetValueOnGameThread();
+    if (Throttle <= 0.0f)
+    {
+        Throttle = Config ? Config->SearchCooldown : 1.0f;
+    }
+    if (Throttle > 0.0f && (Now - Ctx.LastSearchTime) < Throttle)
+    {
+        return EStateTreeRunStatus::Failed;
+    }
+
     const FVector Origin = Pawn->GetActorLocation();
     const float BaseRadius = Config ? Config->SearchRadius : 2500.0f;
     const float MaxRadius = Config ? Config->SearchRadiusMax : BaseRadius * 2.0f;
@@ -125,9 +139,22 @@ EStateTreeRunStatus FSTT_FindTargetTask::EnterState(FStateTreeExecutionContext& 
         QueryParams
     );
 
+    // Mark the time we attempted a search
+    Ctx.LastSearchTime = Now;
+
     if (!bOverlapped || Hits.Num() == 0)
     {
         Task.RetryCount++;
+        // Respect retry cap
+        int32 MaxRetries = CVarVHM_RetryMax.GetValueOnGameThread();
+        if (MaxRetries <= 0)
+        {
+            MaxRetries = Config ? Config->MaxRetries : 3;
+        }
+        if (Task.RetryCount >= MaxRetries)
+        {
+            UE_LOG(LogVHMStateTree, Verbose, TEXT("FindTarget: Retry cap reached for %s (radius=%.0f)."), *GetNameSafe(Pawn), Task.CurrentSearchRadius);
+        }
         return EStateTreeRunStatus::Failed;
     }
 
@@ -193,11 +220,23 @@ EStateTreeRunStatus FSTT_FindTargetTask::EnterState(FStateTreeExecutionContext& 
         Ctx.UseAcceptanceRadius = Resource ? Resource->GetUseRadius() : 150.0f;
 
         Task.RetryCount = 0;
+        UE_LOG(LogVHMStateTree, Verbose, TEXT("FindTarget: Reserved %s for %s (need=%d, dist=%.0f)"), *GetNameSafe(Resource), *GetNameSafe(Pawn), (int32)Ctx.CurrentNeed, FVector::Dist(Origin, Ctx.TargetLocation));
         return EStateTreeRunStatus::Succeeded;
     }
 
     // None available, escalate next time
     Task.RetryCount++;
+    {
+        int32 MaxRetries = CVarVHM_RetryMax.GetValueOnGameThread();
+        if (MaxRetries <= 0)
+        {
+            MaxRetries = Config ? Config->MaxRetries : 3;
+        }
+        if (Task.RetryCount >= MaxRetries)
+        {
+            UE_LOG(LogVHMStateTree, Verbose, TEXT("FindTarget: Retry cap reached for %s (candidates tried=%d)."), *GetNameSafe(Pawn), Candidates.Num());
+        }
+    }
     return EStateTreeRunStatus::Failed;
 }
 
@@ -245,6 +284,7 @@ EStateTreeRunStatus FSTT_MoveToTask::EnterState(FStateTreeExecutionContext& Cont
     Task.LastGoalDistance = FVector::Dist(Pawn->GetActorLocation(), Goal);
     Task.TimeSinceProgress = 0.0f;
     Task.NextHeartbeatTime = NowSeconds(Pawn->GetWorld()) + HEARTBEAT_INTERVAL;
+    UE_LOG(LogVHMStateTree, Verbose, TEXT("MoveTo: %s -> %s (accept=%.0f)"), *GetNameSafe(Pawn), *GetNameSafe(Ctx.TargetActor), Ctx.UseAcceptanceRadius);
     return EStateTreeRunStatus::Running;
 }
 
@@ -287,6 +327,7 @@ EStateTreeRunStatus FSTT_MoveToTask::Tick(FStateTreeExecutionContext& Context, c
         {
             // Blacklist and fail
             Ctx.BlacklistedTargets.Add(Resource);
+            UE_LOG(LogVHMStateTree, Verbose, TEXT("MoveTo: Stuck - blacklisting %s for %s"), *GetNameSafe(Resource), *GetNameSafe(Pawn));
             return EStateTreeRunStatus::Failed;
         }
     }
@@ -298,6 +339,7 @@ EStateTreeRunStatus FSTT_MoveToTask::Tick(FStateTreeExecutionContext& Context, c
         if (!Resource->HeartbeatReservation(Ctx.ReservationId))
         {
             Ctx.BlacklistedTargets.Add(Resource);
+            UE_LOG(LogVHMStateTree, Verbose, TEXT("MoveTo: Lost reservation on %s for %s"), *GetNameSafe(Resource), *GetNameSafe(Pawn));
             return EStateTreeRunStatus::Failed;
         }
         Task.NextHeartbeatTime = Now + HEARTBEAT_INTERVAL;
@@ -329,6 +371,7 @@ EStateTreeRunStatus FSTT_UseResourceTask::EnterState(FStateTreeExecutionContext&
         return EStateTreeRunStatus::Failed;
     }
 
+    UE_LOG(LogVHMStateTree, Verbose, TEXT("UseResource: Begin %s using %s"), *GetNameSafe(Pawn), *GetNameSafe(Resource));
     return EStateTreeRunStatus::Running;
 }
 
@@ -354,6 +397,7 @@ EStateTreeRunStatus FSTT_UseResourceTask::Tick(FStateTreeExecutionContext& Conte
     const FNeedStat Stat = Needs->GetNeedStat(Ctx.CurrentNeed);
     if (!bAlive || Stat.ShouldExitLow())
     {
+        UE_LOG(LogVHMStateTree, Verbose, TEXT("UseResource: Complete for %s (need=%d)"), *GetNameSafe(GetOwnerPawn(Context)), (int32)Ctx.CurrentNeed);
         return EStateTreeRunStatus::Succeeded;
     }
 

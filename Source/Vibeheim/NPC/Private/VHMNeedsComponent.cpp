@@ -5,6 +5,8 @@
 #include "VHMNPCLogging.h"
 #include "VHMNPCVars.h"
 #include "VHMSpeciesDataAsset.h"
+#include "DrawDebugHelpers.h"
+#include "VHMResourceActor.h"
 
 UVHMNeedsComponent::UVHMNeedsComponent()
 {
@@ -69,6 +71,61 @@ void UVHMNeedsComponent::TickComponent(float DeltaTime, ELevelTick TickType, FAc
 
     // If accumulator never reached Step (very small Delta), do nothing this frame.
     // StateTree querying for GetMostPressingNeed() is lock-free and uses current members.
+
+    // Debug overlay draws (lightweight, guarded by CVars)
+    const int32 bShowTargets = CVarVHM_ShowTargets.GetValueOnGameThread();
+    const int32 bDrawNeeds = bShowTargets || CVarVHM_DrawNeeds.GetValueOnGameThread();
+    const int32 bDrawTarget = bShowTargets || CVarVHM_DrawTarget.GetValueOnGameThread();
+    const int32 bDrawSearch = CVarVHM_DrawSearch.GetValueOnGameThread();
+    if (bDrawNeeds || bDrawTarget || bDrawSearch)
+    {
+        AActor* OwnerActor = GetOwner();
+        UWorld* World = GetWorld();
+        if (OwnerActor && World)
+        {
+            const FVector Loc = OwnerActor->GetActorLocation();
+            const FVector Up(0, 0, 1);
+
+            if (bDrawNeeds)
+            {
+                const FNeedStat H = GetNeedStat(EVHMNeed::Hunger);
+                const FNeedStat T = GetNeedStat(EVHMNeed::Thirst);
+                const FNeedStat E = GetNeedStat(EVHMNeed::Energy);
+                const FNeedStat He = GetNeedStat(EVHMNeed::Health);
+
+                FString Text = FString::Printf(TEXT("H:%.0f T:%.0f E:%.0f He:%.0f | Need:%d (%.2f)"),
+                    H.Current, T.Current, E.Current, He.Current,
+                    (int32)AgentContext.CurrentNeed, AgentContext.NeedScore);
+
+                DrawDebugString(World, Loc + Up * 120.0f, Text, nullptr, FColor::White, 0.0f, false);
+            }
+
+            if (bDrawTarget)
+            {
+                if (AActor* Target = AgentContext.TargetActor)
+                {
+                    const FVector TargetLoc = Target->GetActorLocation();
+                    DrawDebugLine(World, Loc + Up * 5.0f, TargetLoc, FColor::Yellow, false, 0.0f, 0, 1.5f);
+
+                    const float Radius = FMath::Max(10.0f, AgentContext.UseAcceptanceRadius);
+                    DrawDebugSphere(World, TargetLoc, Radius, 16, FColor::Yellow, false, 0.0f, 0, 1.0f);
+
+                    if (AVHMResourceActor* Res = Cast<AVHMResourceActor>(Target))
+                    {
+                        const int32 Reservations = Res->GetActiveReservationCount();
+                        FString RText = FString::Printf(TEXT("Resv:%d%s"), Reservations, Res->IsQuantityInfinite() ? TEXT(" (inf)") : TEXT(""));
+                        DrawDebugString(World, TargetLoc + Up * 80.0f, RText, nullptr, FColor::Cyan, 0.0f, false);
+                    }
+                }
+            }
+
+            if (bDrawSearch)
+            {
+                const float Radius = (SpeciesData) ? SpeciesData->Config.SearchRadius : 2500.0f;
+                DrawDebugSphere(World, Loc, Radius, 24, FColor::Green, false, 0.0f, 0, 0.5f);
+            }
+        }
+    }
 }
 
 void UVHMNeedsComponent::StepNeeds(float StepSeconds)

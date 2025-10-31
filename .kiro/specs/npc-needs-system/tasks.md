@@ -83,7 +83,7 @@
   - _Requirements: 10.1, 10.2, 10.3, 14.4_
   - Implemented: AVHMNPCCharacter now loads a default UStateTree (soft reference or fallback path `/Game/NPC/StateTrees/ST_NPC_Needs`) and starts UStateTreeComponent at BeginPlay. Tasks read Needs/Owner at runtime; FAgentNeedContext on Needs carries UseAcceptanceRadius.
 
-- [ ] 8. Debug, CVars, logs
+- [x] 8. Debug, CVars, logs
   - Overhead draws: need bars, current need/target, search radius, reservation count; toggle via vhm.npc.draw_*
   - CVars: search throttle (vhm.npc.search_throttle), retry caps (vhm.npc.retry_max), LOD distance, deterministic, fast_decay, show_targets
   - Verbose logs under categories; guard hot paths

@@ -32,3 +32,38 @@ TAutoConsoleVariable<int32> CVarVHM_FastDecay(
     TEXT("Accelerate need decay/recovery for testing"),
     ECVF_Default);
 
+TAutoConsoleVariable<float> CVarVHM_SearchThrottle(
+    TEXT("vhm.npc.search_throttle"),
+    1.0f,
+    TEXT("Seconds between resource searches (FindTarget throttle). If <=0 uses species SearchCooldown."),
+    ECVF_Default);
+
+TAutoConsoleVariable<int32> CVarVHM_RetryMax(
+    TEXT("vhm.npc.retry_max"),
+    3,
+    TEXT("Max retries for FindTarget before escalation. If <=0 uses species MaxRetries."),
+    ECVF_Default);
+
+TAutoConsoleVariable<int32> CVarVHM_DrawNeeds(
+    TEXT("vhm.npc.draw_needs"),
+    0,
+    TEXT("Draw need values above NPCs (debug text)."),
+    ECVF_Default);
+
+TAutoConsoleVariable<int32> CVarVHM_DrawTarget(
+    TEXT("vhm.npc.draw_target"),
+    0,
+    TEXT("Draw target line/sphere for current target (if any)."),
+    ECVF_Default);
+
+TAutoConsoleVariable<int32> CVarVHM_DrawSearch(
+    TEXT("vhm.npc.draw_search"),
+    0,
+    TEXT("Draw search radius sphere for the NPC."),
+    ECVF_Default);
+
+TAutoConsoleVariable<int32> CVarVHM_ShowTargets(
+    TEXT("vhm.npc.show_targets"),
+    0,
+    TEXT("Convenience toggle to enable common target visuals (needs + target)."),
+    ECVF_Default);

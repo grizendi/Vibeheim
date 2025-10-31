@@ -97,6 +97,10 @@ struct VIBEHEIM_API FAgentNeedContext
     UPROPERTY(EditAnywhere, BlueprintReadWrite)
     float LastEvaluationTime = 0.0f;
 
+    // Last time a resource search was attempted (WorldTimeSeconds)
+    UPROPERTY(EditAnywhere, BlueprintReadWrite)
+    float LastSearchTime = 0.0f;
+
     UPROPERTY(EditAnywhere, BlueprintReadWrite)
     TArray<AActor*> BlacklistedTargets;
 
