@@ -9,9 +9,11 @@
 #endif
 #if __has_include("StateTree/StateTreeComponent.h")
 #include "StateTree/StateTreeComponent.h"
+#include "StateTree/StateTree.h"
 #define VHM_HAS_STATETREE 1
 #elif __has_include("StateTreeComponent.h")
 #include "StateTreeComponent.h"
+#include "StateTree.h"
 #define VHM_HAS_STATETREE 1
 #else
 #define VHM_HAS_STATETREE 0
@@ -43,6 +45,45 @@ void AVHMNPCCharacter::BeginPlay()
 
     InitializeNeedsFromSpecies(ResolveSpeciesData());
     ApplySpeciesNavigationFilter(GetController());
+
+#if VHM_HAS_STATETREE
+    // If a StateTree component exists, ensure it has an asset and is running.
+    if (UStateTreeComponent* STComp = Cast<UStateTreeComponent>(StateTreeComponent))
+    {
+        UStateTree* AssignedTree = nullptr;
+
+        // Prefer an explicitly set asset on this instance.
+        if (DefaultStateTreeAsset.IsValid())
+        {
+            AssignedTree = DefaultStateTreeAsset.Get();
+        }
+        else if (DefaultStateTreeAsset.ToSoftObjectPath().IsValid())
+        {
+            AssignedTree = DefaultStateTreeAsset.LoadSynchronous();
+        }
+
+        // Fallback: try a conventional asset path if none was provided.
+        if (AssignedTree == nullptr)
+        {
+            const FSoftObjectPath FallbackPath(TEXT("/Game/NPC/StateTrees/ST_NPC_Needs.ST_NPC_Needs"));
+            if (FallbackPath.IsValid())
+            {
+                AssignedTree = Cast<UStateTree>(FallbackPath.TryLoad());
+            }
+        }
+
+        if (AssignedTree)
+        {
+            STComp->SetStateTree(AssignedTree);
+            STComp->StartLogic();
+            UE_LOG(LogVHMStateTree, Verbose, TEXT("Started StateTree '%s' on NPC '%s'."), *AssignedTree->GetName(), *GetName());
+        }
+        else
+        {
+            UE_LOG(LogVHMStateTree, Warning, TEXT("No StateTree asset assigned or found for NPC '%s'. StateTree will not run."), *GetName());
+        }
+    }
+#endif // VHM_HAS_STATETREE
 }
 
 void AVHMNPCCharacter::PossessedBy(AController* NewController)

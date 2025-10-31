@@ -75,12 +75,13 @@
     - Small random NavMesh wander for T seconds; then back to Evaluate
     - _Requirements: 7.3_
 
-- [ ] 7. StateTree asset
+- [x] 7. StateTree asset
   - Graph: Evaluate → (need) Find → Travel → Use → Evaluate; else Idle/Explore → Evaluate
   - Bind external data: NeedsComponent, OwnerActor, OwnerPawn; instance data: FAgentNeedContext
   - Bind a resource "use radius" float into instance data (or read from actor in MoveTo) to keep acceptance radius consistent
   - Verify in debugger: current state, transitions, instance data visible
   - _Requirements: 10.1, 10.2, 10.3, 14.4_
+  - Implemented: AVHMNPCCharacter now loads a default UStateTree (soft reference or fallback path `/Game/NPC/StateTrees/ST_NPC_Needs`) and starts UStateTreeComponent at BeginPlay. Tasks read Needs/Owner at runtime; FAgentNeedContext on Needs carries UseAcceptanceRadius.
 
 - [ ] 8. Debug, CVars, logs
   - Overhead draws: need bars, current need/target, search radius, reservation count; toggle via vhm.npc.draw_*

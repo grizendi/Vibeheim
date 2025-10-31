@@ -8,6 +8,7 @@ class UVHMNeedsComponent;
 class UActorComponent;
 class UVHMSpeciesDataAsset;
 class UNavigationQueryFilter;
+class UStateTree; // UE 5.6 StateTree asset forward declaration
 
 /**
  * Core NPC pawn used by the Vibeheim needs system.
@@ -39,6 +40,11 @@ protected:
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AI", meta = (AllowPrivateAccess = "true"))
     TObjectPtr<UActorComponent> StateTreeComponent;
+
+    // Optional default StateTree asset to run for this NPC.
+    // If assigned (or found at the default path), it will be loaded and started at BeginPlay.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AI", meta = (AllowedClasses = "StateTree", AllowPrivateAccess = "true"))
+    TSoftObjectPtr<UStateTree> DefaultStateTreeAsset;
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Needs|Config", meta = (AllowPrivateAccess = "true"))
     TObjectPtr<const UVHMSpeciesDataAsset> DefaultSpeciesData;
