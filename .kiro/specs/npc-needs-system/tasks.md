@@ -38,7 +38,7 @@
   - Build & fix (fast compile checkpoint)
   - _Requirements: 8.1, 8.2, 8.3, 8.4, 9.1, 9.2, 9.3, 9.4, 12.1, 12.2_
 
-- [ ] 5. Pawn & controller
+- [x] 5. Pawn & controller
   - AVHMNPCCharacter (ACharacter): add UVHMNeedsComponent, UStateTreeComponent; AutoPossess AI; load species data on BeginPlay and seed needs
   - AVHMNPCAIController: standard possession; expose helper to set nav filter per species
   - _Requirements: 13.2, 15.1_

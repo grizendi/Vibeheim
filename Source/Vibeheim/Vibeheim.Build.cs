@@ -28,7 +28,7 @@ public class Vibeheim : ModuleRules
             "GameplayTasks",
             "NavigationSystem",
             "PCG",
-            "StateTreeModule",
+            
             "StructUtils",
             "VirtualHeightfieldMesh",
             "RenderCore",
@@ -38,6 +38,7 @@ public class Vibeheim : ModuleRules
         // Private-only usage
         PrivateDependencyModuleNames.AddRange(new string[]
         {
+            "StateTreeModule",
             "Json",
             "JsonUtilities",
             "Projects", // FPaths, IPluginManager, config helpers, etc.
@@ -68,4 +69,6 @@ public class Vibeheim : ModuleRules
         // See: Source/Vibeheim/WorldGen/Public/PCGVersionGuard.h
     }
 }
+
+
 
