@@ -89,10 +89,10 @@
   - Verbose logs under categories; guard hot paths
   - _Requirements: 14.1, 14.2, 14.3_
 
-- [ ] 9. Test env & validation
+- [x] 9. Test env & validation
   - Test map: NavMeshBoundsVolume; three resource actors; lighting; player start
   - Place 1–4 AVHMNPCCharacter with species assets; assign StateTree
-  - [ ] 9.1 Scenarios:
+  - [x] 9.1 Scenarios:
     - Cycle: decay→evaluate→find→travel→use→exit (visually confirm + logs)
     - Oscillation: verify hysteresis (no ping-pong within 2 s)
     - Contention: finite Food MaxConcurrentUsers=1; two NPCs → one reserves, one replans/waits
