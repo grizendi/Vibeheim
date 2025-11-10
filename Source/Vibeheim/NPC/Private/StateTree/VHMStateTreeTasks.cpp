@@ -125,13 +125,18 @@ EStateTreeRunStatus FSTT_FindTargetTask::EnterState(FStateTreeExecutionContext& 
 
     Task.CurrentSearchRadius = (Task.RetryCount == 0) ? BaseRadius : FMath::Min(MaxRadius, BaseRadius * (1.0f + 0.5f * Task.RetryCount));
 
-    TArray<FOverlapResult> Hits;
+    // Reuse buffers to minimize per-call allocations
+    Task.ReusableHits.Reset();
+    if (Task.ReusableHits.Max() == 0)
+    {
+        Task.ReusableHits.Reserve(32);
+    }
     FCollisionObjectQueryParams ObjParams;
     ObjParams.AddObjectTypesToQuery(ECC_GameTraceChannel2); // Resource channel
     FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(VHM_FindTarget), /*bTraceComplex*/false);
 
     const bool bOverlapped = Pawn->GetWorld()->OverlapMultiByObjectType(
-        Hits,
+        Task.ReusableHits,
         Origin,
         FQuat::Identity,
         ObjParams,
@@ -142,7 +147,7 @@ EStateTreeRunStatus FSTT_FindTargetTask::EnterState(FStateTreeExecutionContext& 
     // Mark the time we attempted a search
     Ctx.LastSearchTime = Now;
 
-    if (!bOverlapped || Hits.Num() == 0)
+    if (!bOverlapped || Task.ReusableHits.Num() == 0)
     {
         Task.RetryCount++;
         // Respect retry cap
@@ -160,10 +165,13 @@ EStateTreeRunStatus FSTT_FindTargetTask::EnterState(FStateTreeExecutionContext& 
 
     const FGameplayTag NeedTag = VHMStateTreeUtils::TagForNeed(Ctx.CurrentNeed);
 
-    TArray<AVHMResourceActor*> Candidates;
-    Candidates.Reserve(Hits.Num());
+    Task.Candidates.Reset();
+    if (Task.Candidates.Max() == 0)
+    {
+        Task.Candidates.Reserve(16);
+    }
 
-    for (const FOverlapResult& Hit : Hits)
+    for (const FOverlapResult& Hit : Task.ReusableHits)
     {
         AVHMResourceActor* Resource = Cast<AVHMResourceActor>(Hit.GetActor());
         if (!Resource)
@@ -174,20 +182,20 @@ EStateTreeRunStatus FSTT_FindTargetTask::EnterState(FStateTreeExecutionContext& 
         // Tag filtering and blacklist
         if (!NeedTag.IsValid() || Resource->GetResourceTag().MatchesTag(NeedTag))
         {
-            if (!Ctx.BlacklistedTargets.Contains(Resource))
+            if (!Ctx.IsBlacklisted(Resource, Now))
             {
-                Candidates.Add(Resource);
+                Task.Candidates.Add(Resource);
             }
         }
     }
 
-    if (Candidates.Num() == 0)
+    if (Task.Candidates.Num() == 0)
     {
         Task.RetryCount++;
         return EStateTreeRunStatus::Failed;
     }
 
-    Candidates.Sort([&](const AVHMResourceActor& A, const AVHMResourceActor& B)
+    Task.Candidates.Sort([&](const AVHMResourceActor& A, const AVHMResourceActor& B)
     {
         const float DA = FVector::DistSquared(Origin, A.GetActorLocation());
         const float DB = FVector::DistSquared(Origin, B.GetActorLocation());
@@ -195,7 +203,7 @@ EStateTreeRunStatus FSTT_FindTargetTask::EnterState(FStateTreeExecutionContext& 
     });
 
     // Try to reserve a candidate
-    for (AVHMResourceActor* Resource : Candidates)
+    for (AVHMResourceActor* Resource : Task.Candidates)
     {
         if (!IsValid(Resource))
         {
@@ -234,7 +242,7 @@ EStateTreeRunStatus FSTT_FindTargetTask::EnterState(FStateTreeExecutionContext& 
         }
         if (Task.RetryCount >= MaxRetries)
         {
-            UE_LOG(LogVHMStateTree, Verbose, TEXT("FindTarget: Retry cap reached for %s (candidates tried=%d)."), *GetNameSafe(Pawn), Candidates.Num());
+            UE_LOG(LogVHMStateTree, Verbose, TEXT("FindTarget: Retry cap reached for %s (candidates tried=%d)."), *GetNameSafe(Pawn), Task.Candidates.Num());
         }
     }
     return EStateTreeRunStatus::Failed;
@@ -325,8 +333,9 @@ EStateTreeRunStatus FSTT_MoveToTask::Tick(FStateTreeExecutionContext& Context, c
         Task.TimeSinceProgress += DeltaTime;
         if (Task.TimeSinceProgress >= STUCK_TIMEOUT_SEC)
         {
-            // Blacklist and fail
-            Ctx.BlacklistedTargets.Add(Resource);
+            // Blacklist and fail (timed, LRU)
+            const float Duration = (Needs && Needs->SpeciesData) ? Needs->SpeciesData->Config.BlacklistDuration : 10.0f;
+            Ctx.AddToBlacklist(Resource, Duration, NowSeconds(Pawn->GetWorld()));
             UE_LOG(LogVHMStateTree, Verbose, TEXT("MoveTo: Stuck - blacklisting %s for %s"), *GetNameSafe(Resource), *GetNameSafe(Pawn));
             return EStateTreeRunStatus::Failed;
         }
@@ -338,7 +347,8 @@ EStateTreeRunStatus FSTT_MoveToTask::Tick(FStateTreeExecutionContext& Context, c
     {
         if (!Resource->HeartbeatReservation(Ctx.ReservationId))
         {
-            Ctx.BlacklistedTargets.Add(Resource);
+            const float Duration = (Needs && Needs->SpeciesData) ? Needs->SpeciesData->Config.BlacklistDuration : 10.0f;
+            Ctx.AddToBlacklist(Resource, Duration, Now);
             UE_LOG(LogVHMStateTree, Verbose, TEXT("MoveTo: Lost reservation on %s for %s"), *GetNameSafe(Resource), *GetNameSafe(Pawn));
             return EStateTreeRunStatus::Failed;
         }

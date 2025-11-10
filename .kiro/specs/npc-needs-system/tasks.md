@@ -2,7 +2,7 @@
 
 - [x] 1. Project setup (fail fast)
   - Update Vibeheim.Build.cs with: Core, CoreUObject, Engine, AIModule, NavigationSystem, GameplayTasks, GameplayTags, StateTreeModule, StructUtils
-  - Project Settings → Collision: add channel Resource (ECC_GameTraceChannel2), set Resource actors to Block on this channel
+  - Project Settings + Collision: add channel Resource (ECC_GameTraceChannel2), set Resource actors to Block on this channel
   - Add Gameplay Tags in Config/DefaultGameplayTags.ini: Resource.Food, Resource.Water, Resource.Shelter, Need.Hunger/Thirst/Energy/Health
   - Create VHMNPCTags.h/.cpp using UE_DEFINE_GAMEPLAY_TAG_STATIC for the above
   - Add logging categories (LogVHMNeeds, LogVHMNPC, LogVHMResource, LogVHMStateTree)
@@ -60,8 +60,8 @@
   - [x] 6.3 STT_MoveTo
     - FAIMoveRequest to target (actor or location), SetNavigationFilter(Species.NavQueryFilter) (fallback to controller default if null)
     - Set MoveTo acceptance radius = Resource.UseRadius (from context)
-    - If HeartbeatReservation(Id) returns false at any tick → abort, blacklist target, transition to FindTarget
-    - Stuck detection: <75 cm progress over 3 s → fail; blacklist target
+    - If HeartbeatReservation(Id) returns false at any tick — abort, blacklist target, transition to FindTarget
+    - Stuck detection: <75 cm progress over 3 s — fail; blacklist target
     - While Running, heartbeat reservation every ~1–2 s
     - _Requirements: 7.1, 7.2, 7.4, 9.4_
 
@@ -95,24 +95,25 @@
   - [x] 9.1 Scenarios:
     - Cycle: decay→evaluate→find→travel→use→exit (visually confirm + logs)
     - Oscillation: verify hysteresis (no ping-pong within 2 s)
-    - Contention: finite Food MaxConcurrentUsers=1; two NPCs → one reserves, one replans/waits
+    - Contention: finite Food MaxConcurrentUsers=1; two NPCs — one reserves, one replans/waits
     - Stuck: add blocking volume; see replan + blacklist
-    - LOD: far away → cadence increases; perf stable
-    - Destroy a target mid-travel/use → NPC blacklists & replans; reservation is released
+    - LOD: far away — cadence increases; perf stable
+    - Destroy a target mid-travel/use — NPC blacklists & replans; reservation is released
   - _Requirements: 15.2, 13.2, Test Checklist items_
 
-- [ ] 10. Perf & polish
-  - Tune eval cadence / search throttle per species; confirm ≤0.3 ms/50 nearby NPCs target
+- [x] 10. Perf & polish
+  - Tune eval cadence / search throttle per species; confirm ≤ 0.3 ms/50 nearby NPCs target
   - Remove any accidental ticks from resources/tasks; profile with Unreal Insights
   - Final pass on memory (no per-tick allocs; reuse arrays; LRU blacklist)
   - _Requirements: 11.1, 11.2, 11.4_
 
 ## Danger Spots (Watch These)
 
-- **Destroyed targets:** Subscribe to OnEndPlay on TargetActor; clear/blacklist if it dies mid-travel/use
-- **Water bodies:** Choose a nav-reachable edge point (project to NavMesh near the water) instead of targeting inside a WaterBody volume
-- **Acceptance radius:** Tie MoveTo acceptance to resource UseRadius to prevent "orbiting"
-- **Spam logs:** Guard Verbose with CVars; keep hot paths silent by default
-- **Species data missing:** Warn once, apply defaults, don't spam
-- **Arrays:** Reuse temp arrays in FindTarget to avoid per-tick allocs
-- **EQS temptation:** Resist for MVP; overlap + reachability is enough
+- Destroyed targets: Subscribe to OnEndPlay on TargetActor; clear/blacklist if it dies mid-travel/use
+- Water bodies: Choose a nav-reachable edge point (project to NavMesh near the water) instead of targeting inside a WaterBody volume
+- Acceptance radius: Tie MoveTo acceptance to resource UseRadius to prevent "orbiting"
+- Spam logs: Guard Verbose with CVars; keep hot paths silent by default
+- Species data missing: Warn once, apply defaults, don't spam
+- Arrays: Reuse temp arrays in FindTarget to avoid per-tick allocs
+- EQS temptation: Resist for MVP; overlap + reachability is enough
+

@@ -8,6 +8,9 @@
 #include "VHMSpeciesDataAsset.h"
 #include "VHMNPCTags.h"
 
+#include "Engine/EngineTypes.h"
+#include "Engine/OverlapResult.h"
+
 #if __has_include("StateTree/StateTreeTaskBase.h")
 #include "StateTree/StateTreeTaskBase.h"
 #include "StateTree/StateTreeExecutionContext.h"
@@ -68,6 +71,13 @@ struct VIBEHEIM_API FSTT_FindTargetTaskInstance
 
     UPROPERTY(EditAnywhere, Category = "FindTarget")
     float CurrentSearchRadius = 0.0f;
+
+    // Reusable buffers to avoid per-execution allocations
+    UPROPERTY(Transient)
+    TArray<FOverlapResult> ReusableHits;
+
+    UPROPERTY(Transient)
+    TArray<AVHMResourceActor*> Candidates;
 };
 
 USTRUCT(BlueprintType, meta = (DisplayName = "Find Target"))

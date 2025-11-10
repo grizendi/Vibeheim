@@ -101,8 +101,19 @@ struct VIBEHEIM_API FAgentNeedContext
     UPROPERTY(EditAnywhere, BlueprintReadWrite)
     float LastSearchTime = 0.0f;
 
+    // Legacy simple blacklist (kept for BP/debug compatibility). Not time-based.
     UPROPERTY(EditAnywhere, BlueprintReadWrite)
     TArray<AActor*> BlacklistedTargets;
+
+    // LRU/time-based blacklist entries for perf and recovery
+    UPROPERTY(EditAnywhere, BlueprintReadWrite)
+    int32 BlacklistMaxSize = 16;
+
+    UPROPERTY()
+    TArray<TWeakObjectPtr<AActor>> BlacklistActors;
+
+    UPROPERTY()
+    TArray<float> BlacklistExpiryTimes;
 
     // Active reservation token granted by resource during FindTarget.
     // Valid until heartbeat fails or EndUse() releases it.
@@ -112,4 +123,93 @@ struct VIBEHEIM_API FAgentNeedContext
     // Cached acceptance radius when moving/using a resource.
     UPROPERTY(EditAnywhere, BlueprintReadWrite)
     float UseAcceptanceRadius = 150.0f;
+
+    // Helpers for blacklist management (non-UFUNCTION by design)
+    FORCEINLINE void PruneBlacklist(float Now)
+    {
+        // Remove expired or invalid entries while keeping arrays compact
+        for (int32 i = BlacklistActors.Num() - 1; i >= 0; --i)
+        {
+            const bool bExpired = (i < BlacklistExpiryTimes.Num()) ? (Now > BlacklistExpiryTimes[i]) : true;
+            if (!BlacklistActors[i].IsValid() || bExpired)
+            {
+                BlacklistActors.RemoveAtSwap(i, 1, EAllowShrinking::No);
+                if (i < BlacklistExpiryTimes.Num())
+                {
+                    BlacklistExpiryTimes.RemoveAtSwap(i, 1, EAllowShrinking::No);
+                }
+            }
+        }
+    }
+
+    FORCEINLINE bool IsBlacklisted(const AActor* Actor, float Now) const
+    {
+        if (!Actor)
+        {
+            return false;
+        }
+        // Check legacy array first (non-expiring)
+        if (BlacklistedTargets.Contains(const_cast<AActor*>(Actor)))
+        {
+            return true;
+        }
+        // Check time-based entries
+        for (int32 i = 0; i < BlacklistActors.Num(); ++i)
+        {
+            if (BlacklistActors[i].Get() == Actor)
+            {
+                const float Until = (i < BlacklistExpiryTimes.Num()) ? BlacklistExpiryTimes[i] : 0.0f;
+                return Now <= Until;
+            }
+        }
+        return false;
+    }
+
+    FORCEINLINE void AddToBlacklist(AActor* Actor, float Duration, float Now)
+    {
+        if (!Actor)
+        {
+            return;
+        }
+
+        // Also mirror to legacy array for debug visibility (bounded)
+        if (!BlacklistedTargets.Contains(Actor))
+        {
+            // Keep legacy list reasonably small
+            if (BlacklistedTargets.Num() >= FMath::Max(BlacklistMaxSize, 1))
+            {
+                BlacklistedTargets.RemoveAt(0);
+            }
+            BlacklistedTargets.Add(Actor);
+        }
+
+        PruneBlacklist(Now);
+
+        // If already present, refresh expiry
+        for (int32 i = 0; i < BlacklistActors.Num(); ++i)
+        {
+            if (BlacklistActors[i].Get() == Actor)
+            {
+                if (i < BlacklistExpiryTimes.Num())
+                {
+                    BlacklistExpiryTimes[i] = Now + FMath::Max(0.0f, Duration);
+                }
+                return;
+            }
+        }
+
+        // Enforce capacity (LRU eviction: drop the oldest/front)
+        const int32 Cap = FMath::Max(BlacklistMaxSize, 1);
+        if (BlacklistActors.Num() >= Cap)
+        {
+            BlacklistActors.RemoveAt(0, 1, EAllowShrinking::No);
+            if (BlacklistExpiryTimes.Num() > 0)
+            {
+                BlacklistExpiryTimes.RemoveAt(0, 1, EAllowShrinking::No);
+            }
+        }
+
+        BlacklistActors.Add(Actor);
+        BlacklistExpiryTimes.Add(Now + FMath::Max(0.0f, Duration));
+    }
 };
