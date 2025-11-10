@@ -8,6 +8,7 @@
 
 class UPrimitiveComponent;
 class USceneComponent;
+class USphereComponent;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnResourceDepletedSignature);
 
@@ -82,6 +83,11 @@ protected:
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Resource")
     TObjectPtr<USceneComponent> SceneRoot;
+
+    // Lightweight presence/collision so resources are discoverable by OverlapMultiByObjectType.
+    // Hidden and query-only; radius loosely tied to UseRadius.
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Resource")
+    TObjectPtr<USphereComponent> PresenceSphere;
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Resource")
     FGameplayTag ResourceTag;

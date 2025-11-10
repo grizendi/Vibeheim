@@ -5,6 +5,7 @@
 #include "Engine/World.h"
 #include "GameFramework/Pawn.h"
 #include "VHMNPCTags.h"
+#include "Components/SphereComponent.h"
 
 namespace
 {
@@ -20,6 +21,16 @@ AVHMResourceActor::AVHMResourceActor()
 
     SceneRoot = CreateDefaultSubobject<USceneComponent>(TEXT("SceneRoot"));
     SetRootComponent(SceneRoot);
+
+    PresenceSphere = CreateDefaultSubobject<USphereComponent>(TEXT("Presence"));
+    PresenceSphere->SetupAttachment(SceneRoot);
+    PresenceSphere->SetSphereRadius(DEFAULT_USE_RADIUS);
+    PresenceSphere->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+    PresenceSphere->SetCollisionObjectType(ECC_GameTraceChannel2);
+    PresenceSphere->SetCollisionResponseToAllChannels(ECR_Ignore);
+    PresenceSphere->SetCollisionResponseToChannel(ECC_GameTraceChannel2, ECR_Overlap);
+    PresenceSphere->SetHiddenInGame(true);
+    PresenceSphere->SetGenerateOverlapEvents(false);
 
     ResourceTag = FGameplayTag();
     UseRadius = DEFAULT_USE_RADIUS;
@@ -229,20 +240,29 @@ void AVHMResourceActor::PostInitializeComponents()
         return;
     }
 
+    // Ensure presence sphere radius roughly matches use radius for search visibility
+    if (PresenceSphere)
+    {
+        PresenceSphere->SetSphereRadius(FMath::Max(UseRadius, 30.0f));
+        PresenceSphere->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+        PresenceSphere->SetCollisionObjectType(ECC_GameTraceChannel2);
+        PresenceSphere->SetCollisionResponseToAllChannels(ECR_Ignore);
+        PresenceSphere->SetCollisionResponseToChannel(ECC_GameTraceChannel2, ECR_Overlap);
+    }
+
+    // Also configure any other primitives the actor might have
     TArray<UPrimitiveComponent*> PrimitiveComponents;
     GetComponents(PrimitiveComponents);
-
     for (UPrimitiveComponent* Primitive : PrimitiveComponents)
     {
-        if (!Primitive)
+        if (!Primitive || Primitive == PresenceSphere)
         {
             continue;
         }
-
         Primitive->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
         Primitive->SetCollisionObjectType(ECC_GameTraceChannel2);
         Primitive->SetCollisionResponseToAllChannels(ECR_Ignore);
-        Primitive->SetCollisionResponseToChannel(ECC_GameTraceChannel2, ECR_Block);
+        Primitive->SetCollisionResponseToChannel(ECC_GameTraceChannel2, ECR_Overlap);
     }
 }
 

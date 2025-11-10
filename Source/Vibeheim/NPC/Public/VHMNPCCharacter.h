@@ -9,6 +9,9 @@ class UActorComponent;
 class UVHMSpeciesDataAsset;
 class UNavigationQueryFilter;
 class UStateTree; // UE 5.6 StateTree asset forward declaration
+class UStaticMeshComponent;
+class UStaticMesh;
+class UMaterialInterface;
 
 /**
  * Core NPC pawn used by the Vibeheim needs system.
@@ -55,5 +58,18 @@ protected:
 
 private:
     bool bLoggedMissingSpeciesWarning = false;
+
+    // Simple visible fallback so spawned NPCs aren't invisible when no skeletal mesh is assigned.
+    // Uses Engine BasicShapes by default and has no collision (visual-only).
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Visual", meta = (AllowPrivateAccess = "true"))
+    TObjectPtr<UStaticMeshComponent> VisualMesh;
+
+    // Optional override for the debug/static visual mesh (e.g., assign your own mesh in BP/Class Defaults)
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Visual", meta = (AllowPrivateAccess = "true"))
+    TSoftObjectPtr<UStaticMesh> DefaultVisualMesh;
+
+    // Optional material override for the debug mesh
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Visual", meta = (AllowPrivateAccess = "true"))
+    TSoftObjectPtr<UMaterialInterface> DefaultVisualMaterial;
 };
 

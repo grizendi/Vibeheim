@@ -22,6 +22,9 @@
 #include "VHMNPCLogging.h"
 #include "VHMNPCAIController.h"
 #include "VHMSpeciesDataAsset.h"
+#include "Components/StaticMeshComponent.h"
+#include "Components/CapsuleComponent.h"
+#include "UObject/ConstructorHelpers.h"
 
 AVHMNPCCharacter::AVHMNPCCharacter(const FObjectInitializer& ObjectInitializer)
     : Super(ObjectInitializer)
@@ -37,6 +40,25 @@ AVHMNPCCharacter::AVHMNPCCharacter(const FObjectInitializer& ObjectInitializer)
 
     AutoPossessAI = EAutoPossessAI::PlacedInWorldOrSpawned;
     AIControllerClass = AVHMNPCAIController::StaticClass();
+
+    // Visual-only fallback so spawned NPCs are visible in test scenes without skeletal assets.
+    VisualMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("VisualMesh"));
+    VisualMesh->SetupAttachment(GetCapsuleComponent());
+    VisualMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    VisualMesh->SetGenerateOverlapEvents(false);
+    VisualMesh->SetCastShadow(false);
+    VisualMesh->SetRelativeLocation(FVector(0.f, 0.f, -GetCapsuleComponent()->GetUnscaledCapsuleHalfHeight()));
+    VisualMesh->SetRelativeScale3D(FVector(0.6f, 0.6f, 1.6f));
+
+    // Default to Engine basic shape if no override is provided
+    if (!DefaultVisualMesh.IsValid())
+    {
+        static ConstructorHelpers::FObjectFinder<UStaticMesh> DefaultMeshObj(TEXT("/Engine/BasicShapes/Capsule.Capsule"));
+        if (DefaultMeshObj.Succeeded())
+        {
+            VisualMesh->SetStaticMesh(DefaultMeshObj.Object);
+        }
+    }
 }
 
 void AVHMNPCCharacter::BeginPlay()
@@ -84,6 +106,34 @@ void AVHMNPCCharacter::BeginPlay()
         }
     }
 #endif // VHM_HAS_STATETREE
+
+    // Hide visual fallback if a real skeletal mesh is assigned or if an override exists and is loaded
+    if (VisualMesh)
+    {
+        bool bUseFallback = true;
+
+        // Use explicit override mesh if set
+        if (DefaultVisualMesh.IsValid())
+        {
+            UStaticMesh* MeshAsset = DefaultVisualMesh.Get();
+            if (!MeshAsset && DefaultVisualMesh.ToSoftObjectPath().IsValid())
+            {
+                MeshAsset = DefaultVisualMesh.LoadSynchronous();
+            }
+            if (MeshAsset)
+            {
+                VisualMesh->SetStaticMesh(MeshAsset);
+            }
+        }
+
+        // If a skeletal mesh exists on the Character's Mesh component, prefer that and hide fallback
+        if (GetMesh() && GetMesh()->GetSkeletalMeshAsset() != nullptr)
+        {
+            bUseFallback = false;
+        }
+
+        VisualMesh->SetHiddenInGame(!bUseFallback);
+    }
 }
 
 void AVHMNPCCharacter::PossessedBy(AController* NewController)
