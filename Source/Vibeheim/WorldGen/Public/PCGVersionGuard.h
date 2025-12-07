@@ -5,16 +5,16 @@
 /**
  * PCGVersionGuard.h
  * 
- * Engine version and PCG API availability guard for UE 5.6 migration.
+ * Engine version and PCG API availability guard for UE 5.7 migration.
  * This header MUST be included by every translation unit that touches PCG APIs.
  * 
  * Purpose:
- * - Enforce UE 5.6.x requirement at compile time
+ * - Enforce UE 5.7.x requirement at compile time
  * - Verify PCG module availability
  * - Provide VHM_PCG_ENABLED flag for conditional compilation
  */
 
-// Strict UE 5.6.x requirement
+// Strict UE 5.7.x requirement
 #ifndef ENGINE_MAJOR_VERSION
     #error "ENGINE_MAJOR_VERSION not defined - check engine headers"
 #endif
@@ -23,8 +23,8 @@
     #error "ENGINE_MINOR_VERSION not defined - check engine headers"
 #endif
 
-static_assert(ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION == 6, 
-    "Vibeheim PCG integration requires UE 5.6.x only. Current version is incompatible.");
+static_assert(ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION == 7, 
+    "Vibeheim PCG integration requires UE 5.7.x only. Current version is incompatible.");
 
 #if !defined(WITH_PCG)
     #if __has_include("PCGSubsystem.h")
@@ -48,7 +48,7 @@ static_assert(ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION == 6,
 #if WITH_PCG && VHM_PCG_ENABLED
     #include "PCGSubsystem.h"
     
-    // Verify UE 5.6 scheduler API is available
+    // Verify UE 5.7 scheduler API is available
     // This will fail at compile time if the API signature changes
     namespace PCGVersionGuard_Private
     {
@@ -73,7 +73,7 @@ static_assert(ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION == 6,
         };
         
         static_assert(HasScheduleGraph<UPCGSubsystem>::Value,
-            "UPCGSubsystem::ScheduleGraph API not found - verify UE 5.6 PCG plugin version");
+            "UPCGSubsystem::ScheduleGraph API not found - verify UE 5.7 PCG plugin version");
     }
 #endif // WITH_PCG && VHM_PCG_ENABLED
 

@@ -5,7 +5,7 @@
 #include "Materials/MaterialInterface.h"
 #include "Misc/Optional.h"
 // Include PCG headers if available
-#if WITH_PCG
+#if defined(WITH_PCG) && WITH_PCG
 #include "PCGGraph.h"
 #endif
 #include "Curves/CurveFloat.h"

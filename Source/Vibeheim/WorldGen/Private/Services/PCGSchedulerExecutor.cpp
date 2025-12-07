@@ -239,13 +239,19 @@ bool FPCGSchedulerExecutor::ResolveInputs(UPCGGraph& Graph,
 
 		if (PinProps.AllowedTypes != EPCGDataType::Any)
 		{
-			const bool bTypeCompatible = EnumHasAnyFlags(PinProps.AllowedTypes, ResolvedData->GetDataType());
+#pragma warning(push)
+#pragma warning(disable: 4996)
+			const bool bTypeCompatible = EnumHasAnyFlags(static_cast<EPCGDataType>(PinProps.AllowedTypes), ResolvedData->GetDataType());
+#pragma warning(pop)
 			if (!bTypeCompatible)
 			{
 				OutErrors.Add(FString::Printf(
 					TEXT("Input '%s' expects type %s but received %s."),
 					*PinProps.Label.ToString(),
+#pragma warning(push)
+#pragma warning(disable: 4996)
 					*StaticEnum<EPCGDataType>()->GetNameStringByValue(static_cast<int64>(PinProps.AllowedTypes)),
+#pragma warning(pop)
 					*StaticEnum<EPCGDataType>()->GetNameStringByValue(static_cast<int64>(ResolvedData->GetDataType()))));
 				continue;
 			}

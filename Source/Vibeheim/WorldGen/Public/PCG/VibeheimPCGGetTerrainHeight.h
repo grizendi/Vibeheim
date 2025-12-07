@@ -10,6 +10,7 @@ class FPCGVibeheimGetTerrainHeightElement;
 
 /**
  * PCG element settings that annotate points with terrain height and slope sampled from the heightfield service.
+ * Updated for UE 5.7 compatibility.
  */
 UCLASS(BlueprintType, ClassGroup = (Vibeheim, PCG))
 class VIBEHEIM_API UVibeheimPCGGetTerrainHeightSettings : public UPCGSettings

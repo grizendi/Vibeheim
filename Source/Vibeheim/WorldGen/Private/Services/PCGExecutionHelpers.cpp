@@ -195,5 +195,16 @@ void UVibeheimPCGExecutionSource::BeginDestroy()
 	Super::BeginDestroy();
 }
 
+// WORKAROUND: UE 5.7 PCG Plugin does not export these virtual methods, causing unique linker errors
+// when inheriting from IPCGGraphExecutionState in a separate module. We provide stubs here to satisfy the linker.
+void IPCGGraphExecutionState::AddToManagedResources(UPCGManagedResource* InResource)
+{
+}
+
+FPCGGridDescriptor IPCGGraphExecutionState::GetGridDescriptor(uint32 InGridSize) const
+{
+	return FPCGGridDescriptor();
+}
+
 
 

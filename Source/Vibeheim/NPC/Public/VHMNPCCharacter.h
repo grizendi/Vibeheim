@@ -46,7 +46,7 @@ protected:
 
     // Optional default StateTree asset to run for this NPC.
     // If assigned (or found at the default path), it will be loaded and started at BeginPlay.
-    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AI", meta = (AllowedClasses = "StateTree", AllowPrivateAccess = "true"))
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AI", meta = (AllowedClasses = "/Script/StateTreeModule.StateTree", AllowPrivateAccess = "true"))
     TSoftObjectPtr<UStateTree> DefaultStateTreeAsset;
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Needs|Config", meta = (AllowPrivateAccess = "true"))

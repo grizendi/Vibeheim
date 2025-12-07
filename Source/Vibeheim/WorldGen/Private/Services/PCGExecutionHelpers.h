@@ -6,6 +6,7 @@
 #include "Data/PCGPointData.h"
 #include "PCGGraph.h"
 #include "PCGElement.h"
+#include "PCGSubsystem.h"
 #include "PCGGraphExecutionStateInterface.h"
 #include "UObject/Object.h"
 #include "UObject/StrongObjectPtr.h"
@@ -84,6 +85,13 @@ private:
 		virtual UPCGGraphInstance* GetGraphInstance() const override;
 		virtual void Cancel() override;
 		virtual void OnGraphExecutionAborted(bool bQuiet = false, bool bCleanupUnusedResources = true) override;
+		
+		// UE 5.7 Interface Updates
+		virtual bool IsGenerating() const override { return true; }
+		virtual bool IsRefreshInProgress() const override { return false; }
+		virtual IPCGGraphExecutionSource* GetOriginalSource() const override { return &Owner; }
+		virtual void AddToManagedResources(UPCGManagedResource* Resource) override {}
+		virtual FPCGGridDescriptor GetGridDescriptor(uint32 GridIndex) const override { return FPCGGridDescriptor(); }
 
 #if WITH_EDITOR
 		virtual const PCGUtils::FExtraCapture& GetExtraCapture() const override;

@@ -18,7 +18,7 @@ namespace InstancePersist
 {
 	static inline void GetCompressionParams(FName& OutFormat, ECompressionFlags& OutFlags)
 	{
-#if WITH_OODLE_SDK
+#if defined(WITH_OODLE_SDK) && WITH_OODLE_SDK
 		OutFormat = NAME_Oodle; // UE 5.6 preferred if the Oodle plugin is present
 #else
 		OutFormat = NAME_Zlib;  // fallback that exists in stock UE

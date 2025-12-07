@@ -29,6 +29,7 @@ public class Vibeheim : ModuleRules
             "NavigationSystem",
             "StateTreeModule",
             "PCG",
+            "PCGCompute",
             
             "StructUtils",
             "VirtualHeightfieldMesh",
@@ -64,7 +65,7 @@ public class Vibeheim : ModuleRules
             PublicDefinitions.Add("VHM_PCG_ENABLED=1");
         }
 
-        // Engine version policy: UE 5.6.x only
+        // Engine version policy: UE 5.7.x only
         // PCGVersionGuard.h enforces this at compile time with static_assert
         // See: Source/Vibeheim/WorldGen/Public/PCGVersionGuard.h
     }
