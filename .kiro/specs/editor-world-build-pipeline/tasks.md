@@ -2,14 +2,14 @@
 
 ## Phase 0: Foundation Types and Configuration
 
-- [ ] 1. Add EWorldGenBuildMode enum and extend FWorldGenConfig
-  - [ ] 1.1 Add EWorldGenBuildMode enum to WorldGenTypes.h
+- [x] 1. Add EWorldGenBuildMode enum and extend FWorldGenConfig
+  - [x] 1.1 Add EWorldGenBuildMode enum to WorldGenTypes.h
     - Define RuntimeStreaming, EditorBuildOnce, Hybrid values
     - _Requirements: 1.1_
-  - [ ] 1.2 Add BuildMode field to FWorldGenConfig
+  - [x] 1.2 Add BuildMode field to FWorldGenConfig
     - Default to RuntimeStreaming for backward compatibility
     - _Requirements: 1.1, 1.5_
-  - [ ] 1.3 Add optional bUseWorldPartitionStreaming flag to FWorldGenConfig
+  - [x] 1.3 Add optional bUseWorldPartitionStreaming flag to FWorldGenConfig
     - Used mainly for Hybrid and legacy maps
     - _Requirements: 1.4, 7.1_
 
