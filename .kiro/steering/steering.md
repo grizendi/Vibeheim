@@ -1,13 +1,13 @@
 # Vibeheim — Steering Guide for Coding LLMs (`steering.md`)
 
 Project: https://github.com/grizendi/Vibeheim  
-Target engine: **Unreal Engine 5.6** (Editor + Game)
+Target engine: **Unreal Engine 5.7** (Editor + Game)
 
 
 **Non-negotiable guardrails:**
-1) **Engine pin:** Use **UE 5.6 only**. Do not reference older engine versions, APIs, or plugin targets.
+1) **Engine pin:** Use **UE 5.7 only**. Do not reference older engine versions, APIs, or plugin targets.
 2) **Build discipline:** Do **not** build by default. Only build when necessary to validate critical changes (e.g., new/edited UCLASS/USTRUCT/UENUM headers, cross-module header changes).  
-   When building, use **official UE 5.6 tools only**: UnrealEditor (Live Coding), UnrealBuildTool, or RunUAT. No third-party build systems.
+   When building, use **official UE 5.7 tools only**: UnrealEditor (Live Coding), UnrealBuildTool, or RunUAT. No third-party build systems.
 3) **Simplicity first:** Implement the **simplest working solution** that meets the stated requirement. Avoid overengineering, premature abstraction, or speculative extensibility.
 4) **No tests unless asked:** Do not create unit/integration/e2e tests unless explicitly requested.
 
@@ -61,7 +61,7 @@ Data/config: Prefer existing UDataAsset/settings patterns over inventing new sub
 
 Interfaces: Always define both UYourInterface and IYourInterface.
 
-PCG Integration: Always check the PCG implementation strictly based on the UE 5.6 framework node reference found in: https://dev.epicgames.com/documentation/en-us/unreal-engine/procedural-content-generation-framework-node-reference-in-unreal-engine
+PCG Integration: Always check the PCG implementation strictly based on the UE 5.7 framework node reference found in: https://dev.epicgames.com/documentation/en-us/unreal-engine/procedural-content-generation-framework-node-reference-in-unreal-engine
 
 ---
 
@@ -83,7 +83,7 @@ Do not create tests or extra tooling unless asked.
 
 The requested feature works with the simplest viable implementation.
 
-Complies with UE 5.6 APIs and Unreal style/structure.
+Complies with UE 5.7 APIs and Unreal style/structure.
 
 Avoids unnecessary builds, modules, abstractions, and tests.
 
