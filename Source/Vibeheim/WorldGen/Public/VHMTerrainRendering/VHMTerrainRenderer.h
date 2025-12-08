@@ -1,14 +1,15 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "UObject/NoExportTypes.h"
-#include "VHMTerrainRendering/IVHMTerrainRenderer.h"
-#include "VHMTerrainRendering/IHeightfieldTextureManager.h"
-#include "VHMTerrainRendering/ITerrainMaterialSystem.h"
-#include "VHMTerrainRendering/ITerrainLODManager.h"
-#include "VHMTerrainRendering/ITileBoundaryManager.h"
-#include "VHMTerrainRendering/VHMTypes.h"
+#include "Data/WorldGenTerrainResource.h"
 #include "Data/WorldGenTypes.h"
+#include "VHMTerrainRendering/IHeightfieldTextureManager.h"
+#include "VHMTerrainRendering/ITerrainLODManager.h"
+#include "VHMTerrainRendering/ITerrainMaterialSystem.h"
+#include "VHMTerrainRendering/ITileBoundaryManager.h"
+#include "VHMTerrainRendering/IVHMTerrainRenderer.h"
+#include "VHMTerrainRendering/VHMTypes.h"
+#include "UObject/NoExportTypes.h"
 #include "VHMTerrainRenderer.generated.h"
 
 // Forward declarations
@@ -26,249 +27,272 @@ class AActor;
 
 /**
  * Main VHM terrain rendering coordinator
- * Manages VirtualHeightfieldMeshComponent lifecycle and integrates with world generation services
- * 
- * Note: Current implementation creates basic VHM components. VHM-specific API calls
- * will be added once the correct UE5 VirtualHeightfieldMesh API is determined.
+ * Manages VirtualHeightfieldMeshComponent lifecycle and integrates with world
+ * generation services
+ *
+ * Note: Current implementation creates basic VHM components. VHM-specific API
+ * calls will be added once the correct UE5 VirtualHeightfieldMesh API is
+ * determined.
  */
 UCLASS(BlueprintType)
-class VIBEHEIM_API UVHMTerrainRenderer : public UObject, public IVHMTerrainRendererInterface
-{
-    GENERATED_BODY()
+class VIBEHEIM_API UVHMTerrainRenderer : public UObject,
+                                         public IVHMTerrainRendererInterface {
+  GENERATED_BODY()
 
 public:
-    UVHMTerrainRenderer();
+  UVHMTerrainRenderer();
 
-    // IVHMTerrainRendererInterface interface
-    virtual bool Initialize(UWorldGenSettings* Settings, 
-                          UHeightfieldService* HeightfieldService,
-                          UTileStreamingService* TileStreamingService) override;
+  // IVHMTerrainRendererInterface interface
+  virtual bool Initialize(UWorldGenSettings *Settings,
+                          UHeightfieldService *HeightfieldService,
+                          UTileStreamingService *TileStreamingService) override;
 
-    /**
-     * Initialize with biome service for material system
-     */
-    UFUNCTION(BlueprintCallable, Category = "VHM")
-    bool InitializeWithBiomeService(UWorldGenSettings* Settings, 
-                                  UHeightfieldService* HeightfieldService,
-                                  UTileStreamingService* TileStreamingService,
-                                  UBiomeService* BiomeService);
-    
-    virtual bool CreateTerrainMeshForTile(const FTileCoord& TileCoord) override;
-    virtual bool UpdateTerrainMesh(const FTileCoord& TileCoord, const TArray<FHeightfieldModification>& Modifications) override;
-    virtual void RemoveTerrainMesh(const FTileCoord& TileCoord) override;
-    virtual UVirtualHeightfieldMeshComponent* GetVHMComponent(const FTileCoord& TileCoord) override;
-    virtual void UpdateLODLevels(const FVector& ViewerPosition) override;
-    virtual FVHMPerformanceStats GetPerformanceStats() const override;
-    virtual void OnTileStreamingEvent(const FTileCoord& TileCoord, bool bTileLoaded) override;
-    virtual void Cleanup() override;
+  /**
+   * Initialize with biome service for material system
+   */
+  UFUNCTION(BlueprintCallable, Category = "VHM")
+  bool InitializeWithBiomeService(UWorldGenSettings *Settings,
+                                  UHeightfieldService *HeightfieldService,
+                                  UTileStreamingService *TileStreamingService,
+                                  UBiomeService *BiomeService);
 
-    /**
-     * Get VHM settings for configuration
-     */
-    UFUNCTION(BlueprintCallable, Category = "VHM")
-    const FVHMSettings& GetVHMSettings() const { return VHMSettings; }
+  virtual bool CreateTerrainMeshForTile(const FTileCoord &TileCoord) override;
+  virtual bool UpdateTerrainMesh(
+      const FTileCoord &TileCoord,
+      const TArray<FHeightfieldModification> &Modifications) override;
+  virtual void RemoveTerrainMesh(const FTileCoord &TileCoord) override;
+  virtual UVirtualHeightfieldMeshComponent *
+  GetVHMComponent(const FTileCoord &TileCoord) override;
+  virtual void UpdateLODLevels(const FVector &ViewerPosition) override;
+  virtual FVHMPerformanceStats GetPerformanceStats() const override;
+  virtual void OnTileStreamingEvent(const FTileCoord &TileCoord,
+                                    bool bTileLoaded) override;
+  virtual void Cleanup() override;
 
-    /**
-     * Set VHM settings (for runtime configuration changes)
-     */
-    UFUNCTION(BlueprintCallable, Category = "VHM")
-    void SetVHMSettings(const FVHMSettings& NewSettings);
+  /**
+   * Get VHM settings for configuration
+   */
+  UFUNCTION(BlueprintCallable, Category = "VHM")
+  const FVHMSettings &GetVHMSettings() const { return VHMSettings; }
 
-    /**
-     * Get terrain mesh data for a specific tile
-     */
-    UFUNCTION(BlueprintCallable, Category = "VHM")
-    bool GetTerrainMeshData(const FTileCoord& TileCoord, FTerrainMeshData& OutMeshData) const;
+  /**
+   * Set VHM settings (for runtime configuration changes)
+   */
+  UFUNCTION(BlueprintCallable, Category = "VHM")
+  void SetVHMSettings(const FVHMSettings &NewSettings);
 
-    /**
-     * Get all active terrain meshes
-     */
-    UFUNCTION(BlueprintCallable, Category = "VHM")
-    TArray<FTileCoord> GetActiveMeshTiles() const;
+  /**
+   * Get terrain mesh data for a specific tile
+   */
+  UFUNCTION(BlueprintCallable, Category = "VHM")
+  bool GetTerrainMeshData(const FTileCoord &TileCoord,
+                          FTerrainMeshData &OutMeshData) const;
 
-    /**
-     * Update terrain mesh with seamless boundary stitching
-     * @param TileCoord Tile coordinate to update
-     * @param Modifications Array of modifications to apply
-     * @param bStitchBoundaries Whether to stitch boundaries with adjacent tiles
-     * @return True if update succeeded
-     */
-    UFUNCTION(BlueprintCallable, Category = "VHM")
-    bool UpdateTerrainMeshWithBoundaryStitching(const FTileCoord& TileCoord, 
-                                              const TArray<FHeightfieldModification>& Modifications,
-                                              bool bStitchBoundaries = true);
+  /**
+   * Get all active terrain meshes
+   */
+  UFUNCTION(BlueprintCallable, Category = "VHM")
+  TArray<FTileCoord> GetActiveMeshTiles() const;
 
-    /**
-     * Get tile boundary manager for direct access
-     */
-    UFUNCTION(BlueprintCallable, Category = "VHM")
-    TScriptInterface<ITileBoundaryManager> GetTileBoundaryManager() const;
+  /**
+   * Update terrain mesh with seamless boundary stitching
+   * @param TileCoord Tile coordinate to update
+   * @param Modifications Array of modifications to apply
+   * @param bStitchBoundaries Whether to stitch boundaries with adjacent tiles
+   * @return True if update succeeded
+   */
+  UFUNCTION(BlueprintCallable, Category = "VHM")
+  bool UpdateTerrainMeshWithBoundaryStitching(
+      const FTileCoord &TileCoord,
+      const TArray<FHeightfieldModification> &Modifications,
+      bool bStitchBoundaries = true);
 
-    /**
-     * Get terrain material system for direct access
-     */
-    UFUNCTION(BlueprintCallable, Category = "VHM")
-    TScriptInterface<ITerrainMaterialSystem> GetTerrainMaterialSystem() const;
+  /**
+   * Get tile boundary manager for direct access
+   */
+  UFUNCTION(BlueprintCallable, Category = "VHM")
+  TScriptInterface<ITileBoundaryManager> GetTileBoundaryManager() const;
+
+  /**
+   * Get terrain material system for direct access
+   */
+  UFUNCTION(BlueprintCallable, Category = "VHM")
+
+  TScriptInterface<ITerrainMaterialSystem> GetTerrainMaterialSystem() const;
+
+  /**
+   * Set prebaked terrain resource for static world rendering
+   */
+  UFUNCTION(BlueprintCallable, Category = "VHM")
+  void SetPrebakedTerrainResource(UWorldGenTerrainResource *InResource);
 
 protected:
-    // VHM system configuration
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VHM")
-    FVHMSettings VHMSettings;
+  // VHM system configuration
+  UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VHM")
+  FVHMSettings VHMSettings;
 
-    // Service references
-    UPROPERTY()
-    UWorldGenSettings* WorldGenSettings;
+  // Service references
+  UPROPERTY()
+  UWorldGenSettings *WorldGenSettings;
 
-    UPROPERTY()
-    UHeightfieldService* HeightfieldService;
+  UPROPERTY()
+  UHeightfieldService *HeightfieldService;
 
-    UPROPERTY()
-    UTileStreamingService* TileStreamingService;
+  UPROPERTY()
+  UTileStreamingService *TileStreamingService;
 
-    UPROPERTY()
-    TScriptInterface<UHeightfieldTextureManager> HeightfieldTextureManager;
+  UPROPERTY()
+  TScriptInterface<UHeightfieldTextureManager> HeightfieldTextureManager;
 
-    UPROPERTY()
-    UBiomeService* BiomeService;
+  UPROPERTY()
+  UBiomeService *BiomeService;
 
-    UPROPERTY()
-    TScriptInterface<ITerrainMaterialSystem> TerrainMaterialSystem;
+  UPROPERTY()
+  UWorldGenTerrainResource *PrebakedTerrainResource;
 
-    UPROPERTY()
-    TScriptInterface<ITerrainLODManager> TerrainLODManager;
+  UPROPERTY()
+  TScriptInterface<ITerrainMaterialSystem> TerrainMaterialSystem;
 
-    UPROPERTY()
-    TScriptInterface<ITileBoundaryManager> TileBoundaryManager;
+  UPROPERTY()
+  TScriptInterface<ITerrainLODManager> TerrainLODManager;
 
-    // Terrain mesh management
-    UPROPERTY()
-    TMap<FTileCoord, FTerrainMeshData> TerrainMeshes;
+  UPROPERTY()
+  TScriptInterface<ITileBoundaryManager> TileBoundaryManager;
 
-    // Performance tracking
-    mutable FVHMPerformanceStats PerformanceStats;
-    TArray<float> RecentMeshGenerationTimes;
-    static const int32 MaxRecentTimes = 50;
+  // Terrain mesh management
+  UPROPERTY()
+  TMap<FTileCoord, FTerrainMeshData> TerrainMeshes;
 
-    // Per-tile mesh generation time (ms) from last creation
-    UPROPERTY()
-    TMap<FTileCoord, float> LastMeshGenTimePerTile;
+  // Performance tracking
+  mutable FVHMPerformanceStats PerformanceStats;
+  TArray<float> RecentMeshGenerationTimes;
+  static const int32 MaxRecentTimes = 50;
 
-    // World reference for component creation
-    UPROPERTY()
-    UWorld* CachedWorld;
+  // Per-tile mesh generation time (ms) from last creation
+  UPROPERTY()
+  TMap<FTileCoord, float> LastMeshGenTimePerTile;
+
+  // World reference for component creation
+  UPROPERTY()
+  UWorld *CachedWorld;
 
 private:
-    /**
-     * Create VHM component for a tile
-     */
-    UVirtualHeightfieldMeshComponent* CreateVHMComponent(const FTileCoord& TileCoord);
+  /**
+   * Create VHM component for a tile
+   */
+  UVirtualHeightfieldMeshComponent *
+  CreateVHMComponent(const FTileCoord &TileCoord);
 
-    /**
-     * Configure VHM component properties
-     */
-    void ConfigureVHMComponent(UVirtualHeightfieldMeshComponent* VHMComponent, const FTileCoord& TileCoord);
+  /**
+   * Configure VHM component properties
+   */
+  void ConfigureVHMComponent(UVirtualHeightfieldMeshComponent *VHMComponent,
+                             const FTileCoord &TileCoord);
 
-    /**
-     * Generate mesh from heightfield data for VHM component
-     */
-    bool GenerateMeshFromHeightfield(UVirtualHeightfieldMeshComponent* VHMComponent, const FTileCoord& TileCoord, UTexture2D* HeightTexture);
+  /**
+   * Generate mesh from heightfield data for VHM component
+   */
+  bool
+  GenerateMeshFromHeightfield(UVirtualHeightfieldMeshComponent *VHMComponent,
+                              const FTileCoord &TileCoord,
+                              UTexture2D *HeightTexture);
 
-    /**
-     * Validate VHM component is properly configured
-     */
-    bool ValidateVHMComponent(UVirtualHeightfieldMeshComponent* VHMComponent, const FTileCoord& TileCoord) const;
+  /**
+   * Validate VHM component is properly configured
+   */
+  bool ValidateVHMComponent(UVirtualHeightfieldMeshComponent *VHMComponent,
+                            const FTileCoord &TileCoord) const;
 
-    /**
-     * Calculate world bounds for a tile
-     */
-    FBox CalculateTileWorldBounds(const FTileCoord& TileCoord) const;
+  /**
+   * Calculate world bounds for a tile
+   */
+  FBox CalculateTileWorldBounds(const FTileCoord &TileCoord) const;
 
-    /**
-     * Update frame-based LOD coordination
-     */
-    void UpdateFrameBasedLOD(const FVector& ViewerPosition);
+  /**
+   * Update frame-based LOD coordination
+   */
+  void UpdateFrameBasedLOD(const FVector &ViewerPosition);
 
-    /**
-     * Handle visibility culling for mesh creation/destruction
-     */
-    void HandleVisibilityCulling(const FVector& ViewerPosition);
+  /**
+   * Handle visibility culling for mesh creation/destruction
+   */
+  void HandleVisibilityCulling(const FVector &ViewerPosition);
 
-    /**
-     * Apply performance-based adaptive quality adjustment
-     */
-    void ApplyAdaptiveQualityAdjustment();
+  /**
+   * Apply performance-based adaptive quality adjustment
+   */
+  void ApplyAdaptiveQualityAdjustment();
 
-    /**
-     * Update performance statistics
-     */
-    void UpdatePerformanceStats(float MeshGenerationTime) const;
+  /**
+   * Update performance statistics
+   */
+  void UpdatePerformanceStats(float MeshGenerationTime) const;
 
-    /**
-     * Record mesh generation time for performance tracking
-     */
-    void RecordMeshGenerationTime(float GenerationTime);
+  /**
+   * Record mesh generation time for performance tracking
+   */
+  void RecordMeshGenerationTime(float GenerationTime);
 
 public:
-    /**
-     * Get last mesh generation time in ms for a tile (0 if unknown)
-     */
-    UFUNCTION(BlueprintCallable, Category = "VHM")
-    float GetLastMeshGenerationTimeMs(const FTileCoord& TileCoord) const;
+  /**
+   * Get last mesh generation time in ms for a tile (0 if unknown)
+   */
+  UFUNCTION(BlueprintCallable, Category = "VHM")
+  float GetLastMeshGenerationTimeMs(const FTileCoord &TileCoord) const;
 
-    /**
-     * Get tile center position in world coordinates
-     */
-    FVector GetTileCenterWorldPosition(const FTileCoord& TileCoord) const;
+  /**
+   * Get tile center position in world coordinates
+   */
+  FVector GetTileCenterWorldPosition(const FTileCoord &TileCoord) const;
 
-    /**
-     * Get tile corner position in world coordinates (bottom-left corner)
-     */
-    FVector GetTileCornerWorldPosition(const FTileCoord& TileCoord) const;
+  /**
+   * Get tile corner position in world coordinates (bottom-left corner)
+   */
+  FVector GetTileCornerWorldPosition(const FTileCoord &TileCoord) const;
 
-    /**
-     * Validate tile coordinate is within reasonable bounds
-     */
-    bool IsValidTileCoordinate(const FTileCoord& TileCoord) const;
+  /**
+   * Validate tile coordinate is within reasonable bounds
+   */
+  bool IsValidTileCoordinate(const FTileCoord &TileCoord) const;
 
-    /**
-     * Cleanup mesh data for a tile
-     */
-    void CleanupMeshData(const FTileCoord& TileCoord);
+  /**
+   * Cleanup mesh data for a tile
+   */
+  void CleanupMeshData(const FTileCoord &TileCoord);
 
-    /**
-     * Initialize heightfield texture manager
-     */
-    bool InitializeHeightfieldTextureManager();
+  /**
+   * Initialize heightfield texture manager
+   */
+  bool InitializeHeightfieldTextureManager();
 
-    /**
-     * Initialize terrain LOD manager
-     */
-    bool InitializeTerrainLODManager();
+  /**
+   * Initialize terrain LOD manager
+   */
+  bool InitializeTerrainLODManager();
 
-    /**
-     * Initialize terrain material system
-     */
-    bool InitializeTerrainMaterialSystem();
+  /**
+   * Initialize terrain material system
+   */
+  bool InitializeTerrainMaterialSystem();
 
-    /**
-     * Initialize tile boundary manager
-     */
-    bool InitializeTileBoundaryManager();
+  /**
+   * Initialize tile boundary manager
+   */
+  bool InitializeTileBoundaryManager();
 
-    /**
-     * Apply boundary stitching to height data
-     */
-    bool ApplyBoundaryStitching(const FTileCoord& TileCoord, TArray<float>& InOutHeightData);
+  /**
+   * Apply boundary stitching to height data
+   */
+  bool ApplyBoundaryStitching(const FTileCoord &TileCoord,
+                              TArray<float> &InOutHeightData);
 
-    /**
-     * Update adjacent tile boundaries when a tile is modified
-     */
-    void UpdateAdjacentTileBoundaries(const FTileCoord& ModifiedTileCoord);
+  /**
+   * Update adjacent tile boundaries when a tile is modified
+   */
+  void UpdateAdjacentTileBoundaries(const FTileCoord &ModifiedTileCoord);
 
-    /**
-     * Create flat meadow fallback when VHM creation fails
-     */
-    bool CreateFlatMeadowFallback(const FTileCoord& TileCoord);
-
-    
+  /**
+   * Create flat meadow fallback when VHM creation fails
+   */
+  bool CreateFlatMeadowFallback(const FTileCoord &TileCoord);
 };

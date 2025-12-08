@@ -48,6 +48,16 @@ public class Vibeheim : ModuleRules
             "ImageWrapper"
         });
 
+        if (Target.bBuildEditor)
+        {
+            PrivateDependencyModuleNames.AddRange(new string[]
+            {
+                "UnrealEd",
+                "EditorFramework",
+                "LevelEditor"
+            });
+        }
+
         // Compile dev automation tests in non-shipping configs
         if (Target.Configuration != UnrealTargetConfiguration.Shipping)
         {

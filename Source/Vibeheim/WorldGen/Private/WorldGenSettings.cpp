@@ -41,6 +41,12 @@ UWorldGenSettings* UWorldGenSettings::GetWorldGenSettings()
 	return Instance;
 }
 
+bool UWorldGenSettings::IsRuntimeGenerationEnabled() const
+{
+	// Runtime streaming is enabled for all modes except the baked editor-only build.
+	return Settings.BuildMode != EWorldGenBuildMode::EditorBuildOnce;
+}
+
 bool UWorldGenSettings::LoadFromJSON(const FString& ConfigPath)
 {
 	const FString FullPath = FPaths::ProjectDir() / ConfigPath;
