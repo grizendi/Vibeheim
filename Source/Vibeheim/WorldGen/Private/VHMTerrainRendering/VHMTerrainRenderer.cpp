@@ -175,7 +175,10 @@ bool UVHMTerrainRenderer::CreateTerrainMeshForTile(
 
   if (bUsingPrebaked) {
     // Fetch texture from prebaked resource
-    HeightTexture = PrebakedTerrainResource->HeightTextures.FindRef(TileCoord);
+    const FIntPoint TileKey(TileCoord.X, TileCoord.Y);
+    const TSoftObjectPtr<UTexture2D> TextureHandle =
+        PrebakedTerrainResource->HeightTextures.FindRef(TileKey);
+    HeightTexture = TextureHandle.IsNull() ? nullptr : TextureHandle.LoadSynchronous();
     if (!HeightTexture) {
       UE_LOG(LogVHMTerrainRenderer, Warning,
              TEXT("CreateTerrainMeshForTile - Prebaked texture missing for "

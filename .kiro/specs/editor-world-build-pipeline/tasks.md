@@ -25,7 +25,7 @@
     - Wraps FWorldBuildState with UpdateFromBuild() method
     - _Requirements: 2.1_
 
-- [ ] 3. Checkpoint - Foundation types
+- [x] 3. Checkpoint - Foundation types
   - Manual Editor validation (no automation):
     - Open Vibeheim.uproject in UE 5.7 and ensure hot-reload completes without errors.
     - Create a `WorldGenBuildStateAsset` data asset in Content Browser; confirm BuiltSeed/WorldGenVersion/PCGBuildHash fields are editable and saved.
@@ -36,45 +36,45 @@
 
 ## Phase 1: Terrain Resource and Prebaked Data
 
-- [ ] 4. Create UWorldGenTerrainResource data asset
-  - [ ] 4.1 Create WorldGenTerrainResource.h with coordinate metadata
+- [x] 4. Create UWorldGenTerrainResource data asset
+  - [x] 4.1 Create WorldGenTerrainResource.h with coordinate metadata
     - WorldOrigin, TileSizeMeters, SampleSpacingMeters
     - MinHeight, MaxHeight, SeaLevel
     - _Requirements: 4.1, 4.4_
-  - [ ] 4.2 Implement tile-indexed height texture storage
+  - [x] 4.2 Implement tile-indexed height texture storage
     - `TMap<FIntPoint, TSoftObjectPtr<UTexture2D>> HeightTextures`
     - _Requirements: 4.1_
-  - [ ] 4.3 Implement tile-indexed biome cache
+  - [x] 4.3 Implement tile-indexed biome cache
     - `TMap<FIntPoint, FBiomeResult> BiomeCache` (dominant per tile)
     - _Requirements: 9.2, 11.1_
-  - [ ] 4.4 Implement GetHeightAtWorldPosition() query method
+  - [x] 4.4 Implement GetHeightAtWorldPosition() query method
     - Convert world pos -> tile -> UV, sample from texture
     - _Requirements: 4.4, 9.2_
-  - [ ] 4.5 Write property test for height query consistency
+  - [x] 4.5 Write property test for height query consistency
     - **Property 5: Prebaked Height Query Consistency**
     - **Validates: Requirements 4.1, 4.2, 4.4, 9.2**
-  - [ ] 4.6 Implement GetBiomeAtWorldPosition() and HasTileData()
+  - [x] 4.6 Implement GetBiomeAtWorldPosition() and HasTileData()
     - Use BiomeCache plus WorldPosToTile()
     - _Requirements: 9.2, 11.2_
-  - [ ] 4.7 Implement WorldPosToTile() helper
+- [x] 4.7 Implement WorldPosToTile() helper
     - Converts world position to FTileCoord using WorldOrigin/TileSize
     - _Requirements: 4.4, 9.2_
 
-- [ ] 5. Extend FTileCoord with PCG grid conversion helpers
-  - [ ] 5.1 Add ToPCGGridCell() method to FTileCoord
+- [x] 5. Extend FTileCoord with PCG grid conversion helpers
+  - [x] 5.1 Add ToPCGGridCell() method to FTileCoord
     - Expects integer ratio between TileSize and PCGGridSize
     - _Requirements: 5.2_
-  - [ ] 5.2 Add FromPCGGridCell() static method
+  - [x] 5.2 Add FromPCGGridCell() static method
     - Construct FTileCoord from PCG grid cell
     - _Requirements: 5.2_
-  - [ ] 5.3 Add IsAlignedWithPCGGrid() static method with tolerance
+  - [x] 5.3 Add IsAlignedWithPCGGrid() static method with tolerance
     - Integer-ratio check with float tolerance
     - _Requirements: 5.1, 5.4_
-  - [ ] 5.4 Write property test for PCG grid round-trip conversion
+  - [x] 5.4 Write property test for PCG grid round-trip conversion
     - **Property 6: PCG Grid Alignment Round-Trip**
     - **Validates: Requirements 5.1, 5.2**
 
-- [ ] 6. Checkpoint - Terrain resource and tile/grid helpers
+- [x] 6. Checkpoint - Terrain resource and tile/grid helpers
   - Run tests and fix regressions.
 
 ---
@@ -280,6 +280,19 @@
   - [ ] 20.1 Add "Rebuild Vibeheim World" menu option
     - Executes full build pipeline via UWorldGenBuildUtility
     - _Requirements: 10.1_
+  - [ ] 20.2 Create an Editor Utility Widget for world builds
+    - [ ] 20.2.1 Create WBP_WorldGenBuilder (Editor Utility Widget)
+      - Buttons: “Build World”, “Build Terrain Only”, “Build PCG Only”
+      - Fields: Seed override, map path, mode display (RuntimeStreaming / EditorBuildOnce / Hybrid)
+      - Uses: UWorldGenBuildUtility, console commands from Phase 8
+    - [ ] 20.2.2 Bind widget actions to UWorldGenBuildUtility
+      - Call BuildWorldFromSeed with specified seed/map
+      - Display FWorldBuildState (seed, version, timestamp, baked/stale)
+    - [ ] 20.2.3 Show real-time progress
+      - Subscribe to OnBuildProgress and OnBuildComplete
+      - Display progress bar and status text
+    - [ ] 20.2.4 Add access point in the editor
+      - Window → Vibeheim → “World Build Pipeline” opens the widget
 
 - [ ] 21. Checkpoint - Tools
   - Run tests and fix regressions.

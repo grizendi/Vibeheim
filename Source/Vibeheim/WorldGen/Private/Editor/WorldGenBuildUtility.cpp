@@ -73,10 +73,12 @@ bool UWorldGenBuildUtility::BuildWorldFromSeed(int32 Seed) {
   }
 
   // Initialize resource metadata
-  TerrainResource->Seed = Settings->Settings.Seed;
-  TerrainResource->Radius = Settings->Settings.GenerateRadius;
-  TerrainResource->GridCenter = FTileCoord(0, 0); // Presume origin for now
-  TerrainResource->HeightTextures.Empty();        // Clear old data
+  TerrainResource->WorldOrigin = FVector2D::ZeroVector;
+  TerrainResource->TileSizeMeters = Settings->Settings.TileSizeMeters;
+  TerrainResource->SampleSpacingMeters = Settings->Settings.SampleSpacingMeters;
+  TerrainResource->SeaLevel = Settings->Settings.SeaLevel;
+  TerrainResource->HeightTextures.Empty(); // Clear old data
+  TerrainResource->BiomeCache.Empty();
 
   // Define build bounds
   const int32 BuildRadius = Settings->Settings.GenerateRadius;
@@ -139,7 +141,8 @@ bool UWorldGenBuildUtility::BuildWorldFromSeed(int32 Seed) {
       Texture->PostEditChange();
 
       // Store in resource
-      TerrainResource->HeightTextures.Add(TileCoord, Texture);
+      TerrainResource->HeightTextures.Add(FIntPoint(TileCoord.X, TileCoord.Y),
+                                          Texture);
       TotalTiles++;
     }
   }

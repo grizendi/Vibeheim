@@ -883,8 +883,16 @@ void UInstancePersistenceManager::MarkJournalDirty(FTileCoord TileCoord)
 bool UInstancePersistenceManager::SaveDirtyJournals()
 {
 	bool bAllSaved = true;
-	
+
+	// Copy to array to avoid mutating the TSet during iteration (SaveTileJournal removes entries)
+	TArray<FTileCoord> DirtySnapshot;
+	DirtySnapshot.Reserve(DirtyJournals.Num());
 	for (const FTileCoord& TileCoord : DirtyJournals)
+	{
+		DirtySnapshot.Add(TileCoord);
+	}
+
+	for (const FTileCoord& TileCoord : DirtySnapshot)
 	{
 		if (!SaveTileJournal(TileCoord))
 		{

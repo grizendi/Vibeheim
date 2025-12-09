@@ -54,6 +54,26 @@ struct VIBEHEIM_API FTileCoord {
     return FVector((X + 0.5f) * TileSize, (Y + 0.5f) * TileSize, 0.0f);
   }
 
+  /**
+   * Convert this tile coordinate to a PCG partition grid cell.
+   * Expects TileSize and PCGGridSize to have an integer ratio for deterministic alignment.
+   */
+  FIntPoint ToPCGGridCell(float PCGGridSize, float TileSize) const;
+
+  /**
+   * Construct a tile coordinate from a PCG partition grid cell.
+   * Expects TileSize and PCGGridSize to have an integer ratio for deterministic alignment.
+   */
+  static FTileCoord FromPCGGridCell(const FIntPoint &Cell, float PCGGridSize,
+                                    float TileSize);
+
+  /**
+   * Verify that TileSize and PCGGridSize have an integer ratio within tolerance.
+   * Accepts either direction (TileSize as multiple of PCG grid or vice versa) to avoid silent drift.
+   */
+  static bool IsAlignedWithPCGGrid(float TileSize, float PCGGridSize,
+                                   float Tolerance = KINDA_SMALL_NUMBER);
+
   FVector ToWorldPosition(const struct FWorldGenConfig &Config) const;
 
   // Hash function for use in TMap
@@ -285,6 +305,79 @@ inline FTileCoord FTileCoord::FromWorldPosition(const FVector &WorldPos,
 inline FVector
 FTileCoord::ToWorldPosition(const FWorldGenConfig &Config) const {
   return ToWorldPosition(Config.TileSizeMeters);
+}
+
+inline FIntPoint FTileCoord::ToPCGGridCell(float PCGGridSize,
+                                           float TileSize) const {
+  const float SafeTileSize = FMath::Max(TileSize, KINDA_SMALL_NUMBER);
+  const float SafeGridSize = FMath::Max(PCGGridSize, KINDA_SMALL_NUMBER);
+  const float TilesPerPCGCell = SafeTileSize / SafeGridSize;
+  const bool bAligned =
+      IsAlignedWithPCGGrid(SafeTileSize, SafeGridSize, KINDA_SMALL_NUMBER);
+  ensureMsgf(
+      bAligned,
+      TEXT("FTileCoord::ToPCGGridCell expects TileSize to be an integer "
+           "multiple of PCGGridSize for reversible mapping (TileSize=%.3f, "
+           "PCGGridSize=%.3f)"),
+      SafeTileSize, SafeGridSize);
+
+  if (bAligned) {
+    const int32 Scale = FMath::Max(1, FMath::RoundToInt(TilesPerPCGCell));
+    return FIntPoint(X * Scale, Y * Scale);
+  }
+
+  // Fallback: derive cell from world-space tile origin to keep determinism
+  const FVector2D TileOrigin(static_cast<float>(X) * SafeTileSize,
+                             static_cast<float>(Y) * SafeTileSize);
+  return FIntPoint(FMath::FloorToInt(TileOrigin.X / SafeGridSize),
+                   FMath::FloorToInt(TileOrigin.Y / SafeGridSize));
+}
+
+inline FTileCoord FTileCoord::FromPCGGridCell(const FIntPoint &Cell,
+                                              float PCGGridSize,
+                                              float TileSize) {
+  const float SafeTileSize = FMath::Max(TileSize, KINDA_SMALL_NUMBER);
+  const float SafeGridSize = FMath::Max(PCGGridSize, KINDA_SMALL_NUMBER);
+  const float TilesPerPCGCell = SafeTileSize / SafeGridSize;
+  const bool bAligned =
+      IsAlignedWithPCGGrid(SafeTileSize, SafeGridSize, KINDA_SMALL_NUMBER);
+  ensureMsgf(
+      bAligned,
+      TEXT("FTileCoord::FromPCGGridCell expects TileSize to be an integer "
+           "multiple of PCGGridSize for reversible mapping (TileSize=%.3f, "
+           "PCGGridSize=%.3f)"),
+      SafeTileSize, SafeGridSize);
+
+  if (bAligned) {
+    const int32 Scale = FMath::Max(1, FMath::RoundToInt(TilesPerPCGCell));
+    return FTileCoord(FMath::FloorToInt(static_cast<float>(Cell.X) /
+                                        static_cast<float>(Scale)),
+                      FMath::FloorToInt(static_cast<float>(Cell.Y) /
+                                        static_cast<float>(Scale)));
+  }
+
+  // Fallback: map PCG cell origin back into tile grid deterministically
+  const FVector2D CellOrigin(static_cast<float>(Cell.X) * SafeGridSize,
+                             static_cast<float>(Cell.Y) * SafeGridSize);
+  return FTileCoord(FMath::FloorToInt(CellOrigin.X / SafeTileSize),
+                    FMath::FloorToInt(CellOrigin.Y / SafeTileSize));
+}
+
+inline bool FTileCoord::IsAlignedWithPCGGrid(float TileSize, float PCGGridSize,
+                                             float Tolerance) {
+  if (TileSize <= Tolerance || PCGGridSize <= Tolerance) {
+    return false;
+  }
+
+  // We only treat grids as aligned when a tile spans an integer number of PCG
+  // cells to keep conversions reversible.
+  const float TileToGridRatio = TileSize / PCGGridSize;
+  if (TileToGridRatio < 1.0f - Tolerance) {
+    return false;
+  }
+
+  const float RoundedTileToGrid = FMath::RoundToFloat(TileToGridRatio);
+  return FMath::IsNearlyEqual(TileToGridRatio, RoundedTileToGrid, Tolerance);
 }
 
 /**
