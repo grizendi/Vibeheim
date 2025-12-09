@@ -769,9 +769,9 @@ UPCGComponent *UPCGWorldService::GetOrCreateBiomeComponent(EBiomeType BiomeType,
   NewComponent->SetComponentTickEnabled(false);
   NewComponent->bRuntimeGenerated = true;
 
-  // Enable partitioning if configured
+  // Enable partitioning if configured (matches UE 5.7 PCG API)
   if (WorldGenSettings.bUseWorldPartitionStreaming) {
-    NewComponent->bIsPartitioned = true;
+    NewComponent->SetIsPartitioned(true);
   }
 
   NewComponent->Seed = WorldGenSettings.Seed;

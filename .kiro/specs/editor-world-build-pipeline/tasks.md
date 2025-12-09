@@ -13,20 +13,24 @@
     - Used mainly for Hybrid and legacy maps
     - _Requirements: 1.4, 7.1_
 
-- [ ] 2. Create FWorldBuildState struct and UWorldGenBuildStateAsset
-  - [ ] 2.1 Create WorldGenBuildState.h with FWorldBuildState struct
+- [x] 2. Create FWorldBuildState struct and UWorldGenBuildStateAsset
+  - [x] 2.1 Create WorldGenBuildState.h with FWorldBuildState struct
     - Include BuiltSeed, WorldGenVersion, LastBuildTime, PCGBuildHash, bIsBaked
     - Implement IsValid() and IsCompatibleWith(const FWorldGenConfig&) helpers
     - _Requirements: 2.1, 2.2_
-  - [ ] 2.2 Write property test for FWorldBuildState round-trip serialization
+  - [x] 2.2 Write property test for FWorldBuildState round-trip serialization
     - **Property 2: Build State Persistence Round-Trip**
     - **Validates: Requirements 2.1, 2.2**
-  - [ ] 2.3 Create UWorldGenBuildStateAsset data asset class
+  - [x] 2.3 Create UWorldGenBuildStateAsset data asset class
     - Wraps FWorldBuildState with UpdateFromBuild() method
     - _Requirements: 2.1_
 
 - [ ] 3. Checkpoint - Foundation types
-  - Run UE Automation tests and fix regressions.
+  - Manual Editor validation (no automation):
+    - Open Vibeheim.uproject in UE 5.7 and ensure hot-reload completes without errors.
+    - Create a `WorldGenBuildStateAsset` data asset in Content Browser; confirm BuiltSeed/WorldGenVersion/PCGBuildHash fields are editable and saved.
+    - Switch `FWorldGenConfig.BuildMode` across RuntimeStreaming/EditorBuildOnce/Hybrid in project/world settings and verify values persist after re-open.
+    - PIE smoke: start PIE on a test map and confirm no WorldGen compile/log errors related to build state or build mode.
 
 ---
 

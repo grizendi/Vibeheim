@@ -9,6 +9,7 @@
 #include "PCGGraph.h"
 #endif
 #include "Curves/CurveFloat.h"
+#include "Data/WorldGenBuildState.h"
 #include "WorldGenTypes.generated.h"
 
 // Forward declarations
@@ -108,26 +109,6 @@ enum class EWorldGenBuildMode : uint8 {
   RuntimeStreaming UMETA(DisplayName = "Runtime Streaming (Legacy)"),
   EditorBuildOnce UMETA(DisplayName = "Editor Build Once (Valheim-Style)"),
   Hybrid UMETA(DisplayName = "Hybrid (Baked Terrain + Dynamic Features)")
-};
-
-/**
- * Tracks the build state of the world to ensure runtime compatibility
- */
-USTRUCT(BlueprintType)
-struct VIBEHEIM_API FWorldBuildState {
-  GENERATED_BODY()
-
-  UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "WorldGen")
-  int32 BuiltSeed = 0;
-
-  UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "WorldGen")
-  FDateTime LastBuildTime;
-
-  UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "WorldGen")
-  FString BuildVersion;
-
-  UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "WorldGen")
-  bool bIsBaked = false;
 };
 
 /**

@@ -261,12 +261,6 @@ bool UWorldGenBuildUtility::AlignPCGGridWithSettings() {
       PCGActor->Modify();
     }
 
-    if (!PCGActor->bUse2DGrid) {
-      UE_LOG(LogTemp, Log, TEXT("Enabling bUse2DGrid on PCGWorldActor."));
-      PCGActor->bUse2DGrid = true;
-      PCGActor->Modify();
-    }
-
     return true;
   }
 
