@@ -132,6 +132,15 @@ enum class EWorldGenBuildMode : uint8 {
 };
 
 /**
+ * Policy for handling stale or mismatched build state.
+ */
+UENUM(BlueprintType)
+enum class EWorldBuildStatePolicy : uint8 {
+  FallbackToRuntime UMETA(DisplayName = "Fallback to Runtime Generation"),
+  RequireRebuild UMETA(DisplayName = "Require Rebuild")
+};
+
+/**
  * Core world generation configuration structure
  * Defines all parameters for deterministic world generation
  */
@@ -152,6 +161,11 @@ struct VIBEHEIM_API FWorldGenConfig {
 
   UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Generation")
   bool bUseWorldPartitionStreaming = true;
+
+  /** Policy for handling stale/mismatched build states when using baked worlds. */
+  UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Generation")
+  EWorldBuildStatePolicy StaleBuildPolicy =
+      EWorldBuildStatePolicy::FallbackToRuntime;
 
   // Tile and coordinate system (locked values)
   UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Coordinates",

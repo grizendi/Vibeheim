@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
 #include "UObject/Object.h"
+#include "Data/WorldGenTypes.h"
 #include "WorldGenManager.generated.h"
 
 // Forward declarations
@@ -19,7 +20,26 @@ class UWaterSystemService;
 class URiverFlowService;
 class UWorldGenSettingsAsset;
 class UBiomeDefinitionsAsset;
+class UWorldGenBuildStateAsset;
 struct FTileCoord;
+
+/**
+ * Derived runtime behavior based on build mode and build state.
+ */
+struct FWorldGenRuntimeDecision
+{
+    bool bUseRuntimeStreaming = true;
+    bool bTreatWorldAsBaked = false;
+    bool bRequireRebuild = false;
+    bool bHasValidBuildState = false;
+    bool bBuildStateMatchesConfig = false;
+};
+
+VIBEHEIM_API FWorldGenRuntimeDecision EvaluateWorldGenRuntimeDecision(
+    const FWorldGenConfig& Config,
+    const FWorldBuildState& BuildState,
+    bool bHasBuildStateAsset,
+    EWorldBuildStatePolicy StalePolicy);
 
 /**
  * World Generation Manager responsible for coordinating all world generation systems
@@ -82,6 +102,10 @@ public:
     UFUNCTION(BlueprintCallable, Category = "World Generation")
     UVHMDebugSystem* GetVHMDebugSystem() const { return VHMDebugSystem; }
 
+    /** Seed used by runtime systems (prefers baked state when valid). */
+    UFUNCTION(BlueprintCallable, Category = "World Generation")
+    int32 GetRuntimeSeed() const;
+
     /**
      * Get Tile Streaming Service
      */
@@ -105,6 +129,10 @@ public:
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "World Generation|Assets")
     TSoftObjectPtr<UBiomeDefinitionsAsset> BiomeDefinitionsAsset;
+
+    /** Companion build state asset to validate baked worlds. */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "World Generation|Assets")
+    TSoftObjectPtr<UWorldGenBuildStateAsset> WorldBuildStateAsset;
 
     /** Reload selected data assets (resolve soft refs and validate) */
     UFUNCTION(BlueprintCallable, Category = "World Generation|Assets")
@@ -166,9 +194,22 @@ protected:
     UPROPERTY(BlueprintReadOnly, Category = "World Generation")
     int32 TotalTilesGenerated;
 
+    /** Loaded build state to validate baked worlds. */
+    UPROPERTY(BlueprintReadOnly, Category = "World Generation|Build")
+    FWorldBuildState ActiveBuildState;
+
+    /** Derived runtime decision for the current build mode/state. */
+    FWorldGenRuntimeDecision RuntimeDecision;
+
 private:
     /** Resolve and load data assets with defaults when unset */
     void ResolveWorldGenAssets();
+
+    /** Load and cache the build state asset if provided. */
+    void LoadBuildStateAsset();
+
+    /** Log build state evaluation and policy outcomes. */
+    void LogBuildStateStatus(const FWorldGenConfig& Config) const;
 
     /**
      * Calculate player's current tile coordinate
@@ -189,4 +230,10 @@ private:
      * Update performance tracking metrics
      */
     void UpdatePerformanceMetrics(float TileGenTime, float PCGGenTime);
+
+    /** Log once when runtime generation is invoked in baked mode. */
+    bool bLoggedRuntimeGenerationWarning = false;
+
+    /** Track whether a build state asset was present. */
+    bool bHasBuildStateAsset = false;
 };

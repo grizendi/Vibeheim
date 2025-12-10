@@ -52,7 +52,8 @@ bool UVHMTerrainRenderer::Initialize(
   }
 
   // Check if we can proceed without services (Prebaked Mode)
-  bool bServicesRequired = true;
+  bool bServicesRequired =
+      Settings->IsRuntimeGenerationEnabled() || InTileStreamingService != nullptr;
   if (Settings->VHMSettings.IsSet() &&
       Settings->VHMSettings.GetValue().bUsePrebakedHeightfield) {
     bServicesRequired = false;

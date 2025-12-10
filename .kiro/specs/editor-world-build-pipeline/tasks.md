@@ -81,37 +81,37 @@
 
 ## Phase 2: Mode-Aware WorldGenManager
 
-- [ ] 7. Modify AWorldGenManager for build mode awareness
-  - [ ] 7.1 Add build state loading in BeginPlay
+- [x] 7. Modify AWorldGenManager for build mode awareness
+  - [x] 7.1 Add build state loading in BeginPlay
     - Load UWorldGenBuildStateAsset companion asset
     - Validate against current FWorldGenConfig via IsCompatibleWith()
     - _Requirements: 2.2, 2.3, 2.4, 2.5_
-  - [ ] 7.2 Implement mode-based service initialization
+  - [x] 7.2 Implement mode-based service initialization
     - RuntimeStreaming: existing tile streaming behavior
     - EditorBuildOnce with valid build state: skip TileStreamingService, rely on WP
     - Hybrid: initialize both WP and selected runtime systems
     - _Requirements: 1.2, 1.3, 1.4, 7.1_
-  - [ ] 7.3 Write property test for build mode streaming behavior
+  - [x] 7.3 Write property test for build mode streaming behavior
     - **Property 1: Build Mode Determines Streaming Behavior**
     - **Validates: Requirements 1.1, 1.2, 1.3, 1.4**
-  - [ ] 7.4 Implement seed mismatch detection and handling
+  - [x] 7.4 Implement seed mismatch detection and handling
     - On BuiltSeed != config seed:
       - Log error
       - Apply configurable stale policy (fallback to runtime or require rebuild)
     - _Requirements: 2.3, 2.4, 2.5_
-  - [ ] 7.5 Write property test for seed mismatch detection
+  - [x] 7.5 Write property test for seed mismatch detection
     - **Property 3: Seed Mismatch Detection**
     - **Validates: Requirements 2.3, 2.4**
-  - [ ] 7.6 Add runtime generation warning for EditorBuildOnce mode
+  - [x] 7.6 Add runtime generation warning for EditorBuildOnce mode
     - Log warning if TileStreamingService or heavy generation is triggered in baked mode (except explicit debug paths)
     - _Requirements: 9.5_
-  - [ ] 7.7 Implement runtime seed query helper
+  - [x] 7.7 Implement runtime seed query helper
     - Ensure seed queried at runtime returns:
       - BuildState.BuiltSeed when baked
       - Config.Seed when non-baked/legacy
     - _Requirements: 9.4_
 
-- [ ] 8. Checkpoint - WorldGenManager
+- [x] 8. Checkpoint - WorldGenManager
   - Run tests and fix regressions.
 
 ---

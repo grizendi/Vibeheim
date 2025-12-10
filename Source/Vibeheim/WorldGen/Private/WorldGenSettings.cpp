@@ -126,6 +126,9 @@ bool UWorldGenSettings::ApplyFromAssets(const UWorldGenSettingsAsset* SettingsAs
         // Store full configs for downstream services
         Settings.Seed = SettingsAsset->CoreSettings.Seed;
         Settings.WorldGenVersion = SettingsAsset->CoreSettings.WorldGenVersion;
+        Settings.BuildMode = SettingsAsset->CoreSettings.BuildMode;
+        Settings.bUseWorldPartitionStreaming = SettingsAsset->CoreSettings.bUseWorldPartitionStreaming;
+        Settings.StaleBuildPolicy = SettingsAsset->CoreSettings.StaleBuildPolicy;
         Settings.GenerateRadius = SettingsAsset->CoreSettings.GenerateRadius;
         Settings.LoadRadius = SettingsAsset->CoreSettings.LoadRadius;
         Settings.ActiveRadius = SettingsAsset->CoreSettings.ActiveRadius;
@@ -200,6 +203,21 @@ bool UWorldGenSettings::ParseJSONObject(const TSharedPtr<FJsonObject>& JsonObjec
 	{
 		Settings.WorldGenVersion = static_cast<int32>(JsonObject->GetNumberField(TEXT("WorldGenVersion")));
 	}
+
+    if (JsonObject->HasField(TEXT("BuildMode")))
+    {
+        Settings.BuildMode = static_cast<EWorldGenBuildMode>(static_cast<int32>(JsonObject->GetNumberField(TEXT("BuildMode"))));
+    }
+
+    if (JsonObject->HasField(TEXT("bUseWorldPartitionStreaming")))
+    {
+        Settings.bUseWorldPartitionStreaming = JsonObject->GetBoolField(TEXT("bUseWorldPartitionStreaming"));
+    }
+
+    if (JsonObject->HasField(TEXT("StaleBuildPolicy")))
+    {
+        Settings.StaleBuildPolicy = static_cast<EWorldBuildStatePolicy>(static_cast<int32>(JsonObject->GetNumberField(TEXT("StaleBuildPolicy"))));
+    }
 
 	// Parse coordinate system (these will be locked to specific values)
 	if (JsonObject->HasField(TEXT("TileSizeMeters")))
@@ -427,6 +445,9 @@ TSharedPtr<FJsonObject> UWorldGenSettings::CreateJSONObject() const
 	// Core generation settings
 	JsonObject->SetNumberField(TEXT("Seed"), static_cast<double>(Settings.Seed));
 	JsonObject->SetNumberField(TEXT("WorldGenVersion"), Settings.WorldGenVersion);
+    JsonObject->SetNumberField(TEXT("BuildMode"), static_cast<int32>(Settings.BuildMode));
+    JsonObject->SetBoolField(TEXT("bUseWorldPartitionStreaming"), Settings.bUseWorldPartitionStreaming);
+    JsonObject->SetNumberField(TEXT("StaleBuildPolicy"), static_cast<int32>(Settings.StaleBuildPolicy));
 
 	// Coordinate system (locked values)
 	JsonObject->SetNumberField(TEXT("TileSizeMeters"), Settings.TileSizeMeters);

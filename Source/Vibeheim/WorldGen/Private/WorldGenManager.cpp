@@ -17,12 +17,60 @@
 #include "Services/TileStreamingService.h"
 #include "Services/WaterSystemService.h"
 #include "UObject/SoftObjectPath.h"
+#include "Data/WorldGenBuildState.h"
 #include "VHMTerrainRendering/VHMDebugSystem.h"
 #include "VHMTerrainRendering/VHMTerrainRenderer.h"
 #include "WorldGenSettings.h"
 
 
 DEFINE_LOG_CATEGORY_STATIC(LogWorldGenManager, Log, All);
+
+FWorldGenRuntimeDecision EvaluateWorldGenRuntimeDecision(
+    const FWorldGenConfig& Config,
+    const FWorldBuildState& BuildState,
+    const bool bHasBuildStateAsset,
+    const EWorldBuildStatePolicy StalePolicy)
+{
+  FWorldGenRuntimeDecision Decision;
+
+  const bool bHasValidBuildState = bHasBuildStateAsset && BuildState.IsValid();
+  const bool bBuildStateMatches = bHasValidBuildState && BuildState.IsCompatibleWith(Config);
+
+  Decision.bHasValidBuildState = bHasValidBuildState;
+  Decision.bBuildStateMatchesConfig = bBuildStateMatches;
+
+  switch (Config.BuildMode)
+  {
+  case EWorldGenBuildMode::RuntimeStreaming:
+    Decision.bUseRuntimeStreaming = true;
+    Decision.bTreatWorldAsBaked = false;
+    Decision.bRequireRebuild = false;
+    break;
+  case EWorldGenBuildMode::Hybrid:
+    Decision.bUseRuntimeStreaming = true;
+    Decision.bTreatWorldAsBaked = bBuildStateMatches;
+    Decision.bRequireRebuild =
+        !bBuildStateMatches && bHasBuildStateAsset &&
+        StalePolicy == EWorldBuildStatePolicy::RequireRebuild;
+    break;
+  case EWorldGenBuildMode::EditorBuildOnce:
+    Decision.bTreatWorldAsBaked = bBuildStateMatches;
+    Decision.bUseRuntimeStreaming =
+        !Decision.bTreatWorldAsBaked &&
+        StalePolicy == EWorldBuildStatePolicy::FallbackToRuntime;
+    Decision.bRequireRebuild =
+        !Decision.bTreatWorldAsBaked &&
+        StalePolicy == EWorldBuildStatePolicy::RequireRebuild;
+    break;
+  default:
+    Decision.bUseRuntimeStreaming = true;
+    Decision.bTreatWorldAsBaked = false;
+    Decision.bRequireRebuild = false;
+    break;
+  }
+
+  return Decision;
+}
 
 AWorldGenManager::AWorldGenManager() {
   PrimaryActorTick.bCanEverTick = true;
@@ -49,6 +97,11 @@ AWorldGenManager::AWorldGenManager() {
   VHMDebugSystem = nullptr;
   WaterSystemService = nullptr;
   RiverFlowService = nullptr;
+
+  ActiveBuildState = FWorldBuildState();
+  RuntimeDecision = FWorldGenRuntimeDecision();
+  bHasBuildStateAsset = false;
+  bLoggedRuntimeGenerationWarning = false;
 }
 
 void AWorldGenManager::BeginPlay() {
@@ -68,13 +121,15 @@ void AWorldGenManager::BeginPlay() {
   }
 
   // Perform initial streaming update only if runtime generation is enabled
-  if (WorldGenSettings->IsRuntimeGenerationEnabled()) {
+  if (RuntimeDecision.bUseRuntimeStreaming && TileStreamingService) {
     UpdateWorldStreaming();
   } else {
     UE_LOG(LogWorldGenManager, Log,
-           TEXT("WorldGenManager: Runtime streaming disabled (BuildMode=%d). "
-                "Assuming editor-baked world."),
-           (int32)WorldGenSettings->Settings.BuildMode);
+           TEXT("WorldGenManager: Runtime streaming disabled (BuildMode=%d, "
+                "Baked=%s, Policy=%d)."),
+           static_cast<int32>(WorldGenSettings->Settings.BuildMode),
+           RuntimeDecision.bTreatWorldAsBaked ? TEXT("true") : TEXT("false"),
+           static_cast<int32>(WorldGenSettings->Settings.StaleBuildPolicy));
   }
 
   UE_LOG(LogWorldGenManager, Log,
@@ -87,7 +142,7 @@ void AWorldGenManager::Tick(float DeltaTime) {
   // Update streaming at specified intervals
   LastStreamingUpdateTime += DeltaTime;
   if (LastStreamingUpdateTime >= StreamingUpdateInterval) {
-    if (WorldGenSettings && WorldGenSettings->IsRuntimeGenerationEnabled()) {
+    if (RuntimeDecision.bUseRuntimeStreaming && TileStreamingService) {
       UpdateWorldStreaming();
     }
     LastStreamingUpdateTime = 0.0f;
@@ -105,6 +160,18 @@ bool AWorldGenManager::InitializeWorldGenSystems() {
   // Resolve data assets (settings + biome definitions)
   ResolveWorldGenAssets();
   ReloadWorldGenAssets();
+  LoadBuildStateAsset();
+  RuntimeDecision = EvaluateWorldGenRuntimeDecision(
+      WorldGenSettings->Settings, ActiveBuildState, bHasBuildStateAsset,
+      WorldGenSettings->Settings.StaleBuildPolicy);
+  LogBuildStateStatus(WorldGenSettings->Settings);
+  if (RuntimeDecision.bRequireRebuild) {
+    UE_LOG(LogWorldGenManager, Error,
+           TEXT("WorldGenManager: Build state requires rebuild (policy "
+                "RequireRebuild). Runtime streaming %s."),
+           RuntimeDecision.bUseRuntimeStreaming ? TEXT("enabled for fallback")
+                                                : TEXT("disabled"));
+  }
   // Configure VHM settings for seam prevention
   if (!WorldGenSettings->VHMSettings.IsSet()) {
     WorldGenSettings->VHMSettings = FVHMSettings();
@@ -196,7 +263,7 @@ bool AWorldGenManager::InitializeWorldGenSystems() {
   }
 
   // Initialize Tile Streaming Service (only if runtime generation is enabled)
-  if (WorldGenSettings->IsRuntimeGenerationEnabled()) {
+  if (RuntimeDecision.bUseRuntimeStreaming) {
     TileStreamingService = NewObject<UTileStreamingService>(this);
     if (!TileStreamingService ||
         !TileStreamingService->Initialize(
@@ -208,20 +275,26 @@ bool AWorldGenManager::InitializeWorldGenSystems() {
     }
   } else {
     UE_LOG(LogWorldGenManager, Log,
-           TEXT("Skipping Tile Streaming Service initialization (Editor Build "
-                "Mode)"));
+           TEXT("Skipping Tile Streaming Service initialization (BuildMode=%d, "
+                "Baked=%s, Policy=%d)"),
+           static_cast<int32>(WorldGenSettings->Settings.BuildMode),
+           RuntimeDecision.bTreatWorldAsBaked ? TEXT("true") : TEXT("false"),
+           static_cast<int32>(WorldGenSettings->Settings.StaleBuildPolicy));
+    TileStreamingService = nullptr;
   }
 
   // Initialize VHM Terrain Renderer with biome service for material support
   VHMTerrainRenderer = NewObject<UVHMTerrainRenderer>(this);
+  UTileStreamingService* StreamingForVHM =
+      RuntimeDecision.bUseRuntimeStreaming ? TileStreamingService : nullptr;
   if (!VHMTerrainRenderer || !VHMTerrainRenderer->InitializeWithBiomeService(
                                  WorldGenSettings, HeightfieldService,
-                                 TileStreamingService, BiomeService)) {
+                                 StreamingForVHM, BiomeService)) {
     UE_LOG(LogWorldGenManager, Error,
            TEXT("Failed to initialize VHM Terrain Renderer"));
     // Fallback: try basic initialization without biome service
     if (!VHMTerrainRenderer->Initialize(WorldGenSettings, HeightfieldService,
-                                        TileStreamingService)) {
+                                        StreamingForVHM)) {
       UE_LOG(LogWorldGenManager, Error,
              TEXT("VHM001: VHM Terrain Renderer initialization failed - using "
                   "flat meadow fallback"));
@@ -259,6 +332,19 @@ bool AWorldGenManager::InitializeWorldGenSystems() {
 }
 
 void AWorldGenManager::UpdateWorldStreaming() {
+  if (!RuntimeDecision.bUseRuntimeStreaming) {
+    if (!bLoggedRuntimeGenerationWarning && WorldGenSettings &&
+        WorldGenSettings->Settings.BuildMode ==
+            EWorldGenBuildMode::EditorBuildOnce) {
+      UE_LOG(LogWorldGenManager, Warning,
+             TEXT("Runtime streaming was invoked in baked EditorBuildOnce mode; "
+                  "skipping generation (Seed=%d)."),
+             GetRuntimeSeed());
+      bLoggedRuntimeGenerationWarning = true;
+    }
+    return;
+  }
+
   if (!WorldGenSettings || !TileStreamingService) {
     return;
   }
@@ -376,6 +462,13 @@ void AWorldGenManager::ResolveWorldGenAssets() {
   }
 }
 
+int32 AWorldGenManager::GetRuntimeSeed() const {
+  if (RuntimeDecision.bTreatWorldAsBaked && ActiveBuildState.IsValid()) {
+    return ActiveBuildState.BuiltSeed;
+  }
+  return WorldGenSettings ? WorldGenSettings->Settings.Seed : 0;
+}
+
 void AWorldGenManager::ReloadWorldGenAssets() {
   ResolveWorldGenAssets();
   UE_LOG(LogWorldGenManager, Log,
@@ -454,6 +547,86 @@ void AWorldGenManager::ReloadWorldGenAssets() {
     HeightfieldService->SetRiverSystemConfig(
         WorldGenSettings ? WorldGenSettings->RiverSystemConfig
                          : TOptional<FRiverSystemConfig>());
+  }
+}
+
+void AWorldGenManager::LoadBuildStateAsset() {
+  ActiveBuildState = FWorldBuildState();
+  bHasBuildStateAsset = false;
+
+  const FSoftObjectPath BuildStatePath =
+      WorldBuildStateAsset.ToSoftObjectPath();
+  if (!BuildStatePath.IsValid()) {
+    return;
+  }
+
+  bHasBuildStateAsset = true;
+  UWorldGenBuildStateAsset *BuildAsset =
+      WorldBuildStateAsset.LoadSynchronous();
+  if (!BuildAsset) {
+    UE_LOG(LogWorldGenManager, Warning,
+           TEXT("WorldGenManager: Failed to load build state asset at %s"),
+           *BuildStatePath.ToString());
+    bHasBuildStateAsset = false;
+    return;
+  }
+
+  ActiveBuildState = BuildAsset->BuildState;
+}
+
+void AWorldGenManager::LogBuildStateStatus(const FWorldGenConfig &Config) const {
+  const UEnum *PolicyEnum = StaticEnum<EWorldBuildStatePolicy>();
+  const FString PolicyString =
+      PolicyEnum ? PolicyEnum->GetNameStringByValue(
+                       static_cast<int64>(Config.StaleBuildPolicy))
+                 : TEXT("Unknown");
+
+  if (!bHasBuildStateAsset) {
+    if (Config.BuildMode == EWorldGenBuildMode::EditorBuildOnce) {
+      UE_LOG(LogWorldGenManager, Warning,
+             TEXT("No WorldGenBuildStateAsset assigned for EditorBuildOnce. "
+                  "Policy=%s"),
+             *PolicyString);
+    }
+    return;
+  }
+
+  if (!ActiveBuildState.IsValid()) {
+    UE_LOG(LogWorldGenManager, Warning,
+           TEXT("Build state asset is invalid; treating world as unbaked. "
+                "Policy=%s"),
+           *PolicyString);
+    return;
+  }
+
+  if (!ActiveBuildState.IsCompatibleWith(Config)) {
+    UE_LOG(LogWorldGenManager, Error,
+           TEXT("Build state mismatch detected: BuiltSeed=%d ConfigSeed=%d "
+                "(BuiltVersion=%d ConfigVersion=%d Hash=%s). Policy=%s"),
+           ActiveBuildState.BuiltSeed, Config.Seed,
+           ActiveBuildState.WorldGenVersion, Config.WorldGenVersion,
+           *ActiveBuildState.PCGBuildHash, *PolicyString);
+  } else {
+    UE_LOG(LogWorldGenManager, Log,
+           TEXT("Loaded valid build state (Seed=%d, Version=%d, Baked=%s, "
+                "Timestamp=%s)"),
+           ActiveBuildState.BuiltSeed, ActiveBuildState.WorldGenVersion,
+           ActiveBuildState.bIsBaked ? TEXT("true") : TEXT("false"),
+           *ActiveBuildState.LastBuildTime.ToString());
+  }
+
+  if (!RuntimeDecision.bTreatWorldAsBaked &&
+      RuntimeDecision.bUseRuntimeStreaming) {
+    UE_LOG(LogWorldGenManager, Warning,
+           TEXT("Falling back to runtime streaming due to missing or stale "
+                "build state (Policy=%s)"),
+           *PolicyString);
+  }
+
+  if (RuntimeDecision.bRequireRebuild) {
+    UE_LOG(LogWorldGenManager, Error,
+           TEXT("World marked stale - rebuild required (Policy=%s)"),
+           *PolicyString);
   }
 }
 
