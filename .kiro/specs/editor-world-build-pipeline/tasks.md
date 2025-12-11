@@ -118,23 +118,23 @@
 
 ## Phase 3: VHM Terrain Renderer Prebaked Mode
 
-- [ ] 9. Extend UVHMTerrainRenderer for prebaked heightfield support
-  - [ ] 9.1 Ensure bUsePrebakedHeightfield setting exists in FVHMSettings and is exposed in config
+- [x] 9. Extend UVHMTerrainRenderer for prebaked heightfield support
+  - [x] 9.1 Ensure bUsePrebakedHeightfield setting exists in FVHMSettings and is exposed in config
     - _Requirements: 4.1_
-  - [ ] 9.2 Modify Initialize() to support prebaked mode
+  - [x] 9.2 Modify Initialize() to support prebaked mode
     - Bind to UWorldGenTerrainResource when prebaked mode is active and build state is valid
     - _Requirements: 4.1_
-  - [ ] 9.3 Bypass HeightfieldService::GenerateHeightfield in prebaked mode
+  - [x] 9.3 Bypass HeightfieldService::GenerateHeightfield in prebaked mode
     - Use UWorldGenTerrainResource for terrain height data instead of runtime generation
     - _Requirements: 4.2, 4.4, 9.2_
-  - [ ] 9.4 Implement fallback handling for missing prebaked data
+  - [x] 9.4 Implement fallback handling for missing prebaked data
     - Log error, optionally fall back to runtime generation based on config
     - _Requirements: 4.3_
-  - [ ] 9.5 Sanity tests for prebaked vs runtime rendering
+  - [x] 9.5 Sanity tests for prebaked vs runtime rendering
     - A/B comparisons on a small test world
     - _Requirements: 4.1-4.5_
 
-- [ ] 10. Checkpoint - VHM integration
+- [x] 10. Checkpoint - VHM integration
   - Run tests and fix regressions.
 
 ---

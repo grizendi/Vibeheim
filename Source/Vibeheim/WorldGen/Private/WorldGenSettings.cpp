@@ -432,6 +432,11 @@ bool UWorldGenSettings::ParseJSONObject(const TSharedPtr<FJsonObject>& JsonObjec
 			{
 				Settings.bVHMUseHighPrecisionHeightTextures = VHMSettingsJson->GetBoolField(TEXT("UseHighPrecisionHeightTextures"));
 			}
+
+      if (VHMSettingsJson->HasField(TEXT("UsePrebakedHeightfield")))
+      {
+        Settings.bVHMUsePrebakedHeightfield = VHMSettingsJson->GetBoolField(TEXT("UsePrebakedHeightfield"));
+      }
 		}
 	}
 
@@ -510,6 +515,7 @@ TSharedPtr<FJsonObject> UWorldGenSettings::CreateJSONObject() const
 	VHMSettingsJson->SetBoolField(TEXT("UseRuntimeVirtualTexturing"), Settings.bVHMUseRuntimeVirtualTexturing);
 	VHMSettingsJson->SetNumberField(TEXT("MeshGenerationBudgetMs"), Settings.VHMMeshGenerationBudgetMs);
 	VHMSettingsJson->SetBoolField(TEXT("UseHighPrecisionHeightTextures"), Settings.bVHMUseHighPrecisionHeightTextures);
+  VHMSettingsJson->SetBoolField(TEXT("UsePrebakedHeightfield"), Settings.bVHMUsePrebakedHeightfield);
 	JsonObject->SetObjectField(TEXT("VHMSettings"), VHMSettingsJson);
 
 	return JsonObject;
@@ -730,6 +736,24 @@ bool UWorldGenSettings::ValidateVHMSettings(TArray<FString>& OutErrors)
 
 	// Validate mesh generation budget
 	ClampSettingValue(Settings.VHMMeshGenerationBudgetMs, 0.5f, 10.0f, TEXT("VHMMeshGenerationBudgetMs"), OutErrors);
+
+  // Update optional VHMSettings snapshot so runtime systems see validated values,
+  // while preserving non-configurable flags (e.g. boundary stitching tweaks).
+  if (!VHMSettings.IsSet())
+  {
+    VHMSettings = FVHMSettings();
+  }
+
+  FVHMSettings DerivedSettings = VHMSettings.GetValue();
+  DerivedSettings.HeightTextureResolution = Settings.VHMHeightTextureResolution;
+  DerivedSettings.LODLevels = Settings.VHMLODLevels;
+  DerivedSettings.MaxViewDistance = Settings.VHMMaxViewDistance;
+  DerivedSettings.bEnableRealTimeEditing = Settings.bVHMEnableRealTimeEditing;
+  DerivedSettings.bUseRuntimeVirtualTexturing = Settings.bVHMUseRuntimeVirtualTexturing;
+  DerivedSettings.MeshGenerationBudgetMs = Settings.VHMMeshGenerationBudgetMs;
+  DerivedSettings.bUseHighPrecisionHeightTextures = Settings.bVHMUseHighPrecisionHeightTextures;
+  DerivedSettings.bUsePrebakedHeightfield = Settings.bVHMUsePrebakedHeightfield;
+  VHMSettings = DerivedSettings;
 
 	return bValid;
 }

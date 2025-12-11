@@ -51,15 +51,26 @@ bool UVHMTerrainRenderer::Initialize(
     return false;
   }
 
+  const bool bPrebakedRequested =
+      Settings->VHMSettings.IsSet() &&
+      Settings->VHMSettings.GetValue().bUsePrebakedHeightfield;
+  const bool bHasPrebakedResource =
+      bPrebakedRequested && PrebakedTerrainResource != nullptr;
+
   // Check if we can proceed without services (Prebaked Mode)
   bool bServicesRequired =
-      Settings->IsRuntimeGenerationEnabled() || InTileStreamingService != nullptr;
-  if (Settings->VHMSettings.IsSet() &&
-      Settings->VHMSettings.GetValue().bUsePrebakedHeightfield) {
+      Settings->IsRuntimeGenerationEnabled() ||
+      InTileStreamingService != nullptr;
+  if (bHasPrebakedResource) {
     bServicesRequired = false;
     UE_LOG(LogVHMTerrainRenderer, Log,
-           TEXT("VHMTerrainRenderer::Initialize - Prebaked mode enabled, "
-                "services are optional"));
+           TEXT("VHMTerrainRenderer::Initialize - Prebaked mode enabled with "
+                "resource %s; services are optional"),
+           *PrebakedTerrainResource->GetName());
+  } else if (bPrebakedRequested) {
+    UE_LOG(LogVHMTerrainRenderer, Warning,
+           TEXT("VHMTerrainRenderer::Initialize - Prebaked mode requested but "
+                "no terrain resource is set; runtime services remain enabled"));
   }
 
   if (bServicesRequired && (!InHeightfieldService || !InTileStreamingService)) {
@@ -167,64 +178,112 @@ bool UVHMTerrainRenderer::CreateTerrainMeshForTile(
 
   double StartTime = FPlatformTime::Seconds();
 
-  // Get heightfield data from service
-  // Get heightfield data from service or prebaked resource
+  // Get heightfield data from prebaked resource or runtime services
   FHeightfieldData HeightfieldData;
   UTexture2D *HeightTexture = nullptr;
-  bool bUsingPrebaked =
-      VHMSettings.bUsePrebakedHeightfield && PrebakedTerrainResource;
+  const bool bPrebakedRequested = VHMSettings.bUsePrebakedHeightfield;
+  const bool bHasPrebakedResource =
+      bPrebakedRequested && PrebakedTerrainResource != nullptr;
+  const bool bAllowRuntimeFallback =
+      WorldGenSettings &&
+      (WorldGenSettings->Settings.BuildMode !=
+           EWorldGenBuildMode::EditorBuildOnce ||
+       WorldGenSettings->Settings.StaleBuildPolicy ==
+           EWorldBuildStatePolicy::FallbackToRuntime);
 
-  if (bUsingPrebaked) {
-    // Fetch texture from prebaked resource
-    const FIntPoint TileKey(TileCoord.X, TileCoord.Y);
-    const TSoftObjectPtr<UTexture2D> TextureHandle =
-        PrebakedTerrainResource->HeightTextures.FindRef(TileKey);
-    HeightTexture = TextureHandle.IsNull() ? nullptr : TextureHandle.LoadSynchronous();
-    if (!HeightTexture) {
-      UE_LOG(LogVHMTerrainRenderer, Warning,
-             TEXT("CreateTerrainMeshForTile - Prebaked texture missing for "
-                  "tile (%d, %d)"),
-             TileCoord.X, TileCoord.Y);
-      return CreateFlatMeadowFallback(TileCoord);
-    }
-  } else {
-    // Runtime generation path
-    if (!HeightfieldService ||
-        !HeightfieldService->GetCachedHeightfield(TileCoord, HeightfieldData)) {
-      UE_LOG(LogVHMTerrainRenderer, Warning,
-             TEXT("CreateTerrainMeshForTile - No heightfield data available "
-                  "for tile (%d, %d), using fallback"),
-             TileCoord.X, TileCoord.Y);
-      return CreateFlatMeadowFallback(TileCoord);
-    }
-  }
+  bool bUsingPrebaked = bHasPrebakedResource;
 
-  // Apply boundary stitching to height data for seamless transitions (Runtime
-  // only)
-  TArray<float> ProcessedHeightData = HeightfieldData.HeightData;
-  if (!bUsingPrebaked && VHMSettings.bEnableBoundaryStitching &&
-      TileBoundaryManager.GetInterface()) {
-    // Extract boundary data for this tile
-    ITileBoundaryManager *BoundaryManagerInterface =
-        Cast<ITileBoundaryManager>(TileBoundaryManager.GetObject());
-    if (BoundaryManagerInterface) {
-      FTileBoundaryData BoundaryData;
-      if (BoundaryManagerInterface->ExtractTileBoundaryData(
-              TileCoord, HeightfieldData.HeightData,
-              VHMSettings.HeightTextureResolution, BoundaryData)) {
-        UE_LOG(LogVHMTerrainRenderer, Verbose,
-               TEXT("Extracted boundary data for tile (%d, %d)"), TileCoord.X,
-               TileCoord.Y);
+  if (bPrebakedRequested) {
+    if (!PrebakedTerrainResource) {
+      UE_LOG(LogVHMTerrainRenderer, Error,
+             TEXT("CreateTerrainMeshForTile - Prebaked mode is enabled but no "
+                  "terrain resource is set"));
+      bUsingPrebaked = false;
+    } else if (!PrebakedTerrainResource->HasTileData(TileCoord)) {
+      UE_LOG(
+          LogVHMTerrainRenderer, Error,
+          TEXT("CreateTerrainMeshForTile - Prebaked data missing for tile "
+               "(%d, %d).%s"),
+          TileCoord.X, TileCoord.Y,
+          bAllowRuntimeFallback ? TEXT(" Falling back to runtime generation.")
+                                : TEXT(" Runtime fallback is disabled."));
+      bUsingPrebaked = false;
+    } else {
+      const FIntPoint TileKey(TileCoord.X, TileCoord.Y);
+      const TSoftObjectPtr<UTexture2D> TextureHandle =
+          PrebakedTerrainResource->HeightTextures.FindRef(TileKey);
+      HeightTexture = TextureHandle.IsNull()
+                          ? nullptr
+                          : TextureHandle.LoadSynchronous();
+      if (!HeightTexture) {
+        UE_LOG(LogVHMTerrainRenderer, Warning,
+               TEXT("CreateTerrainMeshForTile - Prebaked texture missing for "
+                    "tile (%d, %d)"),
+               TileCoord.X, TileCoord.Y);
+        bUsingPrebaked = false;
       }
-
-      // Apply boundary stitching with adjacent tiles
-      ApplyBoundaryStitching(TileCoord, ProcessedHeightData);
     }
   }
 
-  // Create height texture with processed (potentially stitched) height data
-  // Create height texture with processed (potentially stitched) height data
   if (!bUsingPrebaked) {
+    // Runtime generation path (fallback when prebaked data is missing)
+    if (!HeightfieldService) {
+      UE_LOG(LogVHMTerrainRenderer, Error,
+             TEXT("CreateTerrainMeshForTile - HeightfieldService unavailable "
+                  "and prebaked data missing for tile (%d, %d)"),
+             TileCoord.X, TileCoord.Y);
+      return CreateFlatMeadowFallback(TileCoord);
+    }
+
+    bool bHasCachedHeightfield =
+        HeightfieldService->GetCachedHeightfield(TileCoord, HeightfieldData);
+    if (!bHasCachedHeightfield) {
+      if (bAllowRuntimeFallback) {
+        HeightfieldData = HeightfieldService->GenerateHeightfield(
+            WorldGenSettings ? WorldGenSettings->Settings.Seed : 0, TileCoord);
+        UE_LOG(LogVHMTerrainRenderer, Warning,
+               TEXT("CreateTerrainMeshForTile - Generated runtime heightfield "
+                    "for tile (%d, %d) as prebaked data was missing"),
+               TileCoord.X, TileCoord.Y);
+      } else {
+        UE_LOG(LogVHMTerrainRenderer, Error,
+               TEXT("CreateTerrainMeshForTile - Missing prebaked data and "
+                    "runtime fallback disabled for tile (%d, %d)"),
+               TileCoord.X, TileCoord.Y);
+        return CreateFlatMeadowFallback(TileCoord);
+      }
+    }
+
+    const bool bHasHeightData = HeightfieldData.HeightData.Num() > 0;
+    if (!bHasHeightData) {
+      UE_LOG(LogVHMTerrainRenderer, Error,
+             TEXT("CreateTerrainMeshForTile - No height samples available for "
+                  "tile (%d, %d) after runtime path"),
+             TileCoord.X, TileCoord.Y);
+      return CreateFlatMeadowFallback(TileCoord);
+    }
+
+    // Apply boundary stitching to height data for seamless transitions
+    TArray<float> ProcessedHeightData = HeightfieldData.HeightData;
+    if (VHMSettings.bEnableBoundaryStitching &&
+        TileBoundaryManager.GetInterface()) {
+      ITileBoundaryManager *BoundaryManagerInterface =
+          Cast<ITileBoundaryManager>(TileBoundaryManager.GetObject());
+      if (BoundaryManagerInterface) {
+        FTileBoundaryData BoundaryData;
+        if (BoundaryManagerInterface->ExtractTileBoundaryData(
+                TileCoord, HeightfieldData.HeightData,
+                VHMSettings.HeightTextureResolution, BoundaryData)) {
+          UE_LOG(LogVHMTerrainRenderer, Verbose,
+                 TEXT("Extracted boundary data for tile (%d, %d)"),
+                 TileCoord.X, TileCoord.Y);
+        }
+
+        ApplyBoundaryStitching(TileCoord, ProcessedHeightData);
+      }
+    }
+
+    // Create height texture with processed (potentially stitched) height data
     IHeightfieldTextureManager *TextureManagerInterface =
         Cast<IHeightfieldTextureManager>(HeightfieldTextureManager.GetObject());
     HeightTexture = TextureManagerInterface
@@ -281,10 +340,20 @@ bool UVHMTerrainRenderer::CreateTerrainMeshForTile(
   UMaterialInstanceDynamic *TileMaterial = nullptr;
   if (BiomeService && TerrainMaterialSystem.GetInterface()) {
     // Get biome data for this tile
-    EBiomeType TileBiome =
-        BiomeService->DetermineTileBiome(TileCoord, HeightfieldData.HeightData);
+    EBiomeType TileBiome = EBiomeType::None;
+    if (bUsingPrebaked && PrebakedTerrainResource) {
+      const FVector TileCenter = GetTileCenterWorldPosition(TileCoord);
+      const FBiomeResult BiomeResult =
+          PrebakedTerrainResource->GetBiomeAtWorldPosition(TileCenter);
+      TileBiome = BiomeResult.PrimaryBiome;
+    } else {
+      TileBiome =
+          BiomeService->DetermineTileBiome(TileCoord, HeightfieldData.HeightData);
+    }
+
     FBiomeDefinition BiomeDefinition;
-    if (BiomeService->GetBiomeDefinition(TileBiome, BiomeDefinition)) {
+    if (TileBiome != EBiomeType::None &&
+        BiomeService->GetBiomeDefinition(TileBiome, BiomeDefinition)) {
       // Create material for this tile
       TileMaterial = TerrainMaterialSystem.GetInterface()->CreateTileMaterial(
           TileCoord, BiomeDefinition);

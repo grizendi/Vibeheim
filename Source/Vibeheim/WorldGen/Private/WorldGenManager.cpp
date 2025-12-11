@@ -1,5 +1,6 @@
 #include "WorldGenManager.h"
 #include "Data/WorldGenAssets.h"
+#include "Data/WorldGenTerrainResource.h"
 #include "Data/WorldGenTypes.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
@@ -172,6 +173,29 @@ bool AWorldGenManager::InitializeWorldGenSystems() {
            RuntimeDecision.bUseRuntimeStreaming ? TEXT("enabled for fallback")
                                                 : TEXT("disabled"));
   }
+
+  UWorldGenTerrainResource* PrebakedTerrainResource = nullptr;
+  const bool bPrebakedRequested =
+      WorldGenSettings->VHMSettings.IsSet() &&
+      WorldGenSettings->VHMSettings.GetValue().bUsePrebakedHeightfield;
+  if (bPrebakedRequested && RuntimeDecision.bTreatWorldAsBaked) {
+    static const TCHAR* PrebakedResourcePath =
+        TEXT("/Game/WorldGen/Baked/BakedTerrainData.BakedTerrainData");
+    PrebakedTerrainResource =
+        LoadObject<UWorldGenTerrainResource>(nullptr, PrebakedResourcePath);
+    if (!PrebakedTerrainResource) {
+      UE_LOG(LogWorldGenManager, Error,
+             TEXT("Prebaked heightfield requested but terrain resource was not "
+                  "found at %s"),
+             PrebakedResourcePath);
+    }
+  } else if (bPrebakedRequested) {
+    UE_LOG(LogWorldGenManager, Warning,
+           TEXT("Prebaked heightfield requested but build state is not valid; "
+                "skipping prebaked binding (BuildMode=%d, ValidBuildState=%s)"),
+           static_cast<int32>(WorldGenSettings->Settings.BuildMode),
+           RuntimeDecision.bTreatWorldAsBaked ? TEXT("true") : TEXT("false"));
+  }
   // Configure VHM settings for seam prevention
   if (!WorldGenSettings->VHMSettings.IsSet()) {
     WorldGenSettings->VHMSettings = FVHMSettings();
@@ -285,6 +309,9 @@ bool AWorldGenManager::InitializeWorldGenSystems() {
 
   // Initialize VHM Terrain Renderer with biome service for material support
   VHMTerrainRenderer = NewObject<UVHMTerrainRenderer>(this);
+  if (VHMTerrainRenderer && PrebakedTerrainResource) {
+    VHMTerrainRenderer->SetPrebakedTerrainResource(PrebakedTerrainResource);
+  }
   UTileStreamingService* StreamingForVHM =
       RuntimeDecision.bUseRuntimeStreaming ? TileStreamingService : nullptr;
   if (!VHMTerrainRenderer || !VHMTerrainRenderer->InitializeWithBiomeService(

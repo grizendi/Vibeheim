@@ -303,6 +303,10 @@ struct VIBEHEIM_API FWorldGenConfig {
   UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VHM")
   bool bVHMUseHighPrecisionHeightTextures = false;
 
+  /** Use prebaked heightfield textures instead of runtime generation. */
+  UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VHM")
+  bool bVHMUsePrebakedHeightfield = false;
+
   FWorldGenConfig() {
     // Ensure locked values are set correctly
     TileSizeMeters = 64.0f;
