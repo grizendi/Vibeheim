@@ -169,7 +169,7 @@
 ## Phase 5: Editor Build Utility
 
 - [ ] 13. Create UWorldGenBuildUtility (Editor-only)
-  - [ ] 13.1 Create WorldGenBuildUtility.h/.cpp in Editor folder
+  - [x] 13.1 Create WorldGenBuildUtility.h/.cpp in Editor folder
     - Wrap in `#if WITH_EDITOR`
     - _Requirements: 3.1_
   - [ ] 13.2 Implement editor context validation
@@ -178,10 +178,10 @@
   - [ ] 13.3 Write property test for build context validation
     - **Property 11: Build Context Validation**
     - **Validates: Requirements 10.5**
-  - [ ] 13.4 Implement InitializeServicesForBuild()
+  - [x] 13.4 Implement InitializeServicesForBuild()
     - Initialize worldgen services in editor-only context
     - _Requirements: 3.1_
-  - [ ] 13.5 Implement BuildTerrainForTile()
+  - [x] 13.5 Implement BuildTerrainForTile()
     - Use HeightfieldService to generate tile, write to prebaked textures for UWorldGenTerrainResource
     - _Requirements: 3.1, 3.2_
   - [ ] 13.6 Write property test for terrain build determinism
@@ -211,7 +211,7 @@
 ## Phase 6: PCG World Actor and Partition Grid
 
 - [ ] 15. Implement PCGWorldActor integration
-  - [ ] 15.1 Add PCGWorldActor creation/configuration in build utility
+  - [x] 15.1 Add PCGWorldActor creation/configuration in build utility
     - Create if missing
     - Configure grid size to match TileSizeMeters or integer multiple
     - _Requirements: 5.3, 5.5_
