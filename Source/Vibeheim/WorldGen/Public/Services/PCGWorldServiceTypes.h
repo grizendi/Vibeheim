@@ -45,6 +45,9 @@ namespace VHMPCGAttr
         inline const FName RespectGraphZ(TEXT("RespectGraphZ"));
         inline const FName TerrainHeight(TEXT("TerrainHeight"));
         inline const FName TerrainSlope(TEXT("TerrainSlope"));
+        inline const FName ClimateTemperature(TEXT("ClimateTemperature"));
+        inline const FName ClimateMoisture(TEXT("ClimateMoisture"));
+        inline const FName ClimateRingBias(TEXT("ClimateRingBias"));
 }
 
 /** Aggregated tile metrics computed prior to scheduling PCG graphs. */

@@ -141,27 +141,27 @@
 
 ## Phase 4: PCG External Data Provider
 
-- [ ] 11. Create UWorldGenExternalDataProvider
-  - [ ] 11.1 Create WorldGenExternalDataProvider.h/.cpp
+- [x] 11. Create UWorldGenExternalDataProvider
+  - [x] 11.1 Create WorldGenExternalDataProvider.h/.cpp
     - Store pointers to HeightfieldService, BiomeService, ClimateSystem
     - _Requirements: 11.1, 11.2_
-  - [ ] 11.2 Implement CreateParamDataForCell()
+  - [x] 11.2 Implement CreateParamDataForCell()
     - Build UPCGParamData with deterministic height/biome/climate aggregates for a cell
     - _Requirements: 11.1_
-  - [ ] 11.3 Implement query methods (GetTerrainHeight, GetBiomeData, GetClimateData)
+  - [x] 11.3 Implement query methods (GetTerrainHeight, GetBiomeData, GetClimateData)
     - Query worldgen services or UWorldGenTerrainResource under the hood
     - For use by custom PCG nodes and runtime PCG
     - _Requirements: 11.2, 11.4_
-  - [ ] 11.4 Implement external-data failure handling
+  - [x] 11.4 Implement external-data failure handling
     - If required terrain/biome/climate data is missing:
       - Fail the relevant PCG execution path gracefully
       - Log graph name, cell, and missing data
     - _Requirements: 11.5_
-  - [ ] 11.5 Write property test for PCG external data determinism
+  - [x] 11.5 Write property test for PCG external data determinism
     - **Property 7: PCG External Data Determinism**
     - **Validates: Requirements 11.1, 11.3, 11.4**
 
-- [ ] 12. Checkpoint - External data provider
+- [x] 12. Checkpoint - External data provider
   - Run tests and fix regressions.
 
 ---
