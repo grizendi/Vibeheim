@@ -168,14 +168,14 @@
 
 ## Phase 5: Editor Build Utility
 
-- [ ] 13. Create UWorldGenBuildUtility (Editor-only)
+- [x] 13. Create UWorldGenBuildUtility (Editor-only)
   - [x] 13.1 Create WorldGenBuildUtility.h/.cpp in Editor folder
     - Wrap in `#if WITH_EDITOR`
     - _Requirements: 3.1_
-  - [ ] 13.2 Implement editor context validation
+  - [x] 13.2 Implement editor context validation
     - Check `GIsEditor && !IsRunningGame()`, fail otherwise
     - _Requirements: 10.5_
-  - [ ] 13.3 Write property test for build context validation
+  - [x] 13.3 Write property test for build context validation
     - **Property 11: Build Context Validation**
     - **Validates: Requirements 10.5**
   - [x] 13.4 Implement InitializeServicesForBuild()
@@ -184,26 +184,26 @@
   - [x] 13.5 Implement BuildTerrainForTile()
     - Use HeightfieldService to generate tile, write to prebaked textures for UWorldGenTerrainResource
     - _Requirements: 3.1, 3.2_
-  - [ ] 13.6 Write property test for terrain build determinism
+  - [x] 13.6 Write property test for terrain build determinism
     - **Property 4: Terrain Build Determinism**
     - **Validates: Requirements 3.1, 3.2, 11.3**
-  - [ ] 13.7 Implement TriggerPCGOfflineBuild()
+  - [x] 13.7 Implement TriggerPCGOfflineBuild()
     - Invoke PCG World Partition Builder (commandlet or `pcg.BuildComponents`)
     - Wire in UWorldGenExternalDataProvider as needed
     - _Requirements: 6.1, 6.4_
-  - [ ] 13.8 Implement SaveBuildState()
+  - [x] 13.8 Implement SaveBuildState()
     - Create/update UWorldGenBuildStateAsset with seed, version, PCGBuildHash, timestamp, bIsBaked
     - _Requirements: 3.3, 2.1_
-  - [ ] 13.9 Implement progress reporting
+  - [x] 13.9 Implement progress reporting
     - Fire OnBuildProgress delegate; show Slate notifications
     - _Requirements: 3.5_
-  - [ ] 13.10 Implement error handling and partial build recovery
+  - [x] 13.10 Implement error handling and partial build recovery
     - Log per-tile/cell errors
     - Continue building remaining tiles where policy allows
     - Ensure offline PCG failure preserves existing content
     - _Requirements: 3.4, 6.5, Error Handling section_
 
-- [ ] 14. Checkpoint - Editor build utility
+- [x] 14. Checkpoint - Editor build utility
   - Run tests and fix regressions.
 
 ---

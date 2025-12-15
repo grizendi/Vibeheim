@@ -1,11 +1,15 @@
 #include "Editor/WorldGenBuildUtility.h"
+
 #include "Data/WorldGenAssets.h"
+#include "Data/WorldGenBuildState.h"
 #include "Data/WorldGenTerrainResource.h"
 #include "Data/WorldGenTypes.h"
 #include "Editor.h"
 #include "Engine/Texture2D.h"
 #include "Engine/World.h"
+#include "Framework/Notifications/NotificationManager.h"
 #include "Kismet/GameplayStatics.h"
+#include "Misc/PackageName.h"
 #include "PCGWorldActor.h"
 #include "Services/BiomeService.h"
 #include "Services/ClimateSystem.h"
@@ -13,149 +17,97 @@
 #include "Services/PCGWorldService.h"
 #include "UObject/Package.h"
 #include "VHMTerrainRendering/VHMTypes.h"
+#include "WorldGenExternalDataProvider.h"
 #include "WorldGenSettings.h"
 #include <cfloat>
 
-bool UWorldGenBuildUtility::BuildWorldFromSeed(int32 Seed) {
+#if WITH_EDITOR
+#include "AssetRegistry/AssetRegistryModule.h"
+#include "Widgets/Notifications/SNotificationList.h"
+#endif
+
+#include "PCGVersionGuard.h"
+#if VHM_PCG_ENABLED
+#include "PCGSubsystem.h"
+#endif
+
+DEFINE_LOG_CATEGORY_STATIC(LogWorldGenBuildUtility, Log, All);
+
+namespace
+{
+FString SanitizeIdentifier(const FString& Identifier)
+{
+  FString Safe = Identifier;
+  Safe.ReplaceInline(TEXT("."), TEXT("_"));
+  Safe.ReplaceInline(TEXT("/"), TEXT("_"));
+  Safe.ReplaceInline(TEXT("\\"), TEXT("_"));
+  Safe.ReplaceInline(TEXT(" "), TEXT("_"));
+  Safe.ReplaceInline(TEXT(":"), TEXT("_"));
+  return Safe.IsEmpty() ? TEXT("World") : Safe;
+}
+
+FString ResolveMapIdentifier(const FString& MapPath, const UWorld* World)
+{
+  if (!MapPath.IsEmpty())
+  {
+    const FString PackageName = FPackageName::ObjectPathToPackageName(MapPath);
+    return SanitizeIdentifier(FPackageName::GetShortName(PackageName));
+  }
+
+  return SanitizeIdentifier(World ? World->GetMapName() : FString(TEXT("World")));
+}
+
+#if WITH_EDITOR
+void RegisterAsset(UObject* Asset)
+{
+  if (Asset)
+  {
+    FAssetRegistryModule::AssetCreated(Asset);
+  }
+}
+#endif
+} // namespace
+
+bool UWorldGenBuildUtility::BuildWorldFromSeed(int32 Seed,
+                                               const FString& MapPath) {
 #if !WITH_EDITOR
-  UE_LOG(LogTemp, Warning,
+  UE_LOG(LogWorldGenBuildUtility, Warning,
          TEXT("BuildWorldFromSeed is editor-only and unavailable in this build"));
   return false;
 #else
-  UE_LOG(LogTemp, Log, TEXT("Starting World Build (Editor Mode)..."));
-
-  // Ensure we are in a valid editor world
-  UWorld *World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
-  if (!World) {
-    UE_LOG(LogTemp, Error, TEXT("No active editor world found. Cannot build."));
+  UWorldGenBuildUtility* Utility =
+      NewObject<UWorldGenBuildUtility>(GetTransientPackage());
+  if (!Utility) {
+    UE_LOG(LogWorldGenBuildUtility, Error,
+           TEXT("Failed to allocate build utility instance."));
     return false;
   }
 
-  // Initialize settings
-  UWorldGenSettings *Settings = UWorldGenSettings::GetWorldGenSettings();
-  if (!Settings) {
-    UE_LOG(LogTemp, Error, TEXT("Failed to load WorldGenSettings."));
+  UWorld* EditorWorld = nullptr;
+  FString ContextError;
+  if (!Utility->ValidateEditorContext(EditorWorld, ContextError)) {
+    UE_LOG(LogWorldGenBuildUtility, Error, TEXT("%s"), *ContextError);
     return false;
   }
 
-  if (Seed != 0) {
-    Settings->Settings.Seed = Seed;
-  }
+  return Utility->RunBuild(EditorWorld, Seed, MapPath);
+#endif // WITH_EDITOR
+}
 
-  UE_LOG(LogTemp, Log, TEXT("Building with Seed: %d"), Settings->Settings.Seed);
-
-  // Initialize services transiently
-  UHeightfieldService *HeightfieldService = nullptr;
-  UBiomeService *BiomeService = nullptr;
-  UClimateSystem *ClimateService = nullptr;
-  UPCGWorldService *PCGService = nullptr;
-
-  UObject *ServiceOuter = World;
-
-  if (!InitializeBuildServices(ServiceOuter, HeightfieldService, BiomeService,
-                               ClimateService, PCGService)) {
-    UE_LOG(LogTemp, Error, TEXT("Failed to initialize build services."));
+bool UWorldGenBuildUtility::BuildWorldFromSeedInstance(
+    int32 Seed, const FString& MapPath) {
+#if !WITH_EDITOR
+  return false;
+#else
+  UWorld* EditorWorld = nullptr;
+  FString ContextError;
+  if (!ValidateEditorContext(EditorWorld, ContextError)) {
+    UE_LOG(LogWorldGenBuildUtility, Error, TEXT("%s"), *ContextError);
+    BroadcastCompletion(false, ContextError);
     return false;
   }
 
-  // Create or load persistence asset
-  FString PackageName = TEXT("/Game/WorldGen/Baked/BakedTerrainData");
-  UPackage *Package = CreatePackage(*PackageName);
-  Package->FullyLoad();
-
-  UWorldGenTerrainResource *TerrainResource =
-      FindObject<UWorldGenTerrainResource>(Package, TEXT("BakedTerrainData"));
-  if (!TerrainResource) {
-    TerrainResource = NewObject<UWorldGenTerrainResource>(
-        Package, UWorldGenTerrainResource::StaticClass(),
-        TEXT("BakedTerrainData"),
-        EObjectFlags::RF_Public | RF_Standalone | RF_Transactional);
-  }
-
-  // Initialize resource metadata
-  TerrainResource->WorldOrigin = FVector2D::ZeroVector;
-  TerrainResource->TileSizeMeters = Settings->Settings.TileSizeMeters;
-  TerrainResource->SampleSpacingMeters = Settings->Settings.SampleSpacingMeters;
-  TerrainResource->SeaLevel = Settings->Settings.SeaLevel;
-  TerrainResource->HeightTextures.Empty(); // Clear old data
-  TerrainResource->BiomeCache.Empty();
-
-  // Define build bounds
-  const int32 BuildRadius = Settings->Settings.GenerateRadius;
-  UE_LOG(LogTemp, Log,
-         TEXT("Building Tiles in Radius: %d based on GenerateRadius"),
-         BuildRadius);
-
-  const int32 Resolution =
-      Settings->VHMSettings.IsSet()
-          ? Settings->VHMSettings.GetValue().HeightTextureResolution
-          : 64;
-
-  // Iterate and generate
-  int32 TotalTiles = 0;
-  float MinWorldHeight = FLT_MAX;
-  float MaxWorldHeight = -FLT_MAX;
-
-  for (int32 X = -BuildRadius; X <= BuildRadius; ++X) {
-    for (int32 Y = -BuildRadius; Y <= BuildRadius; ++Y) {
-      FTileCoord TileCoord(X, Y);
-
-      // Generate Heightfield
-      FHeightfieldData HeightData = HeightfieldService->GenerateHeightfield(
-          Settings->Settings.Seed, TileCoord);
-
-      // Update min/max
-      for (float H : HeightData.HeightData) {
-        MinWorldHeight = FMath::Min(MinWorldHeight, H);
-        MaxWorldHeight = FMath::Max(MaxWorldHeight, H);
-      }
-
-      // Create Texture from height data
-      const FString TexName = FString::Printf(TEXT("Height_%d_%d"), X, Y);
-      UTexture2D *Texture =
-          NewObject<UTexture2D>(Package, *TexName, RF_Public | RF_Standalone);
-
-      // Init texture data (R32F for precision)
-      Texture->Source.Init(Resolution, Resolution, 1, 1,
-                           ETextureSourceFormat::TSF_R32F);
-
-      // Lock and copy
-      uint8 *MipData = Texture->Source.LockMip(0);
-      float *FloatMipData = reinterpret_cast<float *>(MipData);
-
-      if (HeightData.HeightData.Num() == Resolution * Resolution) {
-        FMemory::Memcpy(FloatMipData, HeightData.HeightData.GetData(),
-                        HeightData.HeightData.Num() * sizeof(float));
-      } else {
-        UE_LOG(LogTemp, Warning,
-               TEXT("HeightData size mismatch for tile (%d, %d). Expected %d, got %d"),
-               X, Y, Resolution * Resolution, HeightData.HeightData.Num());
-        FMemory::Memzero(FloatMipData, Resolution * Resolution * sizeof(float));
-      }
-
-      Texture->Source.UnlockMip(0);
-
-      Texture->CompressionSettings = TC_HDR; // Use HDR for floats
-      Texture->Filter = TF_Bilinear;
-      Texture->SRGB = 0;
-      Texture->PostEditChange();
-
-      // Store in resource
-      TerrainResource->HeightTextures.Add(FIntPoint(TileCoord.X, TileCoord.Y),
-                                          Texture);
-      TotalTiles++;
-    }
-  }
-
-  TerrainResource->MinHeight = MinWorldHeight;
-  TerrainResource->MaxHeight = MaxWorldHeight;
-  TerrainResource->MarkPackageDirty();
-
-  UE_LOG(LogTemp, Log,
-         TEXT("World Build Complete. Processed %d tiles. MinH: %.2f, MaxH: %.2f"),
-         TotalTiles, MinWorldHeight, MaxWorldHeight);
-
-  return true;
+  return RunBuild(EditorWorld, Seed, MapPath);
 #endif // WITH_EDITOR
 }
 
@@ -221,22 +173,444 @@ bool UWorldGenBuildUtility::InitializeBuildServices(
 #endif // WITH_EDITOR
 }
 
-bool UWorldGenBuildUtility::AlignPCGGridWithSettings() {
+bool UWorldGenBuildUtility::ValidateEditorContext(UWorld *&OutWorld,
+                                                  FString &OutError) const {
+#if !WITH_EDITOR
+  OutError = TEXT("World builds are editor-only.");
+  return false;
+#else
+  if (!GIsEditor || IsRunningGame()) {
+    OutError =
+        TEXT("World builds must run from the editor (not PIE or packaged).");
+    return false;
+  }
+
+  if (!GEditor) {
+    OutError = TEXT("Editor subsystem unavailable.");
+    return false;
+  }
+
+  UWorld *EditorWorld = GEditor->GetEditorWorldContext().World();
+  if (!EditorWorld) {
+    OutError = TEXT("No active editor world found.");
+    return false;
+  }
+
+#if WITH_AUTOMATION_TESTS
+  if (!EvaluateContextForTest(GIsEditor, IsRunningGame(),
+                              EditorWorld->WorldType)) {
+    OutError = TEXT("World builds are only allowed in editor worlds.");
+    return false;
+  }
+#else
+  const bool bEditorWorld = EditorWorld->WorldType == EWorldType::Editor ||
+                            EditorWorld->WorldType == EWorldType::EditorPreview;
+  if (!(GIsEditor && !IsRunningGame() && bEditorWorld)) {
+    OutError = TEXT("World builds are only allowed in editor worlds.");
+    return false;
+  }
+#endif
+
+  OutWorld = EditorWorld;
+  return true;
+#endif // WITH_EDITOR
+}
+
+bool UWorldGenBuildUtility::RunBuild(UWorld *World, int32 Seed,
+                                     const FString &MapPath) {
 #if !WITH_EDITOR
   return false;
 #else
-  UE_LOG(LogTemp, Log,
-         TEXT("Aligning PCG World Actor to WorldGen Settings..."));
-
-  UWorld *World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
   if (!World) {
-    UE_LOG(LogTemp, Error, TEXT("No active editor world found."));
+    UE_LOG(LogWorldGenBuildUtility, Error, TEXT("Missing editor world."));
     return false;
   }
 
   UWorldGenSettings *Settings = UWorldGenSettings::GetWorldGenSettings();
   if (!Settings) {
-    UE_LOG(LogTemp, Error, TEXT("Failed to load WorldGenSettings."));
+    UE_LOG(LogWorldGenBuildUtility, Error, TEXT("Failed to load settings."));
+    return false;
+  }
+
+  if (Seed != 0) {
+    Settings->Settings.Seed = Seed;
+  }
+
+  const FWorldGenConfig Config = Settings->Settings;
+  UE_LOG(LogWorldGenBuildUtility, Log, TEXT("Building with Seed: %d"),
+         Config.Seed);
+
+  AlignPCGGridWithSettings();
+
+  // Initialize services transiently
+  UHeightfieldService *HeightfieldService = nullptr;
+  UBiomeService *BiomeService = nullptr;
+  UClimateSystem *ClimateService = nullptr;
+  UPCGWorldService *PCGService = nullptr;
+
+  if (!InitializeBuildServices(World, HeightfieldService, BiomeService,
+                               ClimateService, PCGService)) {
+    UE_LOG(LogWorldGenBuildUtility, Error,
+           TEXT("Failed to initialize build services."));
+    return false;
+  }
+
+  const FString MapIdentifier = ResolveMapIdentifier(MapPath, World);
+  const FString TerrainPackagePath = MakePackagePath(MapIdentifier, TEXT("TerrainData"));
+  const FString TerrainObjectName = MakeObjectName(MapIdentifier, TEXT("TerrainData"));
+
+  UPackage *Package = CreatePackage(*TerrainPackagePath);
+  if (Package) {
+    Package->FullyLoad();
+  }
+
+  UWorldGenTerrainResource *TerrainResource =
+      FindObject<UWorldGenTerrainResource>(Package, *TerrainObjectName);
+  if (!TerrainResource) {
+    TerrainResource = NewObject<UWorldGenTerrainResource>(
+        Package, UWorldGenTerrainResource::StaticClass(), *TerrainObjectName,
+        EObjectFlags::RF_Public | RF_Standalone | RF_Transactional);
+#if WITH_EDITOR
+    RegisterAsset(TerrainResource);
+#endif
+  }
+
+  if (!TerrainResource) {
+    UE_LOG(LogWorldGenBuildUtility, Error,
+           TEXT("Failed to allocate terrain resource for baked data."));
+    return false;
+  }
+
+  TerrainResource->WorldOrigin = FVector2D::ZeroVector;
+  TerrainResource->TileSizeMeters = Config.TileSizeMeters;
+  TerrainResource->SampleSpacingMeters = Config.SampleSpacingMeters;
+  TerrainResource->SeaLevel = Config.SeaLevel;
+  TerrainResource->HeightTextures.Empty(); // Clear old data
+  TerrainResource->BiomeCache.Empty();
+
+  const int32 BuildRadius = Config.GenerateRadius;
+  const int32 TilesPerSide = (BuildRadius * 2) + 1;
+  const int32 TotalTiles = TilesPerSide * TilesPerSide;
+  int32 ProcessedTiles = 0;
+  float MinWorldHeight = FLT_MAX;
+  float MaxWorldHeight = -FLT_MAX;
+  TArray<FString> Errors;
+
+  ReportProgress(0, TotalTiles, TEXT("Starting terrain bake"));
+
+  for (int32 X = -BuildRadius; X <= BuildRadius; ++X) {
+    for (int32 Y = -BuildRadius; Y <= BuildRadius; ++Y) {
+      FTileCoord TileCoord(X, Y);
+      FString TileError;
+      float TileMin = FLT_MAX;
+      float TileMax = -FLT_MAX;
+      if (!BuildTerrainForTile(TerrainResource, HeightfieldService, BiomeService,
+                               Config, TileCoord, TileError, TileMin, TileMax)) {
+        Errors.Add(TileError);
+      } else {
+        MinWorldHeight = FMath::Min(MinWorldHeight, TileMin);
+        MaxWorldHeight = FMath::Max(MaxWorldHeight, TileMax);
+      }
+
+      ++ProcessedTiles;
+      if (ProcessedTiles == TotalTiles ||
+          ProcessedTiles % FMath::Max(1, TotalTiles / 10) == 0) {
+        ReportProgress(
+            ProcessedTiles, TotalTiles,
+            FString::Printf(
+                TEXT("Terrain %d/%d (Tile %d,%d)"), ProcessedTiles, TotalTiles,
+                TileCoord.X, TileCoord.Y));
+      }
+    }
+  }
+
+  TerrainResource->MinHeight = (MinWorldHeight == FLT_MAX) ? 0.0f : MinWorldHeight;
+  TerrainResource->MaxHeight =
+      (MaxWorldHeight == -FLT_MAX) ? 0.0f : MaxWorldHeight;
+  TerrainResource->MarkPackageDirty();
+  if (Package) {
+    Package->MarkPackageDirty();
+  }
+
+  UWorldGenExternalDataProvider *ExternalProvider =
+      NewObject<UWorldGenExternalDataProvider>(this);
+  if (ExternalProvider) {
+    ExternalProvider->Initialize(Config, HeightfieldService, BiomeService,
+                                 ClimateService, TerrainResource);
+  }
+
+  FString PCGHash;
+  if (!TriggerPCGOfflineBuild(World, Config, TerrainResource, PCGService,
+                              ExternalProvider, PCGHash, Errors)) {
+    UE_LOG(LogWorldGenBuildUtility, Warning,
+           TEXT("PCG offline build was skipped or failed; see log for details."));
+  }
+
+  if (Errors.IsEmpty()) {
+    FString SaveError;
+    if (!SaveBuildState(World, Config.Seed, Config, PCGHash, SaveError)) {
+      Errors.Add(SaveError);
+    }
+  }
+
+  const bool bSuccess = Errors.IsEmpty();
+  if (!bSuccess) {
+    for (const FString &Error : Errors) {
+      UE_LOG(LogWorldGenBuildUtility, Error, TEXT("%s"), *Error);
+    }
+  }
+
+  BroadcastCompletion(
+      bSuccess, bSuccess ? TEXT("World build completed")
+                         : FString::Printf(TEXT("World build completed with %d issues"),
+                                           Errors.Num()));
+  return bSuccess;
+#endif // WITH_EDITOR
+}
+
+bool UWorldGenBuildUtility::BuildTerrainForTile(
+    UWorldGenTerrainResource *TerrainResource,
+    UHeightfieldService *HeightfieldService, UBiomeService *BiomeService,
+    const FWorldGenConfig &Config, const FTileCoord &TileCoord,
+    FString &OutError, float &OutTileMin, float &OutTileMax) {
+#if !WITH_EDITOR
+  return false;
+#else
+  OutError.Reset();
+  OutTileMin = FLT_MAX;
+  OutTileMax = -FLT_MAX;
+
+  if (!TerrainResource || !HeightfieldService) {
+    OutError = TEXT("Missing terrain resource or heightfield service.");
+    return false;
+  }
+
+  FHeightfieldData HeightData =
+      HeightfieldService->GenerateHeightfield(Config.Seed, TileCoord);
+  HeightfieldService->CacheHeightfield(HeightData);
+
+  const int32 Resolution = HeightData.Resolution;
+  const int32 ExpectedSamples = Resolution * Resolution;
+  if (HeightData.HeightData.Num() != ExpectedSamples) {
+    OutError = FString::Printf(
+        TEXT("HeightData size mismatch for tile (%d,%d). Expected %d, got %d"),
+        TileCoord.X, TileCoord.Y, ExpectedSamples,
+        HeightData.HeightData.Num());
+    return false;
+  }
+
+  for (float Sample : HeightData.HeightData) {
+    OutTileMin = FMath::Min(OutTileMin, Sample);
+    OutTileMax = FMath::Max(OutTileMax, Sample);
+  }
+
+  const FString TexName = FString::Printf(
+      TEXT("%s_Height_%d_%d"), *TerrainResource->GetName(), TileCoord.X,
+      TileCoord.Y);
+  UPackage *Package = Cast<UPackage>(TerrainResource->GetOutermost());
+  UTexture2D *Texture =
+      NewObject<UTexture2D>(Package ? Package : GetTransientPackage(),
+                            *TexName, RF_Public | RF_Standalone | RF_Transactional);
+  if (!Texture) {
+    OutError = FString::Printf(
+        TEXT("Failed to allocate height texture for tile (%d,%d)"), TileCoord.X,
+        TileCoord.Y);
+    return false;
+  }
+
+  Texture->Source.Init(Resolution, Resolution, 1, 1, TSF_R32F);
+  uint8 *MipData = Texture->Source.LockMip(0);
+  FMemory::Memcpy(MipData, HeightData.HeightData.GetData(),
+                  HeightData.HeightData.Num() * sizeof(float));
+  Texture->Source.UnlockMip(0);
+
+  Texture->CompressionSettings = TC_HDR; // Use HDR for floats
+  Texture->Filter = TF_Bilinear;
+  Texture->SRGB = 0;
+  Texture->UpdateResource();
+  Texture->MarkPackageDirty();
+  if (Package) {
+    Package->MarkPackageDirty();
+  }
+
+  TerrainResource->HeightTextures.Add(FIntPoint(TileCoord.X, TileCoord.Y),
+                                      TSoftObjectPtr<UTexture2D>(Texture));
+
+  if (BiomeService) {
+    const FVector TileCenter = TileCoord.ToWorldPosition(Config);
+    const FVector2D TileCenter2D(TileCenter.X, TileCenter.Y);
+    const float Altitude = (OutTileMin + OutTileMax) * 0.5f;
+    const FBiomeResult Biome =
+        BiomeService->DetermineBiome(TileCenter2D, Altitude);
+    TerrainResource->BiomeCache.Add(FIntPoint(TileCoord.X, TileCoord.Y), Biome);
+  }
+
+  return true;
+#endif // WITH_EDITOR
+}
+
+bool UWorldGenBuildUtility::TriggerPCGOfflineBuild(
+    UWorld *World, const FWorldGenConfig &Config,
+    UWorldGenTerrainResource *TerrainResource, UPCGWorldService *PCGService,
+    UWorldGenExternalDataProvider *DataProvider, FString &OutPCGHash,
+    TArray<FString> &OutErrors) {
+#if !WITH_EDITOR
+  return false;
+#else
+#if !VHM_PCG_ENABLED
+  OutPCGHash = TEXT("PCG_DISABLED");
+  OutErrors.Add(
+      TEXT("PCG plugin disabled; offline build skipped for EditorBuildOnce."));
+  return false;
+#else
+  if (DataProvider) {
+    UE_LOG(LogWorldGenBuildUtility, Log,
+           TEXT("External data provider prepared for PCG graphs."));
+  }
+  if (PCGService) {
+    // PCG service already seeded with worldgen data; no additional wiring here.
+  }
+  if (TerrainResource) {
+    UE_LOG(LogWorldGenBuildUtility, Log,
+           TEXT("Terrain resource ready for offline PCG build."));
+  }
+
+  // Invoke UE5.7 PCG offline builder (PCG World Partition Builder / pcg.BuildComponents)
+  const bool bExecResult =
+      (GEditor && World) && GEditor->Exec(World, TEXT("pcg.BuildComponents -All"));
+  if (!bExecResult) {
+    UE_LOG(LogWorldGenBuildUtility, Warning,
+           TEXT("pcg.BuildComponents command failed or returned false; PCG content not rebuilt."));
+    OutPCGHash = TEXT("PCG_FAILED");
+    return false; // Non-fatal: terrain is still baked
+  }
+
+  uint32 HashValue =
+      HashCombine(GetTypeHash(Config.Seed), GetTypeHash(Config.WorldGenVersion));
+  HashValue = HashCombine(HashValue, GetTypeHash(Config.GenerateRadius));
+  OutPCGHash = FString::Printf(TEXT("%08x"), HashValue);
+  UE_LOG(LogWorldGenBuildUtility, Log,
+         TEXT("PCG offline build completed with hash %s"), *OutPCGHash);
+  return true;
+#endif // VHM_PCG_ENABLED
+#endif // WITH_EDITOR
+}
+
+bool UWorldGenBuildUtility::SaveBuildState(UWorld *World, int32 Seed,
+                                           const FWorldGenConfig &Config,
+                                           const FString &PCGHash,
+                                           FString &OutError) const {
+#if !WITH_EDITOR
+  return false;
+#else
+  const FString MapIdentifier = ResolveMapIdentifier(FString(), World);
+  const FString PackagePath = MakePackagePath(MapIdentifier, TEXT("BuildState"));
+  const FString ObjectName = MakeObjectName(MapIdentifier, TEXT("BuildState"));
+
+  UPackage *Package = CreatePackage(*PackagePath);
+  if (Package) {
+    Package->FullyLoad();
+  }
+
+  UWorldGenBuildStateAsset *BuildAsset =
+      FindObject<UWorldGenBuildStateAsset>(Package, *ObjectName);
+  if (!BuildAsset) {
+    BuildAsset = NewObject<UWorldGenBuildStateAsset>(
+        Package, UWorldGenBuildStateAsset::StaticClass(), *ObjectName,
+        EObjectFlags::RF_Public | RF_Standalone | RF_Transactional);
+#if WITH_EDITOR
+    RegisterAsset(BuildAsset);
+#endif
+  }
+
+  if (!BuildAsset) {
+    OutError =
+        TEXT("Failed to allocate WorldGenBuildStateAsset for baked world.");
+    return false;
+  }
+
+  BuildAsset->UpdateFromBuild(Seed, Config.WorldGenVersion, PCGHash);
+  BuildAsset->MarkPackageDirty();
+  if (Package) {
+    Package->MarkPackageDirty();
+  }
+
+  UE_LOG(LogWorldGenBuildUtility, Log,
+         TEXT("Saved build state (Seed=%d, Version=%d, Hash=%s)"),
+         Seed, Config.WorldGenVersion, *PCGHash);
+  return true;
+#endif // WITH_EDITOR
+}
+
+void UWorldGenBuildUtility::ReportProgress(int32 Current, int32 Total,
+                                           const FString &Status) {
+  OnBuildProgress.Broadcast(Current, Total, Status);
+  UE_LOG(LogWorldGenBuildUtility, Log, TEXT("%s"), *Status);
+
+#if WITH_EDITOR
+  if (Total <= 1 || Current == 0 || Current == Total) {
+    FNotificationInfo Info(FText::FromString(Status));
+    Info.bFireAndForget = true;
+    Info.FadeOutDuration = 0.2f;
+    Info.ExpireDuration = 1.5f;
+    FSlateNotificationManager::Get().AddNotification(Info);
+  }
+#endif
+}
+
+void UWorldGenBuildUtility::BroadcastCompletion(bool bSuccess,
+                                                const FString &Message) {
+  OnBuildComplete.Broadcast(bSuccess, Message);
+  if (bSuccess) {
+    UE_LOG(LogWorldGenBuildUtility, Log, TEXT("%s"), *Message);
+  } else {
+    UE_LOG(LogWorldGenBuildUtility, Error, TEXT("%s"), *Message);
+  }
+
+#if WITH_EDITOR
+  FNotificationInfo Info(FText::FromString(Message));
+  Info.bFireAndForget = true;
+  Info.ExpireDuration = 3.0f;
+  Info.bUseSuccessFailIcons = true;
+  if (TSharedPtr<SNotificationItem> Notification =
+          FSlateNotificationManager::Get().AddNotification(Info)) {
+    Notification->SetCompletionState(bSuccess ? SNotificationItem::CS_Success
+                                              : SNotificationItem::CS_Fail);
+  }
+#endif
+}
+
+FString UWorldGenBuildUtility::MakePackagePath(const FString &MapIdentifier,
+                                               const FString &Suffix) {
+  const FString SafeMap = SanitizeIdentifier(MapIdentifier);
+  return FString::Printf(TEXT("/Game/WorldGen/Baked/%s_%s"), *SafeMap,
+                         *Suffix);
+}
+
+FString UWorldGenBuildUtility::MakeObjectName(const FString &MapIdentifier,
+                                              const FString &BaseName) {
+  const FString SafeMap = SanitizeIdentifier(MapIdentifier);
+  return FString::Printf(TEXT("%s_%s"), *SafeMap, *BaseName);
+}
+
+bool UWorldGenBuildUtility::AlignPCGGridWithSettings() {
+#if !WITH_EDITOR
+  return false;
+#else
+  UE_LOG(LogWorldGenBuildUtility, Log,
+         TEXT("Aligning PCG World Actor to WorldGen Settings..."));
+
+  UWorld *World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
+  if (!World) {
+    UE_LOG(LogWorldGenBuildUtility, Error,
+           TEXT("No active editor world found."));
+    return false;
+  }
+
+  UWorldGenSettings *Settings = UWorldGenSettings::GetWorldGenSettings();
+  if (!Settings) {
+    UE_LOG(LogWorldGenBuildUtility, Error,
+           TEXT("Failed to load WorldGenSettings."));
     return false;
   }
 
@@ -245,7 +619,7 @@ bool UWorldGenBuildUtility::AlignPCGGridWithSettings() {
 
   // Spawn if missing
   if (!PCGActor) {
-    UE_LOG(LogTemp, Warning,
+    UE_LOG(LogWorldGenBuildUtility, Warning,
            TEXT("No APCGWorldActor found. Spawning a new one."));
     FActorSpawnParameters SpawnParams;
     SpawnParams.Name = TEXT("PCGWorldActor");
@@ -258,7 +632,8 @@ bool UWorldGenBuildUtility::AlignPCGGridWithSettings() {
     const uint32 GridSizeCm = TileSizeMeters * 100;
 
     if (PCGActor->PartitionGridSize != GridSizeCm) {
-      UE_LOG(LogTemp, Log, TEXT("Updating PartitionGridSize from %d to %d"),
+      UE_LOG(LogWorldGenBuildUtility, Log,
+             TEXT("Updating PartitionGridSize from %d to %d"),
              PCGActor->PartitionGridSize, GridSizeCm);
       PCGActor->PartitionGridSize = GridSizeCm;
       PCGActor->Modify();
@@ -267,7 +642,17 @@ bool UWorldGenBuildUtility::AlignPCGGridWithSettings() {
     return true;
   }
 
-  UE_LOG(LogTemp, Error, TEXT("Failed to spawn or find PCGWorldActor."));
+  UE_LOG(LogWorldGenBuildUtility, Error,
+         TEXT("Failed to spawn or find PCGWorldActor."));
   return false;
 #endif // WITH_EDITOR
 }
+
+#if WITH_AUTOMATION_TESTS
+bool UWorldGenBuildUtility::EvaluateContextForTest(
+    bool bIsEditor, bool bIsRunningGame, EWorldType::Type WorldType) {
+  const bool bEditorWorld = WorldType == EWorldType::Editor ||
+                            WorldType == EWorldType::EditorPreview;
+  return bIsEditor && !bIsRunningGame && bEditorWorld;
+}
+#endif // WITH_AUTOMATION_TESTS

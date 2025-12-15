@@ -54,7 +54,10 @@ public class Vibeheim : ModuleRules
             {
                 "UnrealEd",
                 "EditorFramework",
-                "LevelEditor"
+                "LevelEditor",
+                "Slate",
+                "SlateCore",
+                "ApplicationCore"
             });
         }
 
