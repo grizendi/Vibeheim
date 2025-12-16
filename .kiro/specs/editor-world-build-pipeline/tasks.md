@@ -210,20 +210,20 @@
 
 ## Phase 6: PCG World Actor and Partition Grid
 
-- [ ] 15. Implement PCGWorldActor integration
+- [x] 15. Implement PCGWorldActor integration
   - [x] 15.1 Add PCGWorldActor creation/configuration in build utility
     - Create if missing
     - Configure grid size to match TileSizeMeters or integer multiple
     - _Requirements: 5.3, 5.5_
-  - [ ] 15.2 Validate PCG grid alignment during build
+  - [x] 15.2 Validate PCG grid alignment during build
     - Use FTileCoord::IsAlignedWithPCGGrid()
     - Log warning if misaligned and suggest configuration
     - _Requirements: 5.1, 5.4_
-  - [ ] 15.3 Configure biome PCG graphs for partitioned/hierarchical generation
+  - [x] 15.3 Configure biome PCG graphs for partitioned/hierarchical generation
     - Set partitioned and hierarchical options on PCG components used for base world graphs
     - _Requirements: 6.1, 5.1_
 
-- [ ] 16. Checkpoint - PCG partition setup
+- [x] 16. Checkpoint - PCG partition setup
   - Run tests and fix regressions.
 
 ---

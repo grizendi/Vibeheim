@@ -630,6 +630,24 @@ bool UWorldGenBuildUtility::AlignPCGGridWithSettings() {
   if (PCGActor) {
     const int32 TileSizeMeters = Settings->Settings.TileSizeMeters;
     const uint32 GridSizeCm = TileSizeMeters * 100;
+    const bool bHasGridSize = PCGActor->PartitionGridSize > 0;
+    const float PartitionGridMeters =
+        bHasGridSize
+            ? static_cast<float>(PCGActor->PartitionGridSize) / 100.0f
+            : 0.0f;
+    if (bHasGridSize &&
+        !FTileCoord::IsAlignedWithPCGGrid(TileSizeMeters, PartitionGridMeters)) {
+      const float Ratio = PartitionGridMeters > KINDA_SMALL_NUMBER
+                              ? TileSizeMeters / PartitionGridMeters
+                              : 0.0f;
+      UE_LOG(
+          LogWorldGenBuildUtility, Warning,
+          TEXT("PCG grid misaligned with world tiles: TileSize=%.2fm, "
+               "PartitionGrid=%.2fm (ratio=%.3f). Recommended grid is %d cm "
+               "or another integer divisor/multiple of the tile size."),
+          static_cast<float>(TileSizeMeters), PartitionGridMeters, Ratio,
+          GridSizeCm);
+    }
 
     if (PCGActor->PartitionGridSize != GridSizeCm) {
       UE_LOG(LogWorldGenBuildUtility, Log,

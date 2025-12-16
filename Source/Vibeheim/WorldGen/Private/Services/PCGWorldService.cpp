@@ -47,6 +47,7 @@
 #include "Services/HeightfieldService.h"
 #include "Trace/Trace.inl"
 #include "UObject/ConstructorHelpers.h"
+#include "UObject/UnrealType.h"
 
 
 DEFINE_LOG_CATEGORY(LogPCGWorldService);
@@ -58,6 +59,44 @@ TRACE_DECLARE_FLOAT_COUNTER(VibeheimPCGLastDurationMs,
                             TEXT("Vibeheim/PCG/LastDurationMs"));
 TRACE_DECLARE_INT_COUNTER(VibeheimPCGLastPointCount,
                           TEXT("Vibeheim/PCG/LastPointCount"));
+
+namespace PCGWorldService::Private
+{
+bool EnableHierarchicalGenerationIfSupported(UPCGComponent& Component)
+{
+  const FName CandidateProperties[] = {
+      TEXT("bEnableHierarchicalGeneration"),
+      TEXT("bUseHierarchicalGeneration"),
+      TEXT("bAllowHierarchicalGeneration"),
+  };
+
+  for (const FName& PropertyName : CandidateProperties)
+  {
+    if (FBoolProperty* BoolProp =
+            FindFProperty<FBoolProperty>(Component.GetClass(), PropertyName))
+    {
+      BoolProp->SetPropertyValue_InContainer(&Component, true);
+      return true;
+    }
+  }
+
+  return false;
+}
+
+void ConfigureBiomeComponent(UPCGComponent& Component, UPCGGraph& Graph,
+                             const FWorldGenConfig& Settings)
+{
+  Component.SetGraph(&Graph);
+  Component.Seed = Settings.Seed;
+
+  if (Settings.bUseWorldPartitionStreaming)
+  {
+    Component.SetIsPartitioned(true);
+  }
+
+  EnableHierarchicalGenerationIfSupported(Component);
+}
+} // namespace PCGWorldService::Private
 #endif
 
 #if VHM_PCG_ENABLED
@@ -757,7 +796,8 @@ UPCGComponent *UPCGWorldService::GetOrCreateBiomeComponent(EBiomeType BiomeType,
   if (TObjectPtr<UObject> *ExistingPtr = BiomePCGComponents.Find(BiomeType)) {
     if (UPCGComponent *ExistingComponent =
             Cast<UPCGComponent>(ExistingPtr->Get())) {
-      ExistingComponent->SetGraph(&Graph);
+      PCGWorldService::Private::ConfigureBiomeComponent(*ExistingComponent,
+                                                        Graph, WorldGenSettings);
       return ExistingComponent;
     }
   }
@@ -778,13 +818,8 @@ UPCGComponent *UPCGWorldService::GetOrCreateBiomeComponent(EBiomeType BiomeType,
   NewComponent->SetComponentTickEnabled(false);
   NewComponent->bRuntimeGenerated = true;
 
-  // Enable partitioning if configured (matches UE 5.7 PCG API)
-  if (WorldGenSettings.bUseWorldPartitionStreaming) {
-    NewComponent->SetIsPartitioned(true);
-  }
-
-  NewComponent->Seed = WorldGenSettings.Seed;
-  NewComponent->SetGraph(&Graph);
+  PCGWorldService::Private::ConfigureBiomeComponent(*NewComponent, Graph,
+                                                    WorldGenSettings);
 
   AnchorActor->AddInstanceComponent(NewComponent);
   NewComponent->RegisterComponent();
