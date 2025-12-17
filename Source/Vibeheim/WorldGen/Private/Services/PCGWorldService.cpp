@@ -3594,27 +3594,50 @@ bool UPCGWorldService::AddPOI(const FPOIData &POIData) {
 bool UPCGWorldService::LoadTileWithPersistence(
     FTileCoord TileCoord, EBiomeType BiomeType,
     const TArray<float> &HeightData) {
+  bool bSuccess = true;
+
+  if (HeightfieldService) {
+    const bool bLoadedTerrain = HeightfieldService->LoadTileTerrainDeltas(TileCoord);
+    bSuccess &= bLoadedTerrain;
+    if (!bLoadedTerrain && PersistenceManager) {
+      PersistenceManager->FlagTileAsDegraded(
+          TileCoord, TEXT("Terrain delta load failed"));
+    }
+  }
+
   // First generate the base content
   FPCGGenerationData GenerationData =
       GenerateContentInternal(TileCoord, BiomeType, HeightData);
 
   // Cache the base generation
   GenerationCache.Add(TileCoord, GenerationData);
+  FPCGGenerationData *CachedData = GenerationCache.Find(TileCoord);
 
   // Apply persistence modifications if persistence manager is available
   if (PersistenceManager) {
+    if (CachedData) {
+      PersistenceManager->RegisterBaseContent(TileCoord,
+                                              CachedData->GeneratedInstances,
+                                              TArray<FPOIData>());
+    }
+
     // Load tile journal from disk if it exists
     if (!PersistenceManager->LoadTileJournal(TileCoord)) {
       UE_LOG(LogPCGWorldService, Warning,
              TEXT("Failed to load persistence journal for tile (%d, %d)"),
              TileCoord.X, TileCoord.Y);
+      PersistenceManager->FlagTileAsDegraded(
+          TileCoord, TEXT("Instance journal load failed"));
+      bSuccess = false;
     }
 
     // Replay the journal to apply persistent modifications
-    if (!PersistenceManager->ReplayTileJournal(TileCoord, this)) {
+    if (CachedData && !PersistenceManager->ReplayTileJournal(
+                          TileCoord, this, CachedData)) {
       UE_LOG(LogPCGWorldService, Warning,
              TEXT("Failed to replay persistence journal for tile (%d, %d)"),
              TileCoord.X, TileCoord.Y);
+      bSuccess = false;
     } else {
       UE_LOG(
           LogPCGWorldService, Log,
@@ -3627,7 +3650,7 @@ bool UPCGWorldService::LoadTileWithPersistence(
   // Update HISM instances with the final state
   UpdateHISMInstances(TileCoord);
 
-  return true;
+  return bSuccess;
 }
 
 UHierarchicalInstancedStaticMeshComponent *

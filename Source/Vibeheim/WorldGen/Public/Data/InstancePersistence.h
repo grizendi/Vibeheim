@@ -7,6 +7,8 @@
 #include "Misc/Compression.h" 
 #include "InstancePersistence.generated.h"
 
+struct FPCGGenerationData;
+
 /**
  * Instance modification operation types for journal tracking
  */
@@ -196,7 +198,7 @@ public:
 
 	// Replay journal and reconcile with PCG-generated content
 	UFUNCTION(BlueprintCallable, Category = "Persistence")
-	bool ReplayTileJournal(FTileCoord TileCoord, class UPCGWorldService* PCGService);
+	bool ReplayTileJournal(FTileCoord TileCoord, class UPCGWorldService* PCGService, FPCGGenerationData* InOutGenerationData = nullptr);
 
 	// Get current journal for a tile (C++ only, not Blueprint callable due to pointer return)
 	const FTileInstanceJournal* GetTileJournal(FTileCoord TileCoord) const;
@@ -220,6 +222,27 @@ public:
 	// Validate all journal files integrity
 	UFUNCTION(BlueprintCallable, Category = "Persistence")
 	bool ValidateAllJournals(TArray<FString>& OutErrors) const;
+
+	// Register baseline content for a tile to filter baked instances from persistence.
+	void RegisterBaseContent(FTileCoord TileCoord, const TArray<FPCGInstanceData>& BaseInstances, const TArray<FPOIData>& BasePOIs);
+
+	// Mark a tile save as degraded when delta application cannot be safely applied.
+	void FlagTileAsDegraded(FTileCoord TileCoord, const FString& Reason);
+
+	// Deterministic delta application helper for property testing.
+	struct FInstanceDeltaApplicationResult
+	{
+		bool bSuccess = true;
+		bool bSkippedBaseEntries = false;
+		TArray<FPCGInstanceData> FinalInstances;
+		TMap<FGuid, FPOIData> FinalPOIs;
+	};
+
+	FInstanceDeltaApplicationResult ComputeDeltaApplication(
+		FTileCoord TileCoord,
+		const TArray<FInstanceJournalEntry>& Entries,
+		const TArray<FPCGInstanceData>& BaseInstances,
+		const TMap<FGuid, FPOIData>& BasePOIs) const;
 
 private:
 	// World generation configuration
@@ -247,6 +270,16 @@ private:
 	float TotalLoadTimeMs = 0.0f;
 	float TotalSaveTimeMs = 0.0f;
 
+	// Baseline baked content for delta filtering
+	UPROPERTY()
+	TMap<FTileCoord, TSet<FGuid>> BaseInstanceIds;
+
+	UPROPERTY()
+	TMap<FTileCoord, TSet<FGuid>> BasePOIIds;
+
+	UPROPERTY()
+	TMap<FTileCoord, FString> DegradedTiles;
+
 	// Get file path for tile journal
 	FString GetTileJournalPath(FTileCoord TileCoord) const;
 
@@ -267,6 +300,15 @@ private:
 
 	// Create persistence directory if it doesn't exist
 	bool EnsurePersistenceDirectory();
+
+	bool IsBaseInstance(FTileCoord TileCoord, const FGuid& InstanceId) const;
+	bool IsBasePOI(FTileCoord TileCoord, const FGuid& POIId) const;
+
+	FInstanceDeltaApplicationResult ApplyEntriesDeterministically(
+		FTileCoord TileCoord,
+		const TArray<FInstanceJournalEntry>& Entries,
+		const TArray<FPCGInstanceData>& BaseInstances,
+		const TMap<FGuid, FPOIData>& BasePOIs) const;
 };
 
 /**

@@ -198,6 +198,155 @@ bool FInstancePersistenceManagerTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+/**
+ * Property 8: Delta System Isolation
+ * Ensures baked/base instances are not persisted while player deltas are.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FInstanceDeltaIsolationPropertyTest,
+	"Vibeheim.WorldGen.InstancePersistence.Property.DeltaIsolation",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter
+)
+
+bool FInstanceDeltaIsolationPropertyTest::RunTest(const FString& Parameters)
+{
+	UInstancePersistenceManager* PersistenceManager = NewObject<UInstancePersistenceManager>();
+
+	FWorldGenConfig TestConfig;
+	TestConfig.Seed = 42;
+	PersistenceManager->Initialize(TestConfig);
+
+	const FTileCoord Tile(2, 2);
+
+	FPCGInstanceData BaseInstance;
+	BaseInstance.InstanceId = FGuid(1, 2, 3, 4);
+	BaseInstance.OwningTile = Tile;
+
+	PersistenceManager->RegisterBaseContent(Tile, { BaseInstance }, {});
+
+	// Attempting to persist baked content should be ignored
+	const bool bBaseAddLogged = PersistenceManager->AddInstanceOperation(Tile, BaseInstance, EInstanceOperation::Add);
+	TestFalse(TEXT("Base PCG content is filtered from persistence"), bBaseAddLogged);
+
+	// Player adds a new instance (should be persisted)
+	FPCGInstanceData PlayerInstance;
+	PlayerInstance.InstanceId = FGuid(10, 11, 12, 13);
+	PlayerInstance.OwningTile = Tile;
+
+	const bool bPlayerAdded = PersistenceManager->AddInstanceOperation(Tile, PlayerInstance, EInstanceOperation::Add);
+	TestTrue(TEXT("Player-authored instance is persisted"), bPlayerAdded);
+
+	// Player removes baked content (delta that must be persisted)
+	const bool bBaseRemoved = PersistenceManager->AddInstanceOperation(Tile, BaseInstance, EInstanceOperation::Remove);
+	TestTrue(TEXT("Base removal is recorded as a delta"), bBaseRemoved);
+
+	const FTileInstanceJournal Journal = PersistenceManager->GetTileJournalData(Tile);
+	TestEqual(TEXT("Only player deltas are stored"), Journal.Entries.Num(), 2);
+
+	int32 AddCount = 0;
+	int32 RemoveCount = 0;
+	for (const FInstanceJournalEntry& Entry : Journal.Entries)
+	{
+		if (Entry.Operation == EInstanceOperation::Add)
+		{
+			++AddCount;
+			TestEqual(TEXT("Add entry targets player instance"), Entry.InstanceId, PlayerInstance.InstanceId);
+		}
+		else if (Entry.Operation == EInstanceOperation::Remove)
+		{
+			++RemoveCount;
+			TestEqual(TEXT("Remove entry targets baked instance"), Entry.InstanceId, BaseInstance.InstanceId);
+		}
+	}
+
+	TestEqual(TEXT("One add delta recorded"), AddCount, 1);
+	TestEqual(TEXT("One removal delta recorded"), RemoveCount, 1);
+
+	return true;
+}
+
+/**
+ * Property 9: Delta Application Determinism
+ * Applying the same delta set twice yields identical final instance sets.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FInstanceDeltaDeterminismPropertyTest,
+	"Vibeheim.WorldGen.InstancePersistence.Property.DeltaDeterminism",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter
+)
+
+bool FInstanceDeltaDeterminismPropertyTest::RunTest(const FString& Parameters)
+{
+	UInstancePersistenceManager* PersistenceManager = NewObject<UInstancePersistenceManager>();
+
+	FWorldGenConfig TestConfig;
+	TestConfig.Seed = 1337;
+	PersistenceManager->Initialize(TestConfig);
+
+	const FTileCoord Tile(3, 3);
+
+	// Baseline baked content
+	FPCGInstanceData BaseA;
+	BaseA.InstanceId = FGuid(100, 200, 300, 400);
+	BaseA.Location = FVector(10.0f, 10.0f, 0.0f);
+	BaseA.OwningTile = Tile;
+
+	FPCGInstanceData BaseB;
+	BaseB.InstanceId = FGuid(101, 201, 301, 401);
+	BaseB.Location = FVector(20.0f, 20.0f, 0.0f);
+	BaseB.OwningTile = Tile;
+
+	TArray<FPCGInstanceData> BaseInstances = { BaseA, BaseB };
+	PersistenceManager->RegisterBaseContent(Tile, BaseInstances, {});
+
+	// Player adds a new instance
+	FPCGInstanceData PlayerAdd;
+	PlayerAdd.InstanceId = FGuid(500, 600, 700, 800);
+	PlayerAdd.Location = FVector(30.0f, 30.0f, 0.0f);
+	PlayerAdd.OwningTile = Tile;
+	PersistenceManager->AddInstanceOperation(Tile, PlayerAdd, EInstanceOperation::Add);
+
+	// Player modifies base A
+	FPCGInstanceData ModifiedBaseA = BaseA;
+	ModifiedBaseA.Scale = FVector(2.0f, 2.0f, 2.0f);
+	PersistenceManager->AddInstanceOperation(Tile, ModifiedBaseA, EInstanceOperation::Modify);
+
+	// Player removes base B
+	PersistenceManager->AddInstanceOperation(Tile, BaseB, EInstanceOperation::Remove);
+
+	const FTileInstanceJournal Journal = PersistenceManager->GetTileJournalData(Tile);
+
+	const auto FirstResult = PersistenceManager->ComputeDeltaApplication(Tile, Journal.Entries, BaseInstances, {});
+	const auto SecondResult = PersistenceManager->ComputeDeltaApplication(Tile, Journal.Entries, BaseInstances, {});
+
+	TestTrue(TEXT("First application succeeds"), FirstResult.bSuccess);
+	TestTrue(TEXT("Second application succeeds"), SecondResult.bSuccess);
+	TestEqual(TEXT("Deterministic instance counts"), FirstResult.FinalInstances.Num(), SecondResult.FinalInstances.Num());
+
+	// Final set should contain modified base A and the player addition, but not base B
+	TestEqual(TEXT("Final delta set size matches expectation"), FirstResult.FinalInstances.Num(), 2);
+
+	// Compare IDs and ensure base removal stuck
+	for (int32 Index = 0; Index < FirstResult.FinalInstances.Num(); ++Index)
+	{
+		const FPCGInstanceData& A = FirstResult.FinalInstances[Index];
+		const FPCGInstanceData& B = SecondResult.FinalInstances[Index];
+		TestEqual(TEXT("Deterministic ordering by GUID"), A.InstanceId, B.InstanceId);
+		TestNotEqual(TEXT("Base B removed from final state"), A.InstanceId, BaseB.InstanceId);
+	}
+
+	// Ensure modified base data persisted
+	const FPCGInstanceData* FinalBaseA = FirstResult.FinalInstances.FindByPredicate(
+		[&](const FPCGInstanceData& Instance) { return Instance.InstanceId == BaseA.InstanceId; });
+	TestNotNull(TEXT("Modified base A remains after delta application"), FinalBaseA);
+	if (FinalBaseA)
+	{
+		TestEqual(TEXT("Modified scale is deterministic"), FinalBaseA->Scale, ModifiedBaseA.Scale);
+	}
+
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS
 
 // Optional manual integration test you can call via console (e.g., with an exec function/commandlet)

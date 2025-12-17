@@ -500,6 +500,13 @@ bool UInstancePersistenceManager::LoadTileJournal(FTileCoord TileCoord)
 
 bool UInstancePersistenceManager::AddInstanceOperation(FTileCoord TileCoord, const FPCGInstanceData& InstanceData, EInstanceOperation Operation)
 {
+	if (Operation == EInstanceOperation::Add && IsBaseInstance(TileCoord, InstanceData.InstanceId))
+	{
+		UE_LOG(LogInstancePersistence, Verbose, TEXT("Skipping persistence of base instance add for tile (%d, %d), id=%s"),
+			TileCoord.X, TileCoord.Y, *InstanceData.InstanceId.ToString());
+		return false;
+	}
+
 	FTileInstanceJournal& Journal = GetOrCreateTileJournal(TileCoord);
 	
 	FInstanceJournalEntry Entry(InstanceData, Operation);
@@ -515,6 +522,13 @@ bool UInstancePersistenceManager::AddInstanceOperation(FTileCoord TileCoord, con
 
 bool UInstancePersistenceManager::AddPOIOperation(FTileCoord TileCoord, const FPOIData& POIData, EInstanceOperation Operation)
 {
+	if (Operation == EInstanceOperation::Add && IsBasePOI(TileCoord, POIData.POIId))
+	{
+		UE_LOG(LogInstancePersistence, Verbose, TEXT("Skipping persistence of base POI add for tile (%d, %d), id=%s"),
+			TileCoord.X, TileCoord.Y, *POIData.POIId.ToString());
+		return false;
+	}
+
 	FTileInstanceJournal& Journal = GetOrCreateTileJournal(TileCoord);
 	
 	FInstanceJournalEntry Entry(POIData, Operation);
@@ -528,86 +542,65 @@ bool UInstancePersistenceManager::AddPOIOperation(FTileCoord TileCoord, const FP
 	return true;
 }
 
-bool UInstancePersistenceManager::ReplayTileJournal(FTileCoord TileCoord, UPCGWorldService* PCGService)
+bool UInstancePersistenceManager::ReplayTileJournal(FTileCoord TileCoord, UPCGWorldService* PCGService, FPCGGenerationData* InOutGenerationData)
 {
 	if (!PCGService)
 	{
 		UE_LOG(LogInstancePersistence, Error, TEXT("Cannot replay journal - PCG service is null"));
+		FlagTileAsDegraded(TileCoord, TEXT("Missing PCG service"));
 		return false;
 	}
-	
+
 	const FTileInstanceJournal* Journal = JournalCache.Find(TileCoord);
 	if (!Journal || Journal->Entries.Num() == 0)
 	{
 		// No persistent modifications to replay
 		return true;
 	}
-	
-	UE_LOG(LogInstancePersistence, Log, TEXT("Replaying journal for tile (%d, %d) - %d entries"), 
-		TileCoord.X, TileCoord.Y, Journal->Entries.Num());
-	
-	// Get current PCG-generated content
-	FPCGGenerationData GenerationData = PCGService->GenerateBiomeContent(TileCoord, EBiomeType::None, TArray<float>());
-	
-	// Apply journal entries to modify the generated content
-	TMap<FGuid, FPCGInstanceData> InstanceMap;
-	TMap<FGuid, FPOIData> POIMap;
-	
-	// Initialize with PCG-generated instances
-	for (const FPCGInstanceData& Instance : GenerationData.GeneratedInstances)
+
+	FPCGGenerationData LocalGenerationData;
+	FPCGGenerationData* TargetGenerationData = InOutGenerationData ? InOutGenerationData : &LocalGenerationData;
+
+	if (!InOutGenerationData)
 	{
-		InstanceMap.Add(Instance.InstanceId, Instance);
+		// Legacy path: regenerate base content when caller does not supply it
+		*TargetGenerationData = PCGService->GenerateBiomeContent(TileCoord, EBiomeType::None, TArray<float>());
 	}
-	
-	// Apply journal operations in chronological order
-	for (const FInstanceJournalEntry& Entry : Journal->Entries)
+
+	TArray<FPCGInstanceData> BaseInstances = TargetGenerationData->GeneratedInstances;
+	TMap<FGuid, FPOIData> BasePOIs;
+
+	const FInstanceDeltaApplicationResult DeltaResult = ApplyEntriesDeterministically(
+		TileCoord,
+		Journal->Entries,
+		BaseInstances,
+		BasePOIs);
+
+	if (!DeltaResult.bSuccess)
 	{
-		if (Entry.bIsPOI)
+		FlagTileAsDegraded(TileCoord, TEXT("Delta application failed"));
+		return false;
+	}
+
+	TargetGenerationData->GeneratedInstances = DeltaResult.FinalInstances;
+	TargetGenerationData->TotalInstanceCount = TargetGenerationData->GeneratedInstances.Num();
+
+	if (DeltaResult.FinalPOIs.Num() > 0)
+	{
+		for (const TPair<FGuid, FPOIData>& POIPair : DeltaResult.FinalPOIs)
 		{
-			// Handle POI operations
-			switch (Entry.Operation)
-			{
-				case EInstanceOperation::Add:
-				case EInstanceOperation::Modify:
-					POIMap.Add(Entry.InstanceId, Entry.POIData);
-					// Actually spawn the POI
-					PCGService->SpawnPOI(Entry.POIData.Location, Entry.POIData);
-					break;
-					
-				case EInstanceOperation::Remove:
-					POIMap.Remove(Entry.InstanceId);
-					// TODO: Remove spawned POI actor
-					break;
-			}
-		}
-		else
-		{
-			// Handle instance operations
-			switch (Entry.Operation)
-			{
-				case EInstanceOperation::Add:
-				case EInstanceOperation::Modify:
-					InstanceMap.Add(Entry.InstanceId, Entry.InstanceData);
-					break;
-					
-				case EInstanceOperation::Remove:
-					InstanceMap.Remove(Entry.InstanceId);
-					break;
-			}
+			PCGService->SpawnPOI(POIPair.Value.Location, POIPair.Value);
 		}
 	}
-	
-	// Update PCG generation data with modified instances
-	GenerationData.GeneratedInstances.Empty();
-	InstanceMap.GenerateValueArray(GenerationData.GeneratedInstances);
-	GenerationData.TotalInstanceCount = GenerationData.GeneratedInstances.Num();
-	
-	// Update HISM instances to reflect changes
+
 	PCGService->UpdateHISMInstances(TileCoord);
-	
-	UE_LOG(LogInstancePersistence, Log, TEXT("Journal replay complete for tile (%d, %d) - %d instances, %d POIs"), 
-		TileCoord.X, TileCoord.Y, GenerationData.GeneratedInstances.Num(), POIMap.Num());
-	
+
+	UE_LOG(LogInstancePersistence, Log, TEXT("Journal replay complete for tile (%d, %d) - %d instances, %d POIs (skipped base=%s)"),
+		TileCoord.X, TileCoord.Y,
+		TargetGenerationData->GeneratedInstances.Num(),
+		DeltaResult.FinalPOIs.Num(),
+		DeltaResult.bSkippedBaseEntries ? TEXT("true") : TEXT("false"));
+
 	return true;
 }
 
@@ -664,6 +657,7 @@ FString UInstancePersistenceManager::GetPersistenceStats() const
 	int32 TotalJournals = JournalCache.Num();
 	int32 TotalModifications = 0;
 	int32 DirtyCount = DirtyJournals.Num();
+	const int32 DegradedCount = DegradedTiles.Num();
 	
 	for (const auto& JournalPair : JournalCache)
 	{
@@ -675,10 +669,12 @@ FString UInstancePersistenceManager::GetPersistenceStats() const
 		TEXT("- Total Journals: %d\n")
 		TEXT("- Total Modifications: %d\n")
 		TEXT("- Dirty Journals: %d\n")
+		TEXT("- Degraded Tiles: %d\n")
 		TEXT("- Average Load Time: %.2fms\n")
 		TEXT("- Average Save Time: %.2fms\n")
 		TEXT("- Persistence Directory: %s"),
 		TotalJournals, TotalModifications, DirtyCount,
+		DegradedCount,
 		TotalLoadTimeMs / FMath::Max(1, TotalJournals),
 		TotalSaveTimeMs / FMath::Max(1, TotalJournals),
 		*PersistenceDirectory
@@ -730,6 +726,52 @@ bool UInstancePersistenceManager::ValidateAllJournals(TArray<FString>& OutErrors
 	}
 	
 	return OutErrors.Num() == 0;
+}
+
+void UInstancePersistenceManager::RegisterBaseContent(FTileCoord TileCoord, const TArray<FPCGInstanceData>& BaseInstances, const TArray<FPOIData>& BasePOIs)
+{
+	TSet<FGuid> InstanceIds;
+	InstanceIds.Reserve(BaseInstances.Num());
+	for (const FPCGInstanceData& Instance : BaseInstances)
+	{
+		InstanceIds.Add(Instance.InstanceId);
+	}
+	BaseInstanceIds.Add(TileCoord, MoveTemp(InstanceIds));
+
+	TSet<FGuid> POIIds;
+	POIIds.Reserve(BasePOIs.Num());
+	for (const FPOIData& POI : BasePOIs)
+	{
+		POIIds.Add(POI.POIId);
+	}
+	if (POIIds.Num() > 0)
+	{
+		BasePOIIds.Add(TileCoord, MoveTemp(POIIds));
+	}
+	else
+	{
+		BasePOIIds.Remove(TileCoord);
+	}
+
+	UE_LOG(LogInstancePersistence, Verbose, TEXT("Registered baseline for tile (%d, %d): %d instances, %d POIs"),
+		TileCoord.X, TileCoord.Y,
+		BaseInstances.Num(), BasePOIs.Num());
+}
+
+void UInstancePersistenceManager::FlagTileAsDegraded(FTileCoord TileCoord, const FString& Reason)
+{
+	DegradedTiles.Add(TileCoord, Reason);
+	UE_LOG(LogInstancePersistence, Error, TEXT("Marked tile (%d, %d) as degraded: %s"),
+		TileCoord.X, TileCoord.Y, *Reason);
+}
+
+UInstancePersistenceManager::FInstanceDeltaApplicationResult UInstancePersistenceManager::ComputeDeltaApplication(
+	FTileCoord TileCoord,
+	const TArray<FInstanceJournalEntry>& Entries,
+	const TArray<FPCGInstanceData>& BaseInstances,
+	const TMap<FGuid, FPOIData>& BasePOIs) const
+{
+	return ApplyEntriesDeterministically(TileCoord, Entries, BaseInstances, BasePOIs);
 }
 
 // Private methods
@@ -914,4 +956,153 @@ bool UInstancePersistenceManager::EnsurePersistenceDirectory()
 	}
 	
 	return true;
+}
+
+bool UInstancePersistenceManager::IsBaseInstance(FTileCoord TileCoord, const FGuid& InstanceId) const
+{
+	if (const TSet<FGuid>* BaseSet = BaseInstanceIds.Find(TileCoord))
+	{
+		return BaseSet->Contains(InstanceId);
+	}
+	return false;
+}
+
+bool UInstancePersistenceManager::IsBasePOI(FTileCoord TileCoord, const FGuid& POIId) const
+{
+	if (const TSet<FGuid>* BaseSet = BasePOIIds.Find(TileCoord))
+	{
+		return BaseSet->Contains(POIId);
+	}
+	return false;
+}
+
+UInstancePersistenceManager::FInstanceDeltaApplicationResult UInstancePersistenceManager::ApplyEntriesDeterministically(
+	FTileCoord TileCoord,
+	const TArray<FInstanceJournalEntry>& Entries,
+	const TArray<FPCGInstanceData>& BaseInstances,
+	const TMap<FGuid, FPOIData>& BasePOIs) const
+{
+	FInstanceDeltaApplicationResult Result;
+
+	TMap<FGuid, FPCGInstanceData> InstanceMap;
+	for (const FPCGInstanceData& Instance : BaseInstances)
+	{
+		InstanceMap.Add(Instance.InstanceId, Instance);
+	}
+
+	TMap<FGuid, FPOIData> POIMap = BasePOIs;
+
+	// Precompute baseline id sets for quick checks
+	TSet<FGuid> EffectiveBaseInstanceIds;
+	if (const TSet<FGuid>* CachedBase = BaseInstanceIds.Find(TileCoord))
+	{
+		EffectiveBaseInstanceIds = *CachedBase;
+	}
+	else
+	{
+		for (const FPCGInstanceData& Instance : BaseInstances)
+		{
+			EffectiveBaseInstanceIds.Add(Instance.InstanceId);
+		}
+	}
+
+	TSet<FGuid> EffectiveBasePOIIds;
+	if (const TSet<FGuid>* CachedBasePOI = BasePOIIds.Find(TileCoord))
+	{
+		EffectiveBasePOIIds = *CachedBasePOI;
+	}
+	else
+	{
+		for (const TPair<FGuid, FPOIData>& Pair : BasePOIs)
+		{
+			EffectiveBasePOIIds.Add(Pair.Key);
+		}
+	}
+
+	TArray<FInstanceJournalEntry> SortedEntries = Entries;
+	SortedEntries.Sort([](const FInstanceJournalEntry& A, const FInstanceJournalEntry& B)
+	{
+		if (A.Timestamp != B.Timestamp)
+		{
+			return A.Timestamp < B.Timestamp;
+		}
+
+		// Deterministic tie-breaker on GUID bits
+		if (A.InstanceId.A != B.InstanceId.A) return A.InstanceId.A < B.InstanceId.A;
+		if (A.InstanceId.B != B.InstanceId.B) return A.InstanceId.B < B.InstanceId.B;
+		if (A.InstanceId.C != B.InstanceId.C) return A.InstanceId.C < B.InstanceId.C;
+		if (A.InstanceId.D != B.InstanceId.D) return A.InstanceId.D < B.InstanceId.D;
+
+		if (A.bIsPOI != B.bIsPOI)
+		{
+			return A.bIsPOI; // Process POIs first when timestamps and GUIDs match
+		}
+
+		return static_cast<uint8>(A.Operation) < static_cast<uint8>(B.Operation);
+	});
+
+	for (const FInstanceJournalEntry& Entry : SortedEntries)
+	{
+		const bool bIsBaseEntry = Entry.bIsPOI
+			? EffectiveBasePOIIds.Contains(Entry.InstanceId)
+			: EffectiveBaseInstanceIds.Contains(Entry.InstanceId);
+
+		if (Entry.bIsPOI)
+		{
+			switch (Entry.Operation)
+			{
+			case EInstanceOperation::Add:
+				if (bIsBaseEntry)
+				{
+					Result.bSkippedBaseEntries = true;
+					continue;
+				}
+				POIMap.Add(Entry.InstanceId, Entry.POIData);
+				break;
+			case EInstanceOperation::Modify:
+				POIMap.Add(Entry.InstanceId, Entry.POIData);
+				break;
+			case EInstanceOperation::Remove:
+				POIMap.Remove(Entry.InstanceId);
+				break;
+			default:
+				break;
+			}
+			continue;
+		}
+
+		switch (Entry.Operation)
+		{
+		case EInstanceOperation::Add:
+			if (bIsBaseEntry)
+			{
+				Result.bSkippedBaseEntries = true;
+				continue;
+			}
+			InstanceMap.Add(Entry.InstanceId, Entry.InstanceData);
+			break;
+		case EInstanceOperation::Modify:
+			InstanceMap.Add(Entry.InstanceId, Entry.InstanceData);
+			break;
+		case EInstanceOperation::Remove:
+			InstanceMap.Remove(Entry.InstanceId);
+			break;
+		default:
+			break;
+		}
+	}
+
+	// Deterministic ordering of output
+	InstanceMap.GenerateValueArray(Result.FinalInstances);
+	Result.FinalInstances.Sort([](const FPCGInstanceData& A, const FPCGInstanceData& B)
+	{
+		if (A.InstanceId.A != B.InstanceId.A) return A.InstanceId.A < B.InstanceId.A;
+		if (A.InstanceId.B != B.InstanceId.B) return A.InstanceId.B < B.InstanceId.B;
+		if (A.InstanceId.C != B.InstanceId.C) return A.InstanceId.C < B.InstanceId.C;
+		return A.InstanceId.D < B.InstanceId.D;
+	});
+
+	Result.FinalPOIs = POIMap;
+
+	return Result;
 }

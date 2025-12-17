@@ -230,24 +230,24 @@
 
 ## Phase 7: Delta System Integration
 
-- [ ] 17. Modify InstancePersistence for delta-only mode
-  - [ ] 17.1 Add base content detection
+- [x] 17. Modify InstancePersistence for delta-only mode
+  - [x] 17.1 Add base content detection
     - Distinguish base PCG instances (from WP baked content) from player modifications
     - _Requirements: 8.4, 6.3_
-  - [ ] 17.2 Filter base content from persistence
+  - [x] 17.2 Filter base content from persistence
     - Only persist player-introduced or modified instances
     - _Requirements: 8.4, 6.3_
-  - [ ] 17.3 Write property test for delta system isolation
+  - [x] 17.3 Write property test for delta system isolation
     - **Property 8: Delta System Isolation**
     - **Validates: Requirements 8.1, 8.2, 8.4**
-  - [ ] 17.4 Implement delta application on world load
+  - [x] 17.4 Implement delta application on world load
     - Load WP base content first
     - Apply instance and terrain deltas deterministically
     - _Requirements: 8.3_
-  - [ ] 17.5 Write property test for delta application determinism
+  - [x] 17.5 Write property test for delta application determinism
     - **Property 9: Delta Application Determinism**
     - **Validates: Requirements 8.3**
-  - [ ] 17.6 Implement delta application error handling
+  - [x] 17.6 Implement delta application error handling
     - Log error, continue with base state
     - Mark save as degraded if delta set is unusable
     - _Requirements: 8.5_
