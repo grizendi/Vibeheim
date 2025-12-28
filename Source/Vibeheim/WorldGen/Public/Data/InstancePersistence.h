@@ -196,8 +196,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Persistence")
 	bool AddPOIOperation(FTileCoord TileCoord, const FPOIData& POIData, EInstanceOperation Operation);
 
-	// Replay journal and reconcile with PCG-generated content
-	UFUNCTION(BlueprintCallable, Category = "Persistence")
+	// Replay journal and reconcile with PCG-generated content (C++ only).
 	bool ReplayTileJournal(FTileCoord TileCoord, class UPCGWorldService* PCGService, FPCGGenerationData* InOutGenerationData = nullptr);
 
 	// Get current journal for a tile (C++ only, not Blueprint callable due to pointer return)
@@ -270,11 +269,9 @@ private:
 	float TotalLoadTimeMs = 0.0f;
 	float TotalSaveTimeMs = 0.0f;
 
-	// Baseline baked content for delta filtering
-	UPROPERTY()
+	// Baseline baked content for delta filtering (C++ only).
 	TMap<FTileCoord, TSet<FGuid>> BaseInstanceIds;
 
-	UPROPERTY()
 	TMap<FTileCoord, TSet<FGuid>> BasePOIIds;
 
 	UPROPERTY()

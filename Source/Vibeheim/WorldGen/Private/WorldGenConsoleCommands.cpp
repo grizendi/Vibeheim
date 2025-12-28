@@ -15,6 +15,9 @@
 #include "VHMTerrainRendering/VHMTypes.h"
 #include "Misc/Paths.h"
 #include "Misc/DateTime.h"
+#include "Editor/WorldGenBuildUtility.h"
+#include "Data/WorldGenBuildState.h"
+#include "Misc/PackageName.h"
 #include "Misc/FileHelper.h"
 #include "HAL/FileManager.h"
 #include "Modules/ModuleManager.h"
@@ -142,6 +145,94 @@ static AWorldGenManager* FindWorldGenManager(UWorld* World)
     return nullptr;
 }
 
+static FString SanitizeMapIdentifier(const FString& Identifier)
+{
+    FString Safe = Identifier;
+    Safe.ReplaceInline(TEXT("."), TEXT("_"));
+    Safe.ReplaceInline(TEXT("/"), TEXT("_"));
+    Safe.ReplaceInline(TEXT("\\"), TEXT("_"));
+    Safe.ReplaceInline(TEXT(" "), TEXT("_"));
+    Safe.ReplaceInline(TEXT(":"), TEXT("_"));
+    return Safe.IsEmpty() ? TEXT("World") : Safe;
+}
+
+static FString ResolveMapIdentifier(const FString& MapPath, const UWorld* World)
+{
+    if (!MapPath.IsEmpty())
+    {
+        const FString PackageName = FPackageName::ObjectPathToPackageName(MapPath);
+        return SanitizeMapIdentifier(FPackageName::GetShortName(PackageName));
+    }
+
+    return SanitizeMapIdentifier(World ? World->GetMapName() : FString(TEXT("World")));
+}
+
+static FString MakeBuildStateObjectPath(const FString& MapIdentifier)
+{
+    return FString::Printf(TEXT("/Game/WorldGen/Baked/%s_BuildState.%s_BuildState"),
+                           *MapIdentifier, *MapIdentifier);
+}
+
+static bool ResolveBuildState(UWorld* World, AWorldGenManager* Manager,
+                              UWorldGenBuildStateAsset*& OutAsset,
+                              FWorldBuildState& OutState, FString& OutPath)
+{
+    OutAsset = nullptr;
+    OutState = FWorldBuildState();
+    OutPath.Reset();
+
+    // Prefer explicitly assigned asset on the manager
+    if (Manager && Manager->WorldBuildStateAsset.IsValid())
+    {
+        OutAsset = Manager->WorldBuildStateAsset.LoadSynchronous();
+        OutPath = Manager->WorldBuildStateAsset.ToString();
+    }
+
+    if (!OutAsset && World)
+    {
+        const FString MapId = ResolveMapIdentifier(FString(), World);
+        const FString ObjectPath = MakeBuildStateObjectPath(MapId);
+        OutAsset = LoadObject<UWorldGenBuildStateAsset>(nullptr, *ObjectPath);
+        OutPath = ObjectPath;
+    }
+
+    if (OutAsset)
+    {
+        OutState = OutAsset->BuildState;
+        return true;
+    }
+
+    return false;
+}
+
+static bool ParseSeedArg(const TArray<FString>& Args, int32& OutSeed)
+{
+    OutSeed = 0;
+    if (Args.Num() <= 0)
+    {
+        return true;
+    }
+
+    return LexTryParseString(OutSeed, *Args[0]);
+}
+
+static bool ValidateEditorBuildContext()
+{
+    if (!GIsEditor || IsRunningGame())
+    {
+        UE_LOG(LogWorldGenConsole, Error,
+               TEXT("World builds are editor-only and must run outside PIE/game."));
+        return false;
+    }
+    if (!IsEngineReady())
+    {
+        UE_LOG(LogWorldGenConsole, Warning,
+               TEXT("Engine not ready - try after PIE starts or in an editor world."));
+        return false;
+    }
+    return true;
+}
+
 // Show settings (new + legacy alias)
 static void ExecShowSettings()
 {
@@ -171,6 +262,216 @@ static FAutoConsoleCommand CmdShowSettings(
     TEXT("wg.settings.show"),
     TEXT("Display current world generation settings"),
     FConsoleCommandDelegate::CreateStatic(&ExecShowSettings)
+);
+
+// Trigger full world build (terrain + PCG)
+static FAutoConsoleCommand CmdBuildWorld(
+    TEXT("wg.build.world"),
+    TEXT("Trigger full world build. Usage: wg.build.world [Seed]"),
+    FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+    {
+        int32 Seed = 0;
+        if (!ParseSeedArg(Args, Seed))
+        {
+            UE_LOG(LogWorldGenConsole, Error, TEXT("Invalid seed value '%s'."), Args.Num() > 0 ? *Args[0] : TEXT(""));
+            return;
+        }
+
+        if (!ValidateEditorBuildContext())
+        {
+            return;
+        }
+
+        const bool bSuccess = UWorldGenBuildUtility::BuildWorldFromSeed(Seed);
+        if (bSuccess)
+        {
+            UE_LOG(LogWorldGenConsole, Log, TEXT("wg.build.world succeeded (Seed=%d)"), Seed);
+        }
+        else
+        {
+            UE_LOG(LogWorldGenConsole, Error, TEXT("wg.build.world failed (Seed=%d)"), Seed);
+        }
+    })
+);
+
+// Trigger terrain-only build (no PCG)
+static FAutoConsoleCommand CmdBuildTerrain(
+    TEXT("wg.build.terrain"),
+    TEXT("Build terrain only (no PCG). Usage: wg.build.terrain [Seed]"),
+    FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+    {
+        int32 Seed = 0;
+        if (!ParseSeedArg(Args, Seed))
+        {
+            UE_LOG(LogWorldGenConsole, Error, TEXT("Invalid seed value '%s'."), Args.Num() > 0 ? *Args[0] : TEXT(""));
+            return;
+        }
+
+        if (!ValidateEditorBuildContext())
+        {
+            return;
+        }
+
+        const bool bSuccess = UWorldGenBuildUtility::BuildWorldFromSeed(Seed, TEXT(""), /*bBuildTerrain=*/true, /*bBuildPCG=*/false);
+        if (bSuccess)
+        {
+            UE_LOG(LogWorldGenConsole, Log,
+                   TEXT("wg.build.terrain succeeded (Seed=%d). Build state is not updated when PCG is skipped."),
+                   Seed);
+        }
+        else
+        {
+            UE_LOG(LogWorldGenConsole, Error,
+                   TEXT("wg.build.terrain failed (Seed=%d). Build state is not updated when PCG is skipped."),
+                   Seed);
+        }
+    })
+);
+
+// Trigger PCG-only build (requires prebaked terrain)
+static FAutoConsoleCommand CmdBuildPCG(
+    TEXT("wg.build.pcg"),
+    TEXT("Build PCG only (requires prebaked terrain). Usage: wg.build.pcg [Seed]"),
+    FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+    {
+        int32 Seed = 0;
+        if (!ParseSeedArg(Args, Seed))
+        {
+            UE_LOG(LogWorldGenConsole, Error, TEXT("Invalid seed value '%s'."), Args.Num() > 0 ? *Args[0] : TEXT(""));
+            return;
+        }
+
+        if (!ValidateEditorBuildContext())
+        {
+            return;
+        }
+
+        const bool bSuccess = UWorldGenBuildUtility::BuildWorldFromSeed(Seed, TEXT(""), /*bBuildTerrain=*/false, /*bBuildPCG=*/true);
+        if (bSuccess)
+        {
+            UE_LOG(LogWorldGenConsole, Log, TEXT("wg.build.pcg succeeded (Seed=%d)"), Seed);
+        }
+        else
+        {
+            UE_LOG(LogWorldGenConsole, Error, TEXT("wg.build.pcg failed (Seed=%d)"), Seed);
+        }
+    })
+);
+
+// Display build state status
+static FAutoConsoleCommand CmdBuildStatus(
+    TEXT("wg.build.status"),
+    TEXT("Display current build state (seed, version, timestamp, validity)"),
+    FConsoleCommandDelegate::CreateLambda([]()
+    {
+        if (!IsEngineReady())
+        {
+            UE_LOG(LogWorldGenConsole, Warning, TEXT("Engine not ready - try after PIE starts"));
+            return;
+        }
+
+        UWorld* World = GetAnyWorld();
+        if (!World)
+        {
+            UE_LOG(LogWorldGenConsole, Error, TEXT("No world available to inspect build status."));
+            return;
+        }
+
+        AWorldGenManager* Manager = FindWorldGenManager(World);
+        UWorldGenSettings* Settings = UWorldGenSettings::GetWorldGenSettings();
+        const FWorldGenConfig Config = Settings ? Settings->Settings : FWorldGenConfig();
+
+        UWorldGenBuildStateAsset* BuildAsset = nullptr;
+        FWorldBuildState BuildState;
+        FString AssetPath;
+        const bool bHasAsset = ResolveBuildState(World, Manager, BuildAsset, BuildState, AssetPath);
+        const bool bValid = bHasAsset && BuildState.IsValid();
+        const bool bCompatible = bValid && BuildState.IsCompatibleWith(Config);
+
+        UE_LOG(LogWorldGenConsole, Log,
+               TEXT("Build Status: Mode=%d Seed=%d Version=%d Map=%s"),
+               static_cast<int32>(Config.BuildMode), Config.Seed, Config.WorldGenVersion, *World->GetMapName());
+        if (!bHasAsset)
+        {
+            UE_LOG(LogWorldGenConsole, Warning, TEXT("No build state asset found for current map."));
+            return;
+        }
+
+        UE_LOG(LogWorldGenConsole, Log,
+               TEXT("BuildState Asset: %s | Baked=%s Valid=%s Compatible=%s"),
+               *AssetPath,
+               BuildState.bIsBaked ? TEXT("true") : TEXT("false"),
+               bValid ? TEXT("true") : TEXT("false"),
+               bCompatible ? TEXT("true") : TEXT("false"));
+        UE_LOG(LogWorldGenConsole, Log,
+               TEXT("BuiltSeed=%d Version=%d PCGHash=%s Timestamp=%s"),
+               BuildState.BuiltSeed, BuildState.WorldGenVersion,
+               *BuildState.PCGBuildHash, *BuildState.LastBuildTime.ToString());
+    })
+);
+
+// Validate build state against current config
+static FAutoConsoleCommand CmdBuildValidate(
+    TEXT("wg.build.validate"),
+    TEXT("Validate build state against current config."),
+    FConsoleCommandDelegate::CreateLambda([]()
+    {
+        if (!IsEngineReady())
+        {
+            UE_LOG(LogWorldGenConsole, Warning, TEXT("Engine not ready - try after PIE starts"));
+            return;
+        }
+
+        UWorld* World = GetAnyWorld();
+        if (!World)
+        {
+            UE_LOG(LogWorldGenConsole, Error, TEXT("No world available to validate build state."));
+            return;
+        }
+
+        AWorldGenManager* Manager = FindWorldGenManager(World);
+        UWorldGenSettings* Settings = UWorldGenSettings::GetWorldGenSettings();
+        const FWorldGenConfig Config = Settings ? Settings->Settings : FWorldGenConfig();
+
+        UWorldGenBuildStateAsset* BuildAsset = nullptr;
+        FWorldBuildState BuildState;
+        FString AssetPath;
+        const bool bHasAsset = ResolveBuildState(World, Manager, BuildAsset, BuildState, AssetPath);
+
+        if (!bHasAsset)
+        {
+            UE_LOG(LogWorldGenConsole, Error, TEXT("No build state asset found; world is treated as unbaked."));
+            return;
+        }
+
+        const bool bValid = BuildState.IsValid();
+        const bool bCompatible = BuildState.IsCompatibleWith(Config);
+
+        if (!bValid)
+        {
+            UE_LOG(LogWorldGenConsole, Error,
+                   TEXT("Build state is invalid (Baked=%s Seed=%d Version=%d Hash=%s Timestamp=%s)."),
+                   BuildState.bIsBaked ? TEXT("true") : TEXT("false"),
+                   BuildState.BuiltSeed, BuildState.WorldGenVersion,
+                   *BuildState.PCGBuildHash, *BuildState.LastBuildTime.ToString());
+            return;
+        }
+
+        if (!bCompatible)
+        {
+            UE_LOG(LogWorldGenConsole, Error,
+                   TEXT("Build state mismatch: BuiltSeed=%d ConfigSeed=%d BuiltVersion=%d ConfigVersion=%d Hash=%s"),
+                   BuildState.BuiltSeed, Config.Seed,
+                   BuildState.WorldGenVersion, Config.WorldGenVersion,
+                   *BuildState.PCGBuildHash);
+            return;
+        }
+
+        UE_LOG(LogWorldGenConsole, Log,
+               TEXT("Build state is valid and matches current config (Seed=%d Version=%d Hash=%s)."),
+               BuildState.BuiltSeed, BuildState.WorldGenVersion,
+               *BuildState.PCGBuildHash);
+    })
 );
 
 static FAutoConsoleCommand CmdShowSettingsLegacy(

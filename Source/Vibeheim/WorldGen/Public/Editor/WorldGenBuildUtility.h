@@ -34,18 +34,24 @@ public:
    * Main entry point to build the world for the current editor world.
    * @param Seed World seed from config (if 0, uses config default)
    * @param MapPath Optional map path override (package path or asset path)
+   * @param bBuildTerrain When false, skips terrain bake and expects prebaked data
+   * @param bBuildPCG When false, skips offline PCG builder
    * @return True if successful
    */
   UFUNCTION(BlueprintCallable, Category = "WorldGen|Build")
   static bool BuildWorldFromSeed(int32 Seed,
-                                 const FString& MapPath = TEXT(""));
+                                 const FString& MapPath = TEXT(""),
+                                 bool bBuildTerrain = true,
+                                 bool bBuildPCG = true);
 
   /**
    * Instance version that supports progress delegates for UI widgets.
    */
   UFUNCTION(BlueprintCallable, Category = "WorldGen|Build")
   bool BuildWorldFromSeedInstance(int32 Seed,
-                                  const FString& MapPath = TEXT(""));
+                                  const FString& MapPath = TEXT(""),
+                                  bool bBuildTerrain = true,
+                                  bool bBuildPCG = true);
 
   /**
    * Aligns the PCG World Actor's partition grid size with the WorldGen
@@ -76,7 +82,8 @@ private:
   bool ValidateEditorContext(UWorld *&OutWorld, FString &OutError) const;
 
   /** Orchestrate the full build once context/services are ready. */
-  bool RunBuild(UWorld *World, int32 Seed, const FString &MapPath);
+  bool RunBuild(UWorld *World, int32 Seed, const FString &MapPath,
+                bool bBuildTerrain, bool bBuildPCG, bool bUpdateBuildState);
 
   /** Generate prebaked terrain and biome cache for a single tile. */
   bool BuildTerrainForTile(UWorldGenTerrainResource *TerrainResource,

@@ -69,7 +69,9 @@ void RegisterAsset(UObject* Asset)
 } // namespace
 
 bool UWorldGenBuildUtility::BuildWorldFromSeed(int32 Seed,
-                                               const FString& MapPath) {
+                                               const FString& MapPath,
+                                               bool bBuildTerrain,
+                                               bool bBuildPCG) {
 #if !WITH_EDITOR
   UE_LOG(LogWorldGenBuildUtility, Warning,
          TEXT("BuildWorldFromSeed is editor-only and unavailable in this build"));
@@ -90,12 +92,13 @@ bool UWorldGenBuildUtility::BuildWorldFromSeed(int32 Seed,
     return false;
   }
 
-  return Utility->RunBuild(EditorWorld, Seed, MapPath);
+  return Utility->RunBuild(EditorWorld, Seed, MapPath, bBuildTerrain,
+                           bBuildPCG, /*bUpdateBuildState=*/true);
 #endif // WITH_EDITOR
 }
 
 bool UWorldGenBuildUtility::BuildWorldFromSeedInstance(
-    int32 Seed, const FString& MapPath) {
+    int32 Seed, const FString& MapPath, bool bBuildTerrain, bool bBuildPCG) {
 #if !WITH_EDITOR
   return false;
 #else
@@ -107,7 +110,8 @@ bool UWorldGenBuildUtility::BuildWorldFromSeedInstance(
     return false;
   }
 
-  return RunBuild(EditorWorld, Seed, MapPath);
+  return RunBuild(EditorWorld, Seed, MapPath, bBuildTerrain, bBuildPCG,
+                  /*bUpdateBuildState=*/true);
 #endif // WITH_EDITOR
 }
 
@@ -217,7 +221,9 @@ bool UWorldGenBuildUtility::ValidateEditorContext(UWorld *&OutWorld,
 }
 
 bool UWorldGenBuildUtility::RunBuild(UWorld *World, int32 Seed,
-                                     const FString &MapPath) {
+                                     const FString &MapPath,
+                                     bool bBuildTerrain, bool bBuildPCG,
+                                     bool bUpdateBuildState) {
 #if !WITH_EDITOR
   return false;
 #else
@@ -266,7 +272,7 @@ bool UWorldGenBuildUtility::RunBuild(UWorld *World, int32 Seed,
 
   UWorldGenTerrainResource *TerrainResource =
       FindObject<UWorldGenTerrainResource>(Package, *TerrainObjectName);
-  if (!TerrainResource) {
+  if (!TerrainResource && bBuildTerrain) {
     TerrainResource = NewObject<UWorldGenTerrainResource>(
         Package, UWorldGenTerrainResource::StaticClass(), *TerrainObjectName,
         EObjectFlags::RF_Public | RF_Standalone | RF_Transactional);
@@ -277,7 +283,7 @@ bool UWorldGenBuildUtility::RunBuild(UWorld *World, int32 Seed,
 
   if (!TerrainResource) {
     UE_LOG(LogWorldGenBuildUtility, Error,
-           TEXT("Failed to allocate terrain resource for baked data."));
+           TEXT("Failed to resolve terrain resource for baked data."));
     return false;
   }
 
@@ -285,8 +291,6 @@ bool UWorldGenBuildUtility::RunBuild(UWorld *World, int32 Seed,
   TerrainResource->TileSizeMeters = Config.TileSizeMeters;
   TerrainResource->SampleSpacingMeters = Config.SampleSpacingMeters;
   TerrainResource->SeaLevel = Config.SeaLevel;
-  TerrainResource->HeightTextures.Empty(); // Clear old data
-  TerrainResource->BiomeCache.Empty();
 
   const int32 BuildRadius = Config.GenerateRadius;
   const int32 TilesPerSide = (BuildRadius * 2) + 1;
@@ -296,40 +300,48 @@ bool UWorldGenBuildUtility::RunBuild(UWorld *World, int32 Seed,
   float MaxWorldHeight = -FLT_MAX;
   TArray<FString> Errors;
 
-  ReportProgress(0, TotalTiles, TEXT("Starting terrain bake"));
+  if (bBuildTerrain) {
+    TerrainResource->HeightTextures.Empty(); // Clear old data
+    TerrainResource->BiomeCache.Empty();
 
-  for (int32 X = -BuildRadius; X <= BuildRadius; ++X) {
-    for (int32 Y = -BuildRadius; Y <= BuildRadius; ++Y) {
-      FTileCoord TileCoord(X, Y);
-      FString TileError;
-      float TileMin = FLT_MAX;
-      float TileMax = -FLT_MAX;
-      if (!BuildTerrainForTile(TerrainResource, HeightfieldService, BiomeService,
-                               Config, TileCoord, TileError, TileMin, TileMax)) {
-        Errors.Add(TileError);
-      } else {
-        MinWorldHeight = FMath::Min(MinWorldHeight, TileMin);
-        MaxWorldHeight = FMath::Max(MaxWorldHeight, TileMax);
-      }
+    ReportProgress(0, TotalTiles, TEXT("Starting terrain bake"));
 
-      ++ProcessedTiles;
-      if (ProcessedTiles == TotalTiles ||
-          ProcessedTiles % FMath::Max(1, TotalTiles / 10) == 0) {
-        ReportProgress(
-            ProcessedTiles, TotalTiles,
-            FString::Printf(
-                TEXT("Terrain %d/%d (Tile %d,%d)"), ProcessedTiles, TotalTiles,
-                TileCoord.X, TileCoord.Y));
+    for (int32 X = -BuildRadius; X <= BuildRadius; ++X) {
+      for (int32 Y = -BuildRadius; Y <= BuildRadius; ++Y) {
+        FTileCoord TileCoord(X, Y);
+        FString TileError;
+        float TileMin = FLT_MAX;
+        float TileMax = -FLT_MAX;
+        if (!BuildTerrainForTile(TerrainResource, HeightfieldService, BiomeService,
+                                 Config, TileCoord, TileError, TileMin, TileMax)) {
+          Errors.Add(TileError);
+        } else {
+          MinWorldHeight = FMath::Min(MinWorldHeight, TileMin);
+          MaxWorldHeight = FMath::Max(MaxWorldHeight, TileMax);
+        }
+
+        ++ProcessedTiles;
+        if (ProcessedTiles == TotalTiles ||
+            ProcessedTiles % FMath::Max(1, TotalTiles / 10) == 0) {
+          ReportProgress(
+              ProcessedTiles, TotalTiles,
+              FString::Printf(
+                  TEXT("Terrain %d/%d (Tile %d,%d)"), ProcessedTiles, TotalTiles,
+                  TileCoord.X, TileCoord.Y));
+        }
       }
     }
-  }
 
-  TerrainResource->MinHeight = (MinWorldHeight == FLT_MAX) ? 0.0f : MinWorldHeight;
-  TerrainResource->MaxHeight =
-      (MaxWorldHeight == -FLT_MAX) ? 0.0f : MaxWorldHeight;
-  TerrainResource->MarkPackageDirty();
-  if (Package) {
-    Package->MarkPackageDirty();
+    TerrainResource->MinHeight = (MinWorldHeight == FLT_MAX) ? 0.0f : MinWorldHeight;
+    TerrainResource->MaxHeight =
+        (MaxWorldHeight == -FLT_MAX) ? 0.0f : MaxWorldHeight;
+    TerrainResource->MarkPackageDirty();
+    if (Package) {
+      Package->MarkPackageDirty();
+    }
+  } else {
+    UE_LOG(LogWorldGenBuildUtility, Log,
+           TEXT("Skipping terrain bake (bBuildTerrain=false). Using existing prebaked data."));
   }
 
   UWorldGenExternalDataProvider *ExternalProvider =
@@ -340,17 +352,26 @@ bool UWorldGenBuildUtility::RunBuild(UWorld *World, int32 Seed,
   }
 
   FString PCGHash;
-  if (!TriggerPCGOfflineBuild(World, Config, TerrainResource, PCGService,
-                              ExternalProvider, PCGHash, Errors)) {
-    UE_LOG(LogWorldGenBuildUtility, Warning,
-           TEXT("PCG offline build was skipped or failed; see log for details."));
+  if (bBuildPCG) {
+    if (!TriggerPCGOfflineBuild(World, Config, TerrainResource, PCGService,
+                                ExternalProvider, PCGHash, Errors)) {
+      UE_LOG(LogWorldGenBuildUtility, Warning,
+             TEXT("PCG offline build was skipped or failed; see log for details."));
+    }
+  } else {
+    UE_LOG(LogWorldGenBuildUtility, Log,
+           TEXT("Skipping PCG offline build (bBuildPCG=false)."));
+    PCGHash = TEXT("PCG_SKIPPED");
   }
 
-  if (Errors.IsEmpty()) {
+  if (Errors.IsEmpty() && bUpdateBuildState && bBuildPCG) {
     FString SaveError;
     if (!SaveBuildState(World, Config.Seed, Config, PCGHash, SaveError)) {
       Errors.Add(SaveError);
     }
+  } else if (bUpdateBuildState && !bBuildPCG) {
+    UE_LOG(LogWorldGenBuildUtility, Warning,
+           TEXT("Build state not updated because PCG phase was skipped."));
   }
 
   const bool bSuccess = Errors.IsEmpty();

@@ -55,9 +55,14 @@ public class Vibeheim : ModuleRules
                 "UnrealEd",
                 "EditorFramework",
                 "LevelEditor",
+                "ToolMenus",
+                "Blutility",
+                "UMG",
+                "UMGEditor",
                 "Slate",
                 "SlateCore",
-                "ApplicationCore"
+                "ApplicationCore",
+                "AppFramework"
             });
         }
 
@@ -83,6 +88,5 @@ public class Vibeheim : ModuleRules
         // See: Source/Vibeheim/WorldGen/Public/PCGVersionGuard.h
     }
 }
-
 
 

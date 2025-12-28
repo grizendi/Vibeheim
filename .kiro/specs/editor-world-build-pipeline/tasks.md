@@ -1,4 +1,4 @@
-# Implementation Plan
+﻿# Implementation Plan
 
 ## Phase 0: Foundation Types and Configuration
 
@@ -259,42 +259,42 @@
 
 ## Phase 8: Console Commands and Tooling
 
-- [ ] 19. Extend WorldGenConsoleCommands with build commands
-  - [ ] 19.1 Implement `wg.build.world` command
+- [x] 19. Extend WorldGenConsoleCommands with build commands
+  - [x] 19.1 Implement `wg.build.world` command
     - Trigger full world build with optional seed parameter
     - _Requirements: 10.2, 10.1_
-  - [ ] 19.2 Implement `wg.build.status` command
+  - [x] 19.2 Implement `wg.build.status` command
     - Display current build state (seed, version, timestamp, validity)
     - _Requirements: 10.3_
-  - [ ] 19.3 Implement `wg.build.validate` command
+  - [x] 19.3 Implement `wg.build.validate` command
     - Verify build state consistency with current config
     - _Requirements: 10.4_
-  - [ ] 19.4 Implement `wg.build.terrain` command
+  - [x] 19.4 Implement `wg.build.terrain` command
     - Build terrain only (no PCG)
     - _Requirements: 10.1, 3.1, 3.2_
-  - [ ] 19.5 Implement `wg.build.pcg` command
+  - [x] 19.5 Implement `wg.build.pcg` command
     - Build PCG only (requires prebaked terrain)
     - _Requirements: 6.1, 10.1_
 
-- [ ] 20. Add editor menu integration
-  - [ ] 20.1 Add "Rebuild Vibeheim World" menu option
+- [x] 20. Add editor menu integration
+  - [x] 20.1 Add "Rebuild Vibeheim World" menu option
     - Executes full build pipeline via UWorldGenBuildUtility
     - _Requirements: 10.1_
-  - [ ] 20.2 Create an Editor Utility Widget for world builds
-    - [ ] 20.2.1 Create WBP_WorldGenBuilder (Editor Utility Widget)
-      - Buttons: “Build World”, “Build Terrain Only”, “Build PCG Only”
+  - [x] 20.2 Create an Editor Utility Widget for world builds
+    - [x] 20.2.1 Create WBP_WorldGenBuilder (Editor Utility Widget)
+      - Buttons: Build World, Build Terrain Only, Build PCG Only
       - Fields: Seed override, map path, mode display (RuntimeStreaming / EditorBuildOnce / Hybrid)
       - Uses: UWorldGenBuildUtility, console commands from Phase 8
-    - [ ] 20.2.2 Bind widget actions to UWorldGenBuildUtility
+    - [x] 20.2.2 Bind widget actions to UWorldGenBuildUtility
       - Call BuildWorldFromSeed with specified seed/map
       - Display FWorldBuildState (seed, version, timestamp, baked/stale)
-    - [ ] 20.2.3 Show real-time progress
+    - [x] 20.2.3 Show real-time progress
       - Subscribe to OnBuildProgress and OnBuildComplete
       - Display progress bar and status text
-    - [ ] 20.2.4 Add access point in the editor
-      - Window → Vibeheim → “World Build Pipeline” opens the widget
+    - [x] 20.2.4 Add access point in the editor
+      - Window > Vibeheim > World Build Pipeline opens the widget
 
-- [ ] 21. Checkpoint - Tools
+- [x] 21. Checkpoint - Tools
   - Run tests and fix regressions.
 
 ---
@@ -330,3 +330,4 @@
 
 - [ ] 23. Final Checkpoint - End-to-end validation
   - Run unit, property-based, and integration tests (full build -> load -> play).
+
