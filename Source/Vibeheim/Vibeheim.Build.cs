@@ -52,6 +52,7 @@ public class Vibeheim : ModuleRules
         {
             PrivateDependencyModuleNames.AddRange(new string[]
             {
+                "DataLayerEditor",
                 "UnrealEd",
                 "EditorFramework",
                 "LevelEditor",
@@ -88,5 +89,4 @@ public class Vibeheim : ModuleRules
         // See: Source/Vibeheim/WorldGen/Public/PCGVersionGuard.h
     }
 }
-
 

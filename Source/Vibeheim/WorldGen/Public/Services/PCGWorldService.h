@@ -87,6 +87,9 @@ public:
         virtual void ClearPCGCache() override;
         virtual FPCGGraphValidationResult ValidatePCGGraph(const FString& GraphPath) override;
 
+        /** Force runtime PCG parameter data to target the Dynamic data layer only. */
+        void SetRuntimeDynamicDataLayersOnly(bool bEnabled);
+
 	/**
 	 * Get biome weight for spawn parameters (returns 1.0f when bForceBiome = true)
 	 */
@@ -225,6 +228,9 @@ private:
 
         UPROPERTY()
         bool bAllowHeadlessLogicalInstances = true;
+
+        UPROPERTY()
+        bool bRuntimeDynamicDataLayersOnly = false;
 
 #if VHM_PCG_ENABLED
         TWeakObjectPtr<AActor> PCGAnchorActor;

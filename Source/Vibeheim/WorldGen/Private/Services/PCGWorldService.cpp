@@ -49,8 +49,57 @@
 #include "UObject/ConstructorHelpers.h"
 #include "UObject/UnrealType.h"
 
+#if __has_include("WorldPartition/DataLayer/DataLayerManager.h")
+#include "WorldPartition/DataLayer/DataLayerManager.h"
+#include "WorldPartition/DataLayer/DataLayerInstance.h"
+#define VHM_HAS_DATA_LAYERS 1
+#else
+#define VHM_HAS_DATA_LAYERS 0
+#endif
+
 
 DEFINE_LOG_CATEGORY(LogPCGWorldService);
+
+namespace PCGWorldService::Private
+{
+#if VHM_HAS_DATA_LAYERS
+void AssignActorToDataLayer(UWorld* World, AActor* Actor, const FName& LayerName)
+{
+  if (!World || !Actor || LayerName.IsNone()) {
+    return;
+  }
+
+  UDataLayerManager* DataLayerManager =
+      UDataLayerManager::GetDataLayerManager(World);
+  if (!DataLayerManager) {
+    return;
+  }
+
+  const UDataLayerInstance* DataLayer =
+      DataLayerManager->GetDataLayerInstanceFromName(LayerName);
+  if (!DataLayer) {
+    UE_LOG(LogPCGWorldService, Warning,
+           TEXT("Data layer '%s' not found for actor %s."),
+           *LayerName.ToString(),
+           *Actor->GetName());
+    return;
+  }
+
+#if WITH_EDITOR
+  DataLayer->AddActor(Actor);
+#else
+  (void)DataLayer;
+#endif
+}
+#else
+void AssignActorToDataLayer(UWorld* World, AActor* Actor, const FName& LayerName)
+{
+  (void)World;
+  (void)Actor;
+  (void)LayerName;
+}
+#endif
+} // namespace PCGWorldService::Private
 
 #if VHM_PCG_ENABLED
 TRACE_DECLARE_INT_COUNTER(VibeheimPCGActiveTasks,
@@ -88,6 +137,7 @@ void ConfigureBiomeComponent(UPCGComponent& Component, UPCGGraph& Graph,
 {
   Component.SetGraph(&Graph);
   Component.Seed = Settings.Seed;
+  Component.GenerationTrigger = EPCGComponentGenerationTrigger::GenerateAtRuntime;
 
   if (Settings.bUseWorldPartitionStreaming)
   {
@@ -550,6 +600,8 @@ inline const TArray<FExpectedAttribute> &GetCanonicalAttributes() {
   static constexpr EPCGMetadataTypes BoolType[] = {EPCGMetadataTypes::Boolean};
   static constexpr EPCGMetadataTypes GuidType[] = {EPCGMetadataTypes::String,
                                                    EPCGMetadataTypes::Name};
+  static constexpr EPCGMetadataTypes DataLayerType[] = {
+      EPCGMetadataTypes::Name, EPCGMetadataTypes::String};
 
   static const TArray<FExpectedAttribute> Attributes = {
       {VHMPCGAttr::AverageHeight,
@@ -591,6 +643,26 @@ inline const TArray<FExpectedAttribute> &GetCanonicalAttributes() {
       {VHMPCGAttr::ClimateRingBias,
        TConstArrayView<EPCGMetadataTypes>(FloatType, UE_ARRAY_COUNT(FloatType)),
        EAttributeScope::Parameter, false, TEXT("float")},
+      {VHMPCGAttr::DataLayerTerrainClutter,
+       TConstArrayView<EPCGMetadataTypes>(DataLayerType,
+                                          UE_ARRAY_COUNT(DataLayerType)),
+       EAttributeScope::Parameter, false, TEXT("name or string")},
+      {VHMPCGAttr::DataLayerTrees,
+       TConstArrayView<EPCGMetadataTypes>(DataLayerType,
+                                          UE_ARRAY_COUNT(DataLayerType)),
+       EAttributeScope::Parameter, false, TEXT("name or string")},
+      {VHMPCGAttr::DataLayerRocks,
+       TConstArrayView<EPCGMetadataTypes>(DataLayerType,
+                                          UE_ARRAY_COUNT(DataLayerType)),
+       EAttributeScope::Parameter, false, TEXT("name or string")},
+      {VHMPCGAttr::DataLayerPOIs,
+       TConstArrayView<EPCGMetadataTypes>(DataLayerType,
+                                          UE_ARRAY_COUNT(DataLayerType)),
+       EAttributeScope::Parameter, false, TEXT("name or string")},
+      {VHMPCGAttr::DataLayerDynamic,
+       TConstArrayView<EPCGMetadataTypes>(DataLayerType,
+                                          UE_ARRAY_COUNT(DataLayerType)),
+       EAttributeScope::Parameter, false, TEXT("name or string")},
       {VHMPCGAttr::TileSize,
        TConstArrayView<EPCGMetadataTypes>(FloatType, UE_ARRAY_COUNT(FloatType)),
        EAttributeScope::Parameter, true, TEXT("float")},
@@ -689,7 +761,8 @@ static UPCGParamData *
 CreateTileParameterData(UObject *Outer, const FPCGTileMetrics &TileMetrics,
                         FTileCoord TileCoord, EBiomeType BiomeType,
                         const FWorldGenConfig &WorldGenSettings,
-                        uint32 TileSeed, float DensityScale, float BiomeWeight);
+                        uint32 TileSeed, float DensityScale, float BiomeWeight,
+                        bool bDynamicLayersOnly);
 
 static UPCGPointData *
 CreateTilePointData(UObject *Outer, FTileCoord TileCoord,
@@ -778,6 +851,11 @@ AActor *UPCGWorldService::EnsurePCGAnchor(UWorld *World) {
           NewObject<USceneComponent>(AnchorActor, TEXT("PCGAnchorRoot"));
       AnchorActor->SetRootComponent(RootComponent);
       RootComponent->RegisterComponent();
+    }
+
+    if (WorldGenSettings.bUseWorldPartitionStreaming) {
+      PCGWorldService::Private::AssignActorToDataLayer(
+          World, AnchorActor, WorldGenSettings.PCGDataLayers.Dynamic);
     }
   }
 
@@ -1242,7 +1320,8 @@ void UPCGWorldService::HandleWorldCleanup(UWorld *World, bool bSessionEnded,
 UPCGParamData *PCGWorldService::Private::CreateTileParameterData(
     UObject *Outer, const FPCGTileMetrics &TileMetrics, FTileCoord TileCoord,
     EBiomeType BiomeType, const FWorldGenConfig &WorldGenSettings,
-    uint32 TileSeed, float DensityScale, float BiomeWeight) {
+    uint32 TileSeed, float DensityScale, float BiomeWeight,
+    bool bDynamicLayersOnly) {
   UPCGParamData *ParamData = NewObject<UPCGParamData>(
       Outer ? Outer : GetTransientPackage(), NAME_None, RF_Transient);
   if (!ensureMsgf(ParamData,
@@ -1311,6 +1390,26 @@ UPCGParamData *PCGWorldService::Private::CreateTileParameterData(
                         true);
   EnsureAndSetAttribute(VHMPCGAttr::BiomeWeight, BiomeWeight, true);
   EnsureAndSetAttribute(VHMPCGAttr::DensityScale, DensityScale, true);
+  const FWorldPartitionPCGDataLayers& DataLayers = WorldGenSettings.PCGDataLayers;
+  if (bDynamicLayersOnly)
+  {
+    const FName DynamicLayer = DataLayers.Dynamic;
+    EnsureAndSetAttribute(VHMPCGAttr::DataLayerTerrainClutter, DynamicLayer, false);
+    EnsureAndSetAttribute(VHMPCGAttr::DataLayerTrees, DynamicLayer, false);
+    EnsureAndSetAttribute(VHMPCGAttr::DataLayerRocks, DynamicLayer, false);
+    EnsureAndSetAttribute(VHMPCGAttr::DataLayerPOIs, DynamicLayer, false);
+    EnsureAndSetAttribute(VHMPCGAttr::DataLayerDynamic, DynamicLayer, false);
+  }
+  else
+  {
+    EnsureAndSetAttribute(VHMPCGAttr::DataLayerTerrainClutter,
+                          DataLayers.TerrainClutter, false);
+    EnsureAndSetAttribute(VHMPCGAttr::DataLayerTrees, DataLayers.Trees, false);
+    EnsureAndSetAttribute(VHMPCGAttr::DataLayerRocks, DataLayers.Rocks, false);
+    EnsureAndSetAttribute(VHMPCGAttr::DataLayerPOIs, DataLayers.POIs, false);
+    EnsureAndSetAttribute(VHMPCGAttr::DataLayerDynamic, DataLayers.Dynamic,
+                          false);
+  }
 
   return ParamData;
 }
@@ -2126,7 +2225,7 @@ FPCGGenerationData UPCGWorldService::GeneratePCGContent(
       PCGWorldService::Private::CreateTileParameterData(
           DataOuter, EffectiveMetrics ? *EffectiveMetrics : FPCGTileMetrics(),
           TileCoord, BiomeType, WorldGenSettings, TileSeed, DensityScale,
-          BiomeBlendWeight);
+          BiomeBlendWeight, bRuntimeDynamicDataLayersOnly);
   UPCGPointData *TilePointData = PCGWorldService::Private::CreateTilePointData(
       DataOuter, TileCoord, WorldGenSettings,
       EffectiveMetrics ? *EffectiveMetrics : FPCGTileMetrics());
@@ -2703,6 +2802,10 @@ bool UPCGWorldService::SpawnPOI(FVector Location, const FPOIData &POIData) {
   if (SpawnedActor) {
     // Store reference for management
     SpawnedPOIActors.Add(POIData.POIId, SpawnedActor);
+    if (WorldGenSettings.bUseWorldPartitionStreaming) {
+      PCGWorldService::Private::AssignActorToDataLayer(
+          GetWorld(), SpawnedActor, WorldGenSettings.PCGDataLayers.Dynamic);
+    }
 
     UE_LOG(LogPCGWorldService, Log,
            TEXT("Successfully spawned POI: %s at (%.1f, %.1f, %.1f)"),
@@ -2904,6 +3007,15 @@ void UPCGWorldService::SetRuntimeOperationsEnabled(bool bEnabled) {
          bEnabled ? TEXT("enabled") : TEXT("disabled"));
 }
 
+void UPCGWorldService::SetRuntimeDynamicDataLayersOnly(bool bEnabled) {
+  bRuntimeDynamicDataLayersOnly = bEnabled;
+  if (bRuntimeDynamicDataLayersOnly &&
+      WorldGenSettings.PCGDataLayers.Dynamic.IsNone()) {
+    UE_LOG(LogPCGWorldService, Warning,
+           TEXT("Runtime dynamic-only data layers enabled but Dynamic layer name is unset."));
+  }
+}
+
 void UPCGWorldService::ClearPCGCache() {
   GenerationCache.Empty();
 
@@ -3060,6 +3172,123 @@ UPCGWorldService::ValidatePCGGraph(const FString &GraphPath) {
                 "unwired)."),
            TotalNodes, DependencyNodes, UnwiredNodes);
   }
+
+  if (WorldGenSettings.bUseWorldPartitionStreaming) {
+    const FWorldPartitionPCGDataLayers& Layers = WorldGenSettings.PCGDataLayers;
+    TArray<FName> ExpectedLayers;
+    const FName CandidateLayers[] = {
+        Layers.TerrainClutter,
+        Layers.Trees,
+        Layers.Rocks,
+        Layers.POIs,
+        Layers.Dynamic,
+    };
+    for (const FName& LayerName : CandidateLayers) {
+      if (!LayerName.IsNone()) {
+        ExpectedLayers.AddUnique(LayerName);
+      }
+    }
+
+    auto CollectDataLayerNames = [](const UPCGSettings* SettingsObj, TArray<FName>& OutNames)
+    {
+      if (!SettingsObj) {
+        return;
+      }
+
+      const FName CandidateProps[] = {
+          TEXT("DataLayer"),
+          TEXT("DataLayers"),
+          TEXT("DataLayerAsset"),
+          TEXT("DataLayerAssets"),
+          TEXT("DataLayerName"),
+          TEXT("DataLayerNames"),
+      };
+
+      for (const FName& PropName : CandidateProps) {
+        if (FProperty* Prop = SettingsObj->GetClass()->FindPropertyByName(PropName)) {
+          if (const FNameProperty* NameProp = CastField<FNameProperty>(Prop)) {
+            const FName Value = NameProp->GetPropertyValue_InContainer(SettingsObj);
+            if (!Value.IsNone()) {
+              OutNames.AddUnique(Value);
+            }
+          } else if (const FStrProperty* StrProp = CastField<FStrProperty>(Prop)) {
+            const FString Value = StrProp->GetPropertyValue_InContainer(SettingsObj);
+            if (!Value.IsEmpty()) {
+              OutNames.AddUnique(FName(*Value));
+            }
+          } else if (const FObjectProperty* ObjProp = CastField<FObjectProperty>(Prop)) {
+            if (UObject* Obj = ObjProp->GetObjectPropertyValue_InContainer(SettingsObj)) {
+              OutNames.AddUnique(FName(*Obj->GetName()));
+            }
+          } else if (const FArrayProperty* ArrayProp = CastField<FArrayProperty>(Prop)) {
+            FScriptArrayHelper Helper(ArrayProp, ArrayProp->ContainerPtrToValuePtr<void>(SettingsObj));
+            for (int32 Index = 0; Index < Helper.Num(); ++Index) {
+              const void* ElementPtr = Helper.GetRawPtr(Index);
+              if (const FNameProperty* InnerNameProp = CastField<FNameProperty>(ArrayProp->Inner)) {
+                const FName Value = InnerNameProp->GetPropertyValue(ElementPtr);
+                if (!Value.IsNone()) {
+                  OutNames.AddUnique(Value);
+                }
+              } else if (const FStrProperty* InnerStrProp = CastField<FStrProperty>(ArrayProp->Inner)) {
+                const FString Value = InnerStrProp->GetPropertyValue(ElementPtr);
+                if (!Value.IsEmpty()) {
+                  OutNames.AddUnique(FName(*Value));
+                }
+              } else if (const FObjectProperty* InnerObjProp = CastField<FObjectProperty>(ArrayProp->Inner)) {
+                if (UObject* Obj = InnerObjProp->GetObjectPropertyValue(ElementPtr)) {
+                  OutNames.AddUnique(FName(*Obj->GetName()));
+                }
+              }
+            }
+          }
+        }
+      }
+    };
+
+    for (UPCGNode* Node : Nodes) {
+      if (!Node) {
+        continue;
+      }
+
+      const UPCGSettings* NodeSettings = Node->GetSettings();
+      const FString SettingsName =
+          NodeSettings ? NodeSettings->GetClass()->GetName() : Node->GetName();
+      const bool bSpawnNode = SettingsName.Contains(TEXT("SpawnActor")) ||
+                              SettingsName.Contains(TEXT("CreateActor"));
+      if (!bSpawnNode) {
+        continue;
+      }
+
+      TArray<FName> NodeLayers;
+      CollectDataLayerNames(NodeSettings, NodeLayers);
+      if (NodeLayers.IsEmpty()) {
+        Result.Warnings.AddUnique(FString::Printf(
+            TEXT("Node '%s' does not specify a Data Layer. Expected one of: %s"),
+            *SettingsName,
+            *FString::JoinBy(ExpectedLayers, TEXT(", "),
+                             [](const FName& Name) { return Name.ToString(); })));
+        continue;
+      }
+
+      bool bMatched = false;
+      for (const FName& Layer : NodeLayers) {
+        if (ExpectedLayers.Contains(Layer)) {
+          bMatched = true;
+          break;
+        }
+      }
+
+      if (!bMatched && ExpectedLayers.Num() > 0) {
+        Result.Warnings.AddUnique(FString::Printf(
+            TEXT("Node '%s' targets Data Layer(s) [%s] which do not match configured layers [%s]."),
+            *SettingsName,
+            *FString::JoinBy(NodeLayers, TEXT(", "),
+                             [](const FName& Name) { return Name.ToString(); }),
+            *FString::JoinBy(ExpectedLayers, TEXT(", "),
+                             [](const FName& Name) { return Name.ToString(); })));
+      }
+    }
+  }
 #endif // WITH_EDITOR
 
   if (PCGSubsystem && SchedulerExecutor.IsValid() && World) {
@@ -3076,7 +3305,7 @@ UPCGWorldService::ValidatePCGGraph(const FString &GraphPath) {
     UPCGParamData *ParameterData =
         PCGWorldService::Private::CreateTileParameterData(
             this, DummyMetrics, SampleTile, EBiomeType::None, WorldGenSettings,
-            TileSeed, 1.0f, 1.0f);
+            TileSeed, 1.0f, 1.0f, false);
     UPCGPointData *PointData = PCGWorldService::Private::CreateTilePointData(
         this, SampleTile, WorldGenSettings, DummyMetrics);
 
@@ -4091,6 +4320,10 @@ void UPCGWorldService::CreateHISMComponentsForTile(FTileCoord TileCoord) {
 #if WITH_EDITOR
     TileActor->SetActorLabel(TEXT("PCGTileActor"));
 #endif
+    if (TileActor && WorldGenSettings.bUseWorldPartitionStreaming) {
+      PCGWorldService::Private::AssignActorToDataLayer(
+          World, TileActor, WorldGenSettings.PCGDataLayers.Dynamic);
+    }
   }
 
   if (TileActor && !TileActor->GetRootComponent()) {

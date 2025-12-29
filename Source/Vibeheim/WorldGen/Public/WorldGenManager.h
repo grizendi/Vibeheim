@@ -51,6 +51,10 @@ class VIBEHEIM_API AWorldGenManager : public AActor
     GENERATED_BODY()
 
 public:
+#if WITH_AUTOMATION_TESTS
+    friend struct FWorldGenManagerTestAccessor;
+#endif
+
     AWorldGenManager();
 
     // AActor interface
@@ -211,6 +215,9 @@ private:
     /** Log build state evaluation and policy outcomes. */
     void LogBuildStateStatus(const FWorldGenConfig& Config) const;
 
+    /** Determine whether the current world has World Partition enabled. */
+    bool IsWorldPartitionAvailable() const;
+
     /**
      * Calculate player's current tile coordinate
      */
@@ -236,4 +243,23 @@ private:
 
     /** Track whether a build state asset was present. */
     bool bHasBuildStateAsset = false;
+
+    /** Whether World Partition streaming is active for this world. */
+    bool bWorldPartitionStreamingActive = false;
+
+    /** Skip runtime streaming when World Partition owns baked content. */
+    bool bSuppressRuntimeStreamingForWorldPartition = false;
+
+    /** Log once when runtime streaming is suppressed for World Partition. */
+    bool bLoggedWorldPartitionSuppression = false;
 };
+
+#if WITH_AUTOMATION_TESTS
+struct FWorldGenManagerTestAccessor
+{
+    static void SetRuntimeDecision(AWorldGenManager* Manager, const FWorldGenRuntimeDecision& Decision);
+    static void SetTileStreamingService(AWorldGenManager* Manager, UTileStreamingService* Service);
+    static void SetWorldGenSettings(AWorldGenManager* Manager, UWorldGenSettings* Settings);
+    static void SetWorldPartitionSuppression(AWorldGenManager* Manager, bool bSuppress);
+};
+#endif // WITH_AUTOMATION_TESTS

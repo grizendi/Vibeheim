@@ -109,6 +109,9 @@ bool UTileStreamingService::Initialize(const FWorldGenConfig& Settings,
 
 void UTileStreamingService::UpdateStreaming(const FTileCoord& PlayerTileCoord)
 {
+#if WITH_AUTOMATION_TESTS
+	++UpdateStreamingCallCount;
+#endif
 	// Defensive programming guards - ensure services are initialized before streaming
 	ensureMsgf(HeightfieldService != nullptr, 
 		TEXT("UTileStreamingService: HeightfieldService is null. Call Initialize() before using UpdateStreaming()."));
@@ -1557,3 +1560,18 @@ bool UTileStreamingService::TrySetPrefetchRings(int32 NewPrefetchRings, FString&
     UE_LOG(LogTileStreaming, Log, TEXT("%s"), *OutMessage);
     return true;
 }
+
+#if WITH_AUTOMATION_TESTS
+int32 FTileStreamingServiceTestAccessor::GetUpdateStreamingCalls(const UTileStreamingService* Service)
+{
+	return Service ? Service->UpdateStreamingCallCount : 0;
+}
+
+void FTileStreamingServiceTestAccessor::ResetUpdateStreamingCalls(UTileStreamingService* Service)
+{
+	if (Service)
+	{
+		Service->UpdateStreamingCallCount = 0;
+	}
+}
+#endif // WITH_AUTOMATION_TESTS

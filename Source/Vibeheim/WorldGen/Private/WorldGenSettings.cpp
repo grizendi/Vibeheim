@@ -129,6 +129,8 @@ bool UWorldGenSettings::ApplyFromAssets(const UWorldGenSettingsAsset* SettingsAs
         Settings.BuildMode = SettingsAsset->CoreSettings.BuildMode;
         Settings.bUseWorldPartitionStreaming = SettingsAsset->CoreSettings.bUseWorldPartitionStreaming;
         Settings.StaleBuildPolicy = SettingsAsset->CoreSettings.StaleBuildPolicy;
+        Settings.CellSize = SettingsAsset->CoreSettings.CellSize;
+        Settings.PCGDataLayers = SettingsAsset->CoreSettings.PCGDataLayers;
         Settings.GenerateRadius = SettingsAsset->CoreSettings.GenerateRadius;
         Settings.LoadRadius = SettingsAsset->CoreSettings.LoadRadius;
         Settings.ActiveRadius = SettingsAsset->CoreSettings.ActiveRadius;
@@ -272,6 +274,34 @@ bool UWorldGenSettings::ParseJSONObject(const TSharedPtr<FJsonObject>& JsonObjec
 	{
 		Settings.CellSize = static_cast<int32>(JsonObject->GetNumberField(TEXT("CellSize")));
 	}
+
+    if (JsonObject->HasField(TEXT("PCGDataLayers")))
+    {
+        const TSharedPtr<FJsonObject> Layers = JsonObject->GetObjectField(TEXT("PCGDataLayers"));
+        if (Layers.IsValid())
+        {
+            auto ReadLayerName = [&Layers](const TCHAR* Key, FName& OutName)
+            {
+                if (Layers->HasField(Key))
+                {
+                    const FString Name = Layers->GetStringField(Key);
+                    if (!Name.IsEmpty())
+                    {
+                        OutName = FName(*Name);
+                    }
+                }
+            };
+
+            ReadLayerName(TEXT("TerrainClutter"), Settings.PCGDataLayers.TerrainClutter);
+            ReadLayerName(TEXT("Trees"), Settings.PCGDataLayers.Trees);
+            ReadLayerName(TEXT("Rocks"), Settings.PCGDataLayers.Rocks);
+            ReadLayerName(TEXT("POIs"), Settings.PCGDataLayers.POIs);
+            ReadLayerName(TEXT("Dynamic"), Settings.PCGDataLayers.Dynamic);
+            ReadLayerName(TEXT("TreesHLODLayer"), Settings.PCGDataLayers.TreesHLODLayer);
+            ReadLayerName(TEXT("RocksHLODLayer"), Settings.PCGDataLayers.RocksHLODLayer);
+            ReadLayerName(TEXT("POIsHLODLayer"), Settings.PCGDataLayers.POIsHLODLayer);
+        }
+    }
 
 	// Parse PCG settings
 	if (JsonObject->HasField(TEXT("VegetationDensity")))
@@ -471,6 +501,18 @@ TSharedPtr<FJsonObject> UWorldGenSettings::CreateJSONObject() const
 
 	// World Partition settings
 	JsonObject->SetNumberField(TEXT("CellSize"), Settings.CellSize);
+    {
+        TSharedPtr<FJsonObject> Layers = MakeShareable(new FJsonObject);
+        Layers->SetStringField(TEXT("TerrainClutter"), Settings.PCGDataLayers.TerrainClutter.ToString());
+        Layers->SetStringField(TEXT("Trees"), Settings.PCGDataLayers.Trees.ToString());
+        Layers->SetStringField(TEXT("Rocks"), Settings.PCGDataLayers.Rocks.ToString());
+        Layers->SetStringField(TEXT("POIs"), Settings.PCGDataLayers.POIs.ToString());
+        Layers->SetStringField(TEXT("Dynamic"), Settings.PCGDataLayers.Dynamic.ToString());
+        Layers->SetStringField(TEXT("TreesHLODLayer"), Settings.PCGDataLayers.TreesHLODLayer.ToString());
+        Layers->SetStringField(TEXT("RocksHLODLayer"), Settings.PCGDataLayers.RocksHLODLayer.ToString());
+        Layers->SetStringField(TEXT("POIsHLODLayer"), Settings.PCGDataLayers.POIsHLODLayer.ToString());
+        JsonObject->SetObjectField(TEXT("PCGDataLayers"), Layers);
+    }
 
 	// PCG settings
 	JsonObject->SetNumberField(TEXT("VegetationDensity"), Settings.VegetationDensity);

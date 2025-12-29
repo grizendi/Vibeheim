@@ -141,6 +141,38 @@ enum class EWorldBuildStatePolicy : uint8 {
 };
 
 /**
+ * World Partition data layer names used by PCG content.
+ */
+USTRUCT(BlueprintType)
+struct VIBEHEIM_API FWorldPartitionPCGDataLayers {
+  GENERATED_BODY()
+
+  UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldPartition")
+  FName TerrainClutter = TEXT("TerrainClutter");
+
+  UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldPartition")
+  FName Trees = TEXT("Trees");
+
+  UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldPartition")
+  FName Rocks = TEXT("Rocks");
+
+  UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldPartition")
+  FName POIs = TEXT("POIs");
+
+  UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldPartition")
+  FName Dynamic = TEXT("Dynamic");
+
+  UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldPartition|HLOD")
+  FName TreesHLODLayer = NAME_None;
+
+  UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldPartition|HLOD")
+  FName RocksHLODLayer = NAME_None;
+
+  UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldPartition|HLOD")
+  FName POIsHLODLayer = NAME_None;
+};
+
+/**
  * Core world generation configuration structure
  * Defines all parameters for deterministic world generation
  */
@@ -206,6 +238,9 @@ struct VIBEHEIM_API FWorldGenConfig {
   // World Partition settings
   UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldPartition")
   int32 CellSize = 12800; // 128m cells
+
+  UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldPartition")
+  FWorldPartitionPCGDataLayers PCGDataLayers;
 
   // PCG settings
   UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PCG")

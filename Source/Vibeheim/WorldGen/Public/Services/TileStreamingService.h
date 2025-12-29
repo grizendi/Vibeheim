@@ -265,6 +265,9 @@ class VIBEHEIM_API UTileStreamingService : public UObject
 	GENERATED_BODY()
 
 public:
+#if WITH_AUTOMATION_TESTS
+	friend struct FTileStreamingServiceTestAccessor;
+#endif
 	UTileStreamingService();
 
 	/**
@@ -468,6 +471,10 @@ private:
     struct FTileErrorEntry { FTileCoord Tile; FString Code; };
     TArray<FTileErrorEntry> ErrorEntries;
 
+#if WITH_AUTOMATION_TESTS
+	int32 UpdateStreamingCallCount = 0;
+#endif
+
 	/**
 	 * Calculate which tiles need to be in each state based on player position
 	 */
@@ -576,3 +583,11 @@ private:
 	 */
 	void ResetBudgetsForTick();
 };
+
+#if WITH_AUTOMATION_TESTS
+struct FTileStreamingServiceTestAccessor
+{
+	static int32 GetUpdateStreamingCalls(const UTileStreamingService* Service);
+	static void ResetUpdateStreamingCalls(UTileStreamingService* Service);
+};
+#endif // WITH_AUTOMATION_TESTS

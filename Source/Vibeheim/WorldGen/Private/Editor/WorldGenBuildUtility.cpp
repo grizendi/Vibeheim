@@ -8,6 +8,7 @@
 #include "Engine/Texture2D.h"
 #include "Engine/World.h"
 #include "Framework/Notifications/NotificationManager.h"
+#include "GameFramework/Actor.h"
 #include "Kismet/GameplayStatics.h"
 #include "Misc/PackageName.h"
 #include "PCGWorldActor.h"
@@ -16,6 +17,7 @@
 #include "Services/HeightfieldService.h"
 #include "Services/PCGWorldService.h"
 #include "UObject/Package.h"
+#include "UObject/UObjectGlobals.h"
 #include "VHMTerrainRendering/VHMTypes.h"
 #include "WorldGenExternalDataProvider.h"
 #include "WorldGenSettings.h"
@@ -29,6 +31,22 @@
 #include "PCGVersionGuard.h"
 #if VHM_PCG_ENABLED
 #include "PCGSubsystem.h"
+#endif
+
+#if WITH_EDITOR && __has_include("WorldPartition/DataLayer/DataLayerManager.h")
+#include "WorldPartition/DataLayer/DataLayerManager.h"
+#include "DataLayer/DataLayerEditorSubsystem.h"
+#include "WorldPartition/DataLayer/DataLayerInstance.h"
+#define VHM_HAS_DATA_LAYERS 1
+#else
+#define VHM_HAS_DATA_LAYERS 0
+#endif
+
+#if WITH_EDITOR && __has_include("WorldPartition/HLOD/HLODLayer.h")
+#include "WorldPartition/HLOD/HLODLayer.h"
+#define VHM_HAS_HLOD_LAYER 1
+#else
+#define VHM_HAS_HLOD_LAYER 0
 #endif
 
 DEFINE_LOG_CATEGORY_STATIC(LogWorldGenBuildUtility, Log, All);
@@ -66,6 +84,194 @@ void RegisterAsset(UObject* Asset)
   }
 }
 #endif
+
+#if WITH_EDITOR && VHM_HAS_DATA_LAYERS
+UDataLayerInstance* ResolveDataLayerInstance(UWorld* World,
+                                             UDataLayerEditorSubsystem* EditorSubsystem,
+                                             const FName& LayerName)
+{
+  if (!World || LayerName.IsNone())
+  {
+    return nullptr;
+  }
+
+  if (EditorSubsystem)
+  {
+    if (UDataLayerInstance* Instance = EditorSubsystem->GetDataLayerInstance(LayerName))
+    {
+      return Instance;
+    }
+  }
+
+  if (UDataLayerManager* DataLayerManager =
+          UDataLayerManager::GetDataLayerManager(World))
+  {
+    return const_cast<UDataLayerInstance*>(
+        DataLayerManager->GetDataLayerInstanceFromName(LayerName));
+  }
+
+  return nullptr;
+}
+
+void ValidateDataLayerNames(UWorld* World, const FWorldPartitionPCGDataLayers& Layers,
+                            TArray<FString>& OutErrors)
+{
+  UDataLayerEditorSubsystem* EditorSubsystem = UDataLayerEditorSubsystem::Get();
+  if (!EditorSubsystem)
+  {
+    OutErrors.Add(TEXT("DataLayerEditorSubsystem unavailable; cannot validate PCG data layers."));
+    return;
+  }
+
+  const struct
+  {
+    FName Name;
+    const TCHAR* Label;
+  } RequiredLayers[] = {
+      {Layers.TerrainClutter, TEXT("TerrainClutter")},
+      {Layers.Trees, TEXT("Trees")},
+      {Layers.Rocks, TEXT("Rocks")},
+      {Layers.POIs, TEXT("POIs")},
+      {Layers.Dynamic, TEXT("Dynamic")},
+  };
+
+  for (const auto& Entry : RequiredLayers)
+  {
+    if (Entry.Name.IsNone())
+    {
+      OutErrors.Add(FString::Printf(
+          TEXT("PCG data layer '%s' is not configured; set WorldGenSettings.PCGDataLayers.%s."),
+          Entry.Label, Entry.Label));
+      continue;
+    }
+
+    if (!ResolveDataLayerInstance(World, EditorSubsystem, Entry.Name))
+    {
+      OutErrors.Add(FString::Printf(
+          TEXT("PCG data layer '%s' (%s) was not found in the current world."),
+          Entry.Label, *Entry.Name.ToString()));
+    }
+  }
+}
+
+#if VHM_HAS_HLOD_LAYER
+UHLODLayer* ResolveHLODLayer(const FName& LayerName, TArray<FString>& OutErrors)
+{
+  if (LayerName.IsNone())
+  {
+    return nullptr;
+  }
+
+  const FString LayerPath = LayerName.ToString();
+  UHLODLayer* Layer = LoadObject<UHLODLayer>(nullptr, *LayerPath);
+  if (!Layer && !LayerPath.Contains(TEXT("/")))
+  {
+    Layer = FindObject<UHLODLayer>(nullptr, *LayerPath);
+  }
+
+  if (!Layer)
+  {
+    OutErrors.Add(FString::Printf(TEXT("HLOD layer '%s' could not be resolved."),
+                                  *LayerPath));
+  }
+
+  return Layer;
+}
+#endif
+
+void ApplyHLODLayerForDataLayer(UWorld* World,
+                                UDataLayerEditorSubsystem* EditorSubsystem,
+                                UDataLayerInstance* DataLayer,
+                                UHLODLayer* HLODLayer,
+                                const TCHAR* Label,
+                                TArray<FString>& OutErrors)
+{
+  if (!World || !EditorSubsystem || !DataLayer || !HLODLayer)
+  {
+    return;
+  }
+
+  TArray<AActor*> Actors = EditorSubsystem->GetActorsFromDataLayer(DataLayer);
+  if (Actors.IsEmpty())
+  {
+    return;
+  }
+
+  int32 UpdatedCount = 0;
+  for (AActor* Actor : Actors)
+  {
+    if (!Actor)
+    {
+      continue;
+    }
+
+    Actor->Modify();
+    Actor->SetHLODLayer(HLODLayer);
+    ++UpdatedCount;
+  }
+
+  UE_LOG(LogWorldGenBuildUtility, Log,
+         TEXT("Applied HLOD layer '%s' to %d actor(s) in Data Layer %s."),
+         *HLODLayer->GetName(), UpdatedCount, Label);
+}
+
+void ApplyHLODLayerAssignments(UWorld* World, const FWorldPartitionPCGDataLayers& Layers,
+                               TArray<FString>& OutErrors)
+{
+#if VHM_HAS_HLOD_LAYER
+  UDataLayerEditorSubsystem* EditorSubsystem = UDataLayerEditorSubsystem::Get();
+  if (!EditorSubsystem)
+  {
+    OutErrors.Add(TEXT("DataLayerEditorSubsystem unavailable; cannot assign HLOD layers."));
+    return;
+  }
+
+  const struct
+  {
+    FName DataLayerName;
+    FName HLODLayerName;
+    const TCHAR* Label;
+  } HLODTargets[] = {
+      {Layers.Trees, Layers.TreesHLODLayer, TEXT("Trees")},
+      {Layers.Rocks, Layers.RocksHLODLayer, TEXT("Rocks")},
+      {Layers.POIs, Layers.POIsHLODLayer, TEXT("POIs")},
+  };
+
+  for (const auto& Target : HLODTargets)
+  {
+    if (Target.HLODLayerName.IsNone())
+    {
+      continue;
+    }
+
+    UDataLayerInstance* DataLayer =
+        ResolveDataLayerInstance(World, EditorSubsystem, Target.DataLayerName);
+    if (!DataLayer)
+    {
+      OutErrors.Add(FString::Printf(
+          TEXT("Cannot apply HLOD layer for %s; Data Layer '%s' was not found."),
+          Target.Label, *Target.DataLayerName.ToString()));
+      continue;
+    }
+
+    UHLODLayer* HLODLayer = ResolveHLODLayer(Target.HLODLayerName, OutErrors);
+    if (!HLODLayer)
+    {
+      continue;
+    }
+
+    ApplyHLODLayerForDataLayer(World, EditorSubsystem, DataLayer, HLODLayer,
+                               Target.Label, OutErrors);
+  }
+#else
+  if (!Layers.TreesHLODLayer.IsNone() || !Layers.RocksHLODLayer.IsNone() ||
+      !Layers.POIsHLODLayer.IsNone())
+  {
+    OutErrors.Add(TEXT("HLOD layer assignments requested but HLOD support is unavailable."));
+  }
+#endif
+}
+#endif // WITH_EDITOR && VHM_HAS_DATA_LAYERS
 } // namespace
 
 bool UWorldGenBuildUtility::BuildWorldFromSeed(int32 Seed,
@@ -300,6 +506,67 @@ bool UWorldGenBuildUtility::RunBuild(UWorld *World, int32 Seed,
   float MaxWorldHeight = -FLT_MAX;
   TArray<FString> Errors;
 
+#if WITH_EDITOR && VHM_HAS_DATA_LAYERS
+  if (Config.bUseWorldPartitionStreaming)
+  {
+    if (World->IsPartitionedWorld() && World->GetWorldPartition())
+    {
+      ValidateDataLayerNames(World, Config.PCGDataLayers, Errors);
+    }
+    else
+    {
+      UE_LOG(LogWorldGenBuildUtility, Warning,
+             TEXT("World Partition is unavailable for this map; skipping PCG data layer validation."));
+    }
+  }
+#endif
+
+#if VHM_PCG_ENABLED
+  if (bBuildPCG && PCGService)
+  {
+    UBiomeDefinitionsAsset* BiomeAsset =
+        Settings->SelectedBiomeDefinitionsAsset.IsNull()
+            ? nullptr
+            : Settings->SelectedBiomeDefinitionsAsset.LoadSynchronous();
+    if (BiomeAsset)
+    {
+      TArray<FString> GraphPaths;
+      for (const TPair<EBiomeType, FBiomeDefinition>& Pair : BiomeAsset->Biomes)
+      {
+        const FBiomeDefinition& BiomeDef = Pair.Value;
+        if (!BiomeDef.BiomePCGGraph.IsNull())
+        {
+          GraphPaths.AddUnique(BiomeDef.BiomePCGGraph.ToString());
+        }
+      }
+
+      for (const FString& GraphPath : GraphPaths)
+      {
+        const FPCGGraphValidationResult Result =
+            PCGService->ValidatePCGGraph(GraphPath);
+        for (const FString& Error : Result.Errors)
+        {
+          Errors.Add(
+              FString::Printf(TEXT("PCG graph %s: %s"),
+                              Result.GraphName.IsEmpty()
+                                  ? *Result.GraphPath
+                                  : *Result.GraphName,
+                              *Error));
+        }
+
+        for (const FString& Warning : Result.Warnings)
+        {
+          UE_LOG(LogWorldGenBuildUtility, Warning,
+                 TEXT("PCG graph %s: %s"),
+                 Result.GraphName.IsEmpty() ? *Result.GraphPath
+                                            : *Result.GraphName,
+                 *Warning);
+        }
+      }
+    }
+  }
+#endif
+
   if (bBuildTerrain) {
     TerrainResource->HeightTextures.Empty(); // Clear old data
     TerrainResource->BiomeCache.Empty();
@@ -352,9 +619,12 @@ bool UWorldGenBuildUtility::RunBuild(UWorld *World, int32 Seed,
   }
 
   FString PCGHash;
+  bool bPCGBuildSucceeded = false;
   if (bBuildPCG) {
-    if (!TriggerPCGOfflineBuild(World, Config, TerrainResource, PCGService,
-                                ExternalProvider, PCGHash, Errors)) {
+    bPCGBuildSucceeded = TriggerPCGOfflineBuild(World, Config, TerrainResource,
+                                                PCGService, ExternalProvider,
+                                                PCGHash, Errors);
+    if (!bPCGBuildSucceeded) {
       UE_LOG(LogWorldGenBuildUtility, Warning,
              TEXT("PCG offline build was skipped or failed; see log for details."));
     }
@@ -363,6 +633,13 @@ bool UWorldGenBuildUtility::RunBuild(UWorld *World, int32 Seed,
            TEXT("Skipping PCG offline build (bBuildPCG=false)."));
     PCGHash = TEXT("PCG_SKIPPED");
   }
+
+#if WITH_EDITOR && VHM_HAS_DATA_LAYERS
+  if (bPCGBuildSucceeded && Config.bUseWorldPartitionStreaming)
+  {
+    ApplyHLODLayerAssignments(World, Config.PCGDataLayers, Errors);
+  }
+#endif
 
   if (Errors.IsEmpty() && bUpdateBuildState && bBuildPCG) {
     FString SaveError;

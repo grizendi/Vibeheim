@@ -103,6 +103,9 @@ AWorldGenManager::AWorldGenManager() {
   RuntimeDecision = FWorldGenRuntimeDecision();
   bHasBuildStateAsset = false;
   bLoggedRuntimeGenerationWarning = false;
+  bWorldPartitionStreamingActive = false;
+  bSuppressRuntimeStreamingForWorldPartition = false;
+  bLoggedWorldPartitionSuppression = false;
 }
 
 void AWorldGenManager::BeginPlay() {
@@ -166,6 +169,21 @@ bool AWorldGenManager::InitializeWorldGenSystems() {
       WorldGenSettings->Settings, ActiveBuildState, bHasBuildStateAsset,
       WorldGenSettings->Settings.StaleBuildPolicy);
   LogBuildStateStatus(WorldGenSettings->Settings);
+  bWorldPartitionStreamingActive =
+      WorldGenSettings->Settings.bUseWorldPartitionStreaming &&
+      IsWorldPartitionAvailable();
+  if (WorldGenSettings->Settings.bUseWorldPartitionStreaming &&
+      !bWorldPartitionStreamingActive) {
+    UE_LOG(LogWorldGenManager, Warning,
+           TEXT("World Partition requested but unavailable for map '%s'. "
+                "Falling back to legacy TileStreamingService."),
+           *GetWorld()->GetMapName());
+    RuntimeDecision.bUseRuntimeStreaming = true;
+    RuntimeDecision.bTreatWorldAsBaked = false;
+    RuntimeDecision.bRequireRebuild = false;
+  }
+  bSuppressRuntimeStreamingForWorldPartition =
+      bWorldPartitionStreamingActive && RuntimeDecision.bTreatWorldAsBaked;
   if (RuntimeDecision.bRequireRebuild) {
     UE_LOG(LogWorldGenManager, Error,
            TEXT("WorldGenManager: Build state requires rebuild (policy "
@@ -251,6 +269,8 @@ bool AWorldGenManager::InitializeWorldGenSystems() {
   }
   PCGWorldService->SetHeightfieldService(HeightfieldService);
   PCGWorldService->SetBiomeService(BiomeService);
+  PCGWorldService->SetRuntimeDynamicDataLayersOnly(
+      bWorldPartitionStreamingActive && RuntimeDecision.bTreatWorldAsBaked);
   ReloadWorldGenAssets();
 
   // Initialize Water System Service
@@ -359,6 +379,16 @@ bool AWorldGenManager::InitializeWorldGenSystems() {
 }
 
 void AWorldGenManager::UpdateWorldStreaming() {
+  if (bSuppressRuntimeStreamingForWorldPartition) {
+    if (!bLoggedWorldPartitionSuppression) {
+      UE_LOG(LogWorldGenManager, Log,
+             TEXT("World Partition streaming active; runtime tile streaming "
+                  "suppressed for baked content."));
+      bLoggedWorldPartitionSuppression = true;
+    }
+    return;
+  }
+
   if (!RuntimeDecision.bUseRuntimeStreaming) {
     if (!bLoggedRuntimeGenerationWarning && WorldGenSettings &&
         WorldGenSettings->Settings.BuildMode ==
@@ -657,6 +687,19 @@ void AWorldGenManager::LogBuildStateStatus(const FWorldGenConfig &Config) const 
   }
 }
 
+bool AWorldGenManager::IsWorldPartitionAvailable() const {
+  UWorld *World = GetWorld();
+  if (!World) {
+    return false;
+  }
+
+  if (!World->IsPartitionedWorld()) {
+    return false;
+  }
+
+  return World->GetWorldPartition() != nullptr;
+}
+
 FTileCoord AWorldGenManager::GetPlayerTileCoordinate() const {
   // Get the first player controller
   APlayerController *PlayerController =
@@ -863,3 +906,33 @@ void AWorldGenManager::UpdatePerformanceMetrics(float TileGenTime,
     }
   }
 }
+
+#if WITH_AUTOMATION_TESTS
+void FWorldGenManagerTestAccessor::SetRuntimeDecision(
+    AWorldGenManager* Manager, const FWorldGenRuntimeDecision& Decision) {
+  if (Manager) {
+    Manager->RuntimeDecision = Decision;
+  }
+}
+
+void FWorldGenManagerTestAccessor::SetTileStreamingService(
+    AWorldGenManager* Manager, UTileStreamingService* Service) {
+  if (Manager) {
+    Manager->TileStreamingService = Service;
+  }
+}
+
+void FWorldGenManagerTestAccessor::SetWorldGenSettings(
+    AWorldGenManager* Manager, UWorldGenSettings* Settings) {
+  if (Manager) {
+    Manager->WorldGenSettings = Settings;
+  }
+}
+
+void FWorldGenManagerTestAccessor::SetWorldPartitionSuppression(
+    AWorldGenManager* Manager, bool bSuppress) {
+  if (Manager) {
+    Manager->bSuppressRuntimeStreamingForWorldPartition = bSuppress;
+  }
+}
+#endif // WITH_AUTOMATION_TESTS

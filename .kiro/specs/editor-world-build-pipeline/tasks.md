@@ -301,27 +301,27 @@
 
 ## Phase 9: World Partition Streaming Integration
 
-- [ ] 22. Implement World Partition streaming for baked worlds
-  - [ ] 22.1 Configure Data Layers for PCG content
+- [x] 22. Implement World Partition streaming for baked worlds
+  - [x] 22.1 Configure Data Layers for PCG content
     - TerrainClutter, Trees, Rocks, POIs, Dynamic layers
     - _Requirements: 7.3_
-  - [ ] 22.2 Ensure PCG graphs target correct Data Layers
+  - [x] 22.2 Ensure PCG graphs target correct Data Layers
     - Configure PCG Spawn Actor / Create Actor nodes
     - _Requirements: 6.2, 7.3_
-  - [ ] 22.3 Disable TileStreamingService for WP-loaded cells in baked mode
+  - [x] 22.3 Disable TileStreamingService for WP-loaded cells in baked mode
     - Avoid duplicate generation when WP loads cells
     - _Requirements: 7.2, 9.1_
-  - [ ] 22.4 Write property test for runtime generation bypass
+  - [x] 22.4 Write property test for runtime generation bypass
     - **Property 10: Runtime Generation Bypass in Baked Mode**
     - Assert TileStreamingService::UpdateStreaming() is not called in EditorBuildOnce with valid build state
     - **Validates: Requirements 9.1, 7.2**
-  - [ ] 22.5 Implement WP fallback for non-WP maps
+  - [x] 22.5 Implement WP fallback for non-WP maps
     - Fall back to TileStreamingService streaming and log legacy mode
     - _Requirements: 7.5_
-  - [ ] 22.6 Configure HLOD for PCG Data Layers
+  - [x] 22.6 Configure HLOD for PCG Data Layers
     - Ensure Trees/Rocks/POIs actors participate in HLOD generation where enabled
     - _Requirements: 7.4_
-  - [ ] 22.7 Configure dynamic PCG runtime usage
+  - [x] 22.7 Configure dynamic PCG runtime usage
     - Ensure dynamic content graphs:
       - Use PCG Runtime Generation mode
       - Target Dynamic data layer only

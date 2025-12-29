@@ -467,6 +467,13 @@ UPCGParamData* UWorldGenExternalDataProvider::CreateParamDataForCell(
         EnsureAttribute(VHMPCGAttr::ClimateTemperature, Climate.Temperature, true);
         EnsureAttribute(VHMPCGAttr::ClimateMoisture, Climate.Moisture, true);
         EnsureAttribute(VHMPCGAttr::ClimateRingBias, Climate.RingBias, true);
+        const FWorldPartitionPCGDataLayers& DataLayers = CachedConfig.PCGDataLayers;
+        EnsureAttribute(VHMPCGAttr::DataLayerTerrainClutter,
+                        DataLayers.TerrainClutter, false);
+        EnsureAttribute(VHMPCGAttr::DataLayerTrees, DataLayers.Trees, false);
+        EnsureAttribute(VHMPCGAttr::DataLayerRocks, DataLayers.Rocks, false);
+        EnsureAttribute(VHMPCGAttr::DataLayerPOIs, DataLayers.POIs, false);
+        EnsureAttribute(VHMPCGAttr::DataLayerDynamic, DataLayers.Dynamic, false);
 
         return ParamData;
 #endif // VHM_PCG_ENABLED

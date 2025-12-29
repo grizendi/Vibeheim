@@ -48,6 +48,11 @@ namespace VHMPCGAttr
         inline const FName ClimateTemperature(TEXT("ClimateTemperature"));
         inline const FName ClimateMoisture(TEXT("ClimateMoisture"));
         inline const FName ClimateRingBias(TEXT("ClimateRingBias"));
+        inline const FName DataLayerTerrainClutter(TEXT("DataLayerTerrainClutter"));
+        inline const FName DataLayerTrees(TEXT("DataLayerTrees"));
+        inline const FName DataLayerRocks(TEXT("DataLayerRocks"));
+        inline const FName DataLayerPOIs(TEXT("DataLayerPOIs"));
+        inline const FName DataLayerDynamic(TEXT("DataLayerDynamic"));
 }
 
 /** Aggregated tile metrics computed prior to scheduling PCG graphs. */
