@@ -54,7 +54,6 @@ void AVibeheimWorldGenPCGBakeActor::ConfigureFromSettings(
     UPCGComponent *PCGComp = ExistingComp;
     if (!PCGComp) {
       PCGComp = NewObject<UPCGComponent>(this, *CompName);
-      // PCGComponent is a UActorComponent, so no attachment needed.
       PCGComp->RegisterComponent();
     }
 

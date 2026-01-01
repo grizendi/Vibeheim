@@ -140,12 +140,13 @@ void EnsureDataLayersExist(UWorld *World,
     if (!ResolveDataLayerInstance(World, EditorSubsystem, Entry.Name)) {
       // Create the missing Data Layer
       FDataLayerCreationParameters ReturnParams;
-      ReturnParams.DataLayerAsset = nullptr; // Runtime runtime created if null?
+      ReturnParams.DataLayerAsset = nullptr;
 
       // We need to create it via subsystem
       UDataLayerInstance *NewLayer =
           EditorSubsystem->CreateDataLayerInstance(ReturnParams);
       if (NewLayer) {
+        NewLayer->Rename(*Entry.Name.ToString());
         UE_LOG(LogWorldGenBuildUtility, Log,
                TEXT("Created missing PCG Data Layer: %s"),
                *Entry.Name.ToString());
@@ -157,112 +158,114 @@ void EnsureDataLayersExist(UWorld *World,
       }
     }
   }
+
 }
 
 #if VHM_HAS_HLOD_LAYER
-UHLODLayer *ResolveHLODLayer(const FName &LayerName,
-                             TArray<FString> &OutErrors) {
-  if (LayerName.IsNone()) {
-    return nullptr;
-  }
-
-  const FString LayerPath = LayerName.ToString();
-  UHLODLayer *Layer = LoadObject<UHLODLayer>(nullptr, *LayerPath);
-  if (!Layer && !LayerPath.Contains(TEXT("/"))) {
-    Layer = FindObject<UHLODLayer>(nullptr, *LayerPath);
-  }
-
-  if (!Layer) {
-    OutErrors.Add(FString::Printf(
-        TEXT("HLOD layer '%s' could not be resolved."), *LayerPath));
-  }
-
-  return Layer;
-}
-#endif
-
-void ApplyHLODLayerForDataLayer(UWorld *World,
-                                UDataLayerEditorSubsystem *EditorSubsystem,
-                                UDataLayerInstance *DataLayer,
-                                UHLODLayer *HLODLayer, const TCHAR *Label,
-                                TArray<FString> &OutErrors) {
-  if (!World || !EditorSubsystem || !DataLayer || !HLODLayer) {
-    return;
-  }
-
-  TArray<AActor *> Actors = EditorSubsystem->GetActorsFromDataLayer(DataLayer);
-  if (Actors.IsEmpty()) {
-    return;
-  }
-
-  int32 UpdatedCount = 0;
-  for (AActor *Actor : Actors) {
-    if (!Actor) {
-      continue;
-    }
-
-    Actor->Modify();
-    Actor->SetHLODLayer(HLODLayer);
-    ++UpdatedCount;
-  }
-
-  UE_LOG(LogWorldGenBuildUtility, Log,
-         TEXT("Applied HLOD layer '%s' to %d actor(s) in Data Layer %s."),
-         *HLODLayer->GetName(), UpdatedCount, Label);
-}
-
-void ApplyHLODLayerAssignments(UWorld *World,
-                               const FWorldPartitionPCGDataLayers &Layers,
+  UHLODLayer *ResolveHLODLayer(const FName &LayerName,
                                TArray<FString> &OutErrors) {
-#if VHM_HAS_HLOD_LAYER
-  UDataLayerEditorSubsystem *EditorSubsystem = UDataLayerEditorSubsystem::Get();
-  if (!EditorSubsystem) {
-    OutErrors.Add(TEXT(
-        "DataLayerEditorSubsystem unavailable; cannot assign HLOD layers."));
-    return;
-  }
-
-  const struct {
-    FName DataLayerName;
-    FName HLODLayerName;
-    const TCHAR *Label;
-  } HLODTargets[] = {
-      {Layers.Trees, Layers.TreesHLODLayer, TEXT("Trees")},
-      {Layers.Rocks, Layers.RocksHLODLayer, TEXT("Rocks")},
-      {Layers.POIs, Layers.POIsHLODLayer, TEXT("POIs")},
-  };
-
-  for (const auto &Target : HLODTargets) {
-    if (Target.HLODLayerName.IsNone()) {
-      continue;
+    if (LayerName.IsNone()) {
+      return nullptr;
     }
 
-    UDataLayerInstance *DataLayer =
-        ResolveDataLayerInstance(World, EditorSubsystem, Target.DataLayerName);
-    if (!DataLayer) {
+    const FString LayerPath = LayerName.ToString();
+    UHLODLayer *Layer = LoadObject<UHLODLayer>(nullptr, *LayerPath);
+    if (!Layer && !LayerPath.Contains(TEXT("/"))) {
+      Layer = FindObject<UHLODLayer>(nullptr, *LayerPath);
+    }
+
+    if (!Layer) {
       OutErrors.Add(FString::Printf(
-          TEXT(
-              "Cannot apply HLOD layer for %s; Data Layer '%s' was not found."),
-          Target.Label, *Target.DataLayerName.ToString()));
-      continue;
+          TEXT("HLOD layer '%s' could not be resolved."), *LayerPath));
     }
 
-    UHLODLayer *HLODLayer = ResolveHLODLayer(Target.HLODLayerName, OutErrors);
-    if (!HLODLayer) {
-      continue;
-    }
-
-    ApplyHLODLayerForDataLayer(World, EditorSubsystem, DataLayer, HLODLayer,
-                               Target.Label, OutErrors);
-  }
-#else
-  if (!Layers.TreesHLODLayer.IsNone() || !Layers.RocksHLODLayer.IsNone() ||
-      !Layers.POIsHLODLayer.IsNone()) {
-    OutErrors.Add(TEXT(
-        "HLOD layer assignments requested but HLOD support is unavailable."));
+    return Layer;
   }
 #endif
-}
+
+  void ApplyHLODLayerForDataLayer(
+      UWorld * World, UDataLayerEditorSubsystem * EditorSubsystem,
+      UDataLayerInstance * DataLayer, UHLODLayer * HLODLayer,
+      const TCHAR *Label, TArray<FString> &OutErrors) {
+    if (!World || !EditorSubsystem || !DataLayer || !HLODLayer) {
+      return;
+    }
+
+    TArray<AActor *> Actors =
+        EditorSubsystem->GetActorsFromDataLayer(DataLayer);
+    if (Actors.IsEmpty()) {
+      return;
+    }
+
+    int32 UpdatedCount = 0;
+    for (AActor *Actor : Actors) {
+      if (!Actor) {
+        continue;
+      }
+
+      Actor->Modify();
+      Actor->SetHLODLayer(HLODLayer);
+      ++UpdatedCount;
+    }
+
+    UE_LOG(LogWorldGenBuildUtility, Log,
+           TEXT("Applied HLOD layer '%s' to %d actor(s) in Data Layer %s."),
+           *HLODLayer->GetName(), UpdatedCount, Label);
+  }
+
+  void ApplyHLODLayerAssignments(UWorld * World,
+                                 const FWorldPartitionPCGDataLayers &Layers,
+                                 TArray<FString> &OutErrors) {
+#if VHM_HAS_HLOD_LAYER
+    UDataLayerEditorSubsystem *EditorSubsystem =
+        UDataLayerEditorSubsystem::Get();
+    if (!EditorSubsystem) {
+      OutErrors.Add(TEXT(
+          "DataLayerEditorSubsystem unavailable; cannot assign HLOD layers."));
+      return;
+    }
+
+    const struct {
+      FName DataLayerName;
+      FName HLODLayerName;
+      const TCHAR *Label;
+    } HLODTargets[] = {
+        {Layers.Trees, Layers.TreesHLODLayer, TEXT("Trees")},
+        {Layers.Rocks, Layers.RocksHLODLayer, TEXT("Rocks")},
+        {Layers.POIs, Layers.POIsHLODLayer, TEXT("POIs")},
+    };
+
+    for (const auto &Target : HLODTargets) {
+      if (Target.HLODLayerName.IsNone()) {
+        continue;
+      }
+
+      UDataLayerInstance *DataLayer = ResolveDataLayerInstance(
+          World, EditorSubsystem, Target.DataLayerName);
+      if (!DataLayer) {
+        OutErrors.Add(FString::Printf(TEXT("Cannot apply HLOD layer for %s; "
+                                           "Data Layer '%s' was not found."),
+                                      Target.Label,
+                                      *Target.DataLayerName.ToString()));
+        continue;
+      }
+
+      UHLODLayer *HLODLayer = ResolveHLODLayer(Target.HLODLayerName, OutErrors);
+      if (!HLODLayer) {
+        continue;
+      }
+
+      ApplyHLODLayerForDataLayer(World, EditorSubsystem, DataLayer, HLODLayer,
+                                 Target.Label, OutErrors);
+    }
+#else
+    if (!Layers.TreesHLODLayer.IsNone() || !Layers.RocksHLODLayer.IsNone() ||
+        !Layers.POIsHLODLayer.IsNone()) {
+      OutErrors.Add(TEXT(
+          "HLOD layer assignments requested but HLOD support is unavailable."));
+    }
+#endif
+  }
 #endif // WITH_EDITOR && VHM_HAS_DATA_LAYERS
 } // namespace
 
