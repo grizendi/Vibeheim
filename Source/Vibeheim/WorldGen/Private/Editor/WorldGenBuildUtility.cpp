@@ -25,6 +25,7 @@
 
 #if WITH_EDITOR
 #include "AssetRegistry/AssetRegistryModule.h"
+#include "EditorLoadingAndSavingUtils.h"
 #include "EngineUtils.h"
 #include "FileHelpers.h"
 #include "Widgets/Notifications/SNotificationList.h"
@@ -64,14 +65,43 @@ FString SanitizeIdentifier(const FString &Identifier) {
   return Safe.IsEmpty() ? TEXT("World") : Safe;
 }
 
+static FString StripPIEPrefixIfPresent(const FString &In) {
+  // Typical PIE package name: UEDPIE_0_MapName
+  if (In.StartsWith(TEXT("UEDPIE_"))) {
+    int32 ThirdUnderscore = INDEX_NONE;
+    int32 UnderscoreCount = 0;
+    for (int32 i = 0; i < In.Len(); i++) {
+      if (In[i] == TEXT('_')) {
+        UnderscoreCount++;
+        if (UnderscoreCount == 3) {
+          ThirdUnderscore = i;
+          break;
+        }
+      }
+    }
+    if (ThirdUnderscore != INDEX_NONE && ThirdUnderscore + 1 < In.Len()) {
+      return In.Mid(ThirdUnderscore + 1);
+    }
+  }
+  return In;
+}
+
 FString ResolveMapIdentifier(const FString &MapPath, const UWorld *World) {
+  FString PackageName;
+
   if (!MapPath.IsEmpty()) {
-    const FString PackageName = FPackageName::ObjectPathToPackageName(MapPath);
-    return SanitizeIdentifier(FPackageName::GetShortName(PackageName));
+    PackageName = FPackageName::ObjectPathToPackageName(MapPath);
+  } else if (World && World->GetOutermost()) {
+    PackageName = World->GetOutermost()->GetName(); // e.g. /Game/Maps/Vibeheim_Main
+  } else {
+    PackageName = TEXT("UnknownWorld");
   }
 
-  return SanitizeIdentifier(World ? World->GetMapName()
-                                  : FString(TEXT("World")));
+  // Convert package name to short name (Map asset name)
+  FString ShortName = FPackageName::GetShortName(PackageName);
+  ShortName = StripPIEPrefixIfPresent(ShortName);
+
+  return SanitizeIdentifier(ShortName);
 }
 
 #if WITH_EDITOR
@@ -482,6 +512,7 @@ bool UWorldGenBuildUtility::RunBuild(UWorld *World, int32 Seed,
   }
 
   const FString MapIdentifier = ResolveMapIdentifier(MapPath, World);
+  UWorldGenBuildStateAsset *BuildStateAsset = nullptr;
   const FString TerrainPackagePath =
       MakePackagePath(MapIdentifier, TEXT("TerrainData"));
   const FString TerrainObjectName =
@@ -672,7 +703,8 @@ bool UWorldGenBuildUtility::RunBuild(UWorld *World, int32 Seed,
 
   if (Errors.IsEmpty() && bUpdateBuildState && bBuildPCG && World) {
     FString SaveError;
-    if (!SaveBuildState(World, Config.Seed, Config, PCGHash, SaveError)) {
+    if (!SaveBuildState(World, Config.Seed, Config, PCGHash, MapIdentifier,
+                        BuildStateAsset, SaveError)) {
       Errors.Add(SaveError);
     }
   } else if (bUpdateBuildState && !bBuildPCG) {
@@ -686,6 +718,20 @@ bool UWorldGenBuildUtility::RunBuild(UWorld *World, int32 Seed,
     // Save all dirty packages (Terrain Data, Build State, Textures, Map, etc.)
     UE_LOG(LogWorldGenBuildUtility, Log,
            TEXT("Build successful. Saving packages..."));
+
+#if WITH_EDITOR
+    TArray<UPackage *> PackagesToSave;
+    if (TerrainResource) {
+      PackagesToSave.AddUnique(TerrainResource->GetOutermost());
+    }
+    if (BuildStateAsset) {
+      PackagesToSave.AddUnique(BuildStateAsset->GetOutermost());
+    }
+    if (PackagesToSave.Num() > 0) {
+      UEditorLoadingAndSavingUtils::SavePackages(PackagesToSave,
+                                                 /*bOnlyDirty=*/true);
+    }
+#endif
 
     const bool bSaved = UEditorLoadingAndSavingUtils::SaveDirtyPackages(
         /*bSaveMapPackages=*/true,
@@ -880,14 +926,16 @@ bool UWorldGenBuildUtility::TriggerPCGOfflineBuild(
 #endif // WITH_EDITOR
 }
 
-bool UWorldGenBuildUtility::SaveBuildState(UWorld *World, int32 Seed,
-                                           const FWorldGenConfig &Config,
-                                           const FString &PCGHash,
-                                           FString &OutError) const {
+bool UWorldGenBuildUtility::SaveBuildState(
+    UWorld *World, int32 Seed, const FWorldGenConfig &Config,
+    const FString &PCGHash, const FString &MapIdentifier,
+    UWorldGenBuildStateAsset *&OutBuildStateAsset,
+    FString &OutError) const {
 #if !WITH_EDITOR
   return false;
 #else
-  const FString MapIdentifier = ResolveMapIdentifier(FString(), World);
+  OutBuildStateAsset = nullptr;
+  (void)World;
   const FString PackagePath =
       MakePackagePath(MapIdentifier, TEXT("BuildState"));
   const FString ObjectName = MakeObjectName(MapIdentifier, TEXT("BuildState"));
@@ -919,6 +967,8 @@ bool UWorldGenBuildUtility::SaveBuildState(UWorld *World, int32 Seed,
   if (Package) {
     Package->MarkPackageDirty();
   }
+
+  OutBuildStateAsset = BuildAsset;
 
   UE_LOG(LogWorldGenBuildUtility, Log,
          TEXT("Saved build state (Seed=%d, Version=%d, Hash=%s)"), Seed,

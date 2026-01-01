@@ -11,6 +11,7 @@
 #include "HAL/PlatformFilemanager.h"
 #include "Kismet/GameplayStatics.h"
 #include "Misc/DateTime.h"
+#include "Misc/PackageName.h"
 #include "Services/BiomeService.h"
 #include "Services/ClimateSystem.h"
 #include "Services/HeightfieldService.h"
@@ -25,6 +26,58 @@
 #include "WorldGenSettings.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogWorldGenManager, Log, All);
+
+namespace {
+FString SanitizeIdentifier(const FString &Identifier) {
+  FString Safe = Identifier;
+  Safe.ReplaceInline(TEXT("."), TEXT("_"));
+  Safe.ReplaceInline(TEXT("/"), TEXT("_"));
+  Safe.ReplaceInline(TEXT("\\"), TEXT("_"));
+  Safe.ReplaceInline(TEXT(" "), TEXT("_"));
+  Safe.ReplaceInline(TEXT(":"), TEXT("_"));
+  return Safe.IsEmpty() ? TEXT("World") : Safe;
+}
+
+FString StripPIEPrefixIfPresent(const FString &In) {
+  if (In.StartsWith(TEXT("UEDPIE_"))) {
+    int32 ThirdUnderscore = INDEX_NONE;
+    int32 UnderscoreCount = 0;
+    for (int32 i = 0; i < In.Len(); i++) {
+      if (In[i] == TEXT('_')) {
+        UnderscoreCount++;
+        if (UnderscoreCount == 3) {
+          ThirdUnderscore = i;
+          break;
+        }
+      }
+    }
+    if (ThirdUnderscore != INDEX_NONE && ThirdUnderscore + 1 < In.Len()) {
+      return In.Mid(ThirdUnderscore + 1);
+    }
+  }
+  return In;
+}
+
+FString GetStableMapId(const UWorld *World) {
+  if (!World || !World->GetOutermost()) {
+    return TEXT("UnknownWorld");
+  }
+
+  FString ShortName =
+      FPackageName::GetShortName(World->GetOutermost()->GetName());
+  ShortName = StripPIEPrefixIfPresent(ShortName);
+  return ShortName;
+}
+
+FString MakeBakedObjectPath(const FString &MapId, const TCHAR *Suffix) {
+  const FString SafeMap = SanitizeIdentifier(MapId);
+  const FString PackagePath =
+      FString::Printf(TEXT("/Game/WorldGen/Baked/%s_%s"), *SafeMap, Suffix);
+  const FString ObjectName =
+      FString::Printf(TEXT("%s_%s"), *SafeMap, Suffix);
+  return PackagePath + TEXT(".") + ObjectName;
+}
+} // namespace
 
 FWorldGenRuntimeDecision EvaluateWorldGenRuntimeDecision(
     const FWorldGenConfig &Config, const FWorldBuildState &BuildState,
@@ -196,24 +249,20 @@ bool AWorldGenManager::InitializeWorldGenSystems() {
   // Load prebaked terrain data if applicable
   UWorldGenTerrainResource *PrebakedTerrainResource = nullptr;
   if (RuntimeDecision.bTreatWorldAsBaked) {
-    FString MapName = GetWorld()->GetMapName();
-    MapName.RemoveFromStart(GetWorld()->StreamingLevelsPrefix);
-
-    const FString AssetName = FString::Printf(TEXT("%s_TerrainData"), *MapName);
-    const FString PackagePath = FString::Printf(
-        TEXT("/Game/WorldGen/Baked/%s.%s"), *AssetName, *AssetName);
+    const FString MapId = GetStableMapId(GetWorld());
+    const FString TerrainPath = MakeBakedObjectPath(MapId, TEXT("TerrainData"));
 
     PrebakedTerrainResource =
-        LoadObject<UWorldGenTerrainResource>(nullptr, *PackagePath);
+        LoadObject<UWorldGenTerrainResource>(nullptr, *TerrainPath);
 
     if (PrebakedTerrainResource) {
       UE_LOG(LogWorldGenManager, Log, TEXT("Loaded baked terrain data from %s"),
-             *PackagePath);
+             *TerrainPath);
     } else {
       UE_LOG(LogWorldGenManager, Warning,
              TEXT("Failed to load baked terrain data from %s. Ensure the map "
                   "is baked."),
-             *PackagePath);
+             *TerrainPath);
     }
   }
   // Configure VHM settings for seam prevention
@@ -617,6 +666,17 @@ void AWorldGenManager::ReloadWorldGenAssets() {
 void AWorldGenManager::LoadBuildStateAsset() {
   ActiveBuildState = FWorldBuildState();
   bHasBuildStateAsset = false;
+
+  if (WorldBuildStateAsset.IsNull()) {
+    const FString MapId = GetStableMapId(GetWorld());
+    const FString BuildStatePath =
+        MakeBakedObjectPath(MapId, TEXT("BuildState"));
+    UWorldGenBuildStateAsset *Loaded =
+        LoadObject<UWorldGenBuildStateAsset>(nullptr, *BuildStatePath);
+    if (Loaded) {
+      WorldBuildStateAsset = Loaded;
+    }
+  }
 
   const FSoftObjectPath BuildStatePath =
       WorldBuildStateAsset.ToSoftObjectPath();

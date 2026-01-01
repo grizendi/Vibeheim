@@ -9,6 +9,7 @@ class UClimateSystem;
 class UHeightfieldService;
 class UTexture2D;
 class UWorld;
+class UWorldGenBuildStateAsset;
 class UWorldGenExternalDataProvider;
 class UWorldGenTerrainResource;
 class UPCGWorldService;
@@ -101,8 +102,9 @@ private:
                               FString &OutPCGHash, TArray<FString> &OutErrors);
 
   /** Persist build metadata into a companion build state asset. */
-  bool SaveBuildState(UWorld *World, int32 Seed,
-                      const FWorldGenConfig &Config, const FString &PCGHash,
+  bool SaveBuildState(UWorld *World, int32 Seed, const FWorldGenConfig &Config,
+                      const FString &PCGHash, const FString &MapIdentifier,
+                      UWorldGenBuildStateAsset *&OutBuildStateAsset,
                       FString &OutError) const;
 
   /** Broadcast progress to delegates and optionally Slate. */
