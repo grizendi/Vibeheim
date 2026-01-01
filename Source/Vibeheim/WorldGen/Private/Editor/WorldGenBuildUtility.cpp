@@ -274,6 +274,26 @@ void ApplyHLODLayerAssignments(UWorld* World, const FWorldPartitionPCGDataLayers
 #endif // WITH_EDITOR && VHM_HAS_DATA_LAYERS
 } // namespace
 
+#if WITH_EDITOR
+static UWorld* ResolveEditorWorld()
+{
+  return GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
+}
+
+static void ReleaseBuildServices(UHeightfieldService*& HeightfieldService,
+                                 UBiomeService*& BiomeService,
+                                 UClimateSystem*& ClimateService,
+                                 UPCGWorldService*& PCGService,
+                                 UWorldGenExternalDataProvider*& ExternalProvider)
+{
+  ExternalProvider = nullptr;
+  PCGService = nullptr;
+  BiomeService = nullptr;
+  ClimateService = nullptr;
+  HeightfieldService = nullptr;
+}
+#endif
+
 bool UWorldGenBuildUtility::BuildWorldFromSeed(int32 Seed,
                                                const FString& MapPath,
                                                bool bBuildTerrain,
@@ -621,6 +641,12 @@ bool UWorldGenBuildUtility::RunBuild(UWorld *World, int32 Seed,
   FString PCGHash;
   bool bPCGBuildSucceeded = false;
   if (bBuildPCG) {
+    // pcg.BuildComponents unloads/reloads the editor map via WorldPartitionBuilder.
+    // Release world-owned services before invoking it to avoid GC leak detection.
+#if WITH_EDITOR
+    ReleaseBuildServices(HeightfieldService, BiomeService, ClimateService,
+                         PCGService, ExternalProvider);
+#endif
     bPCGBuildSucceeded = TriggerPCGOfflineBuild(World, Config, TerrainResource,
                                                 PCGService, ExternalProvider,
                                                 PCGHash, Errors);
@@ -628,6 +654,13 @@ bool UWorldGenBuildUtility::RunBuild(UWorld *World, int32 Seed,
       UE_LOG(LogWorldGenBuildUtility, Warning,
              TEXT("PCG offline build was skipped or failed; see log for details."));
     }
+
+#if WITH_EDITOR
+    World = ResolveEditorWorld();
+    if (!World) {
+      Errors.Add(TEXT("Failed to reacquire editor world after PCG build."));
+    }
+#endif
   } else {
     UE_LOG(LogWorldGenBuildUtility, Log,
            TEXT("Skipping PCG offline build (bBuildPCG=false)."));
@@ -635,13 +668,19 @@ bool UWorldGenBuildUtility::RunBuild(UWorld *World, int32 Seed,
   }
 
 #if WITH_EDITOR && VHM_HAS_DATA_LAYERS
-  if (bPCGBuildSucceeded && Config.bUseWorldPartitionStreaming)
+  if (bPCGBuildSucceeded && World && Config.bUseWorldPartitionStreaming)
   {
     ApplyHLODLayerAssignments(World, Config.PCGDataLayers, Errors);
   }
 #endif
 
   if (Errors.IsEmpty() && bUpdateBuildState && bBuildPCG) {
+    if (!World) {
+      Errors.Add(TEXT("Build state update skipped: editor world was not available after PCG build."));
+    }
+  }
+
+  if (Errors.IsEmpty() && bUpdateBuildState && bBuildPCG && World) {
     FString SaveError;
     if (!SaveBuildState(World, Config.Seed, Config, PCGHash, SaveError)) {
       Errors.Add(SaveError);

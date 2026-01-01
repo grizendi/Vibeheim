@@ -9,11 +9,13 @@
 #include "Editor/WorldGenBuildUtility.h"
 #include "Editor/WorldGenBuilderWidget.h"
 #include "Framework/Docking/TabManager.h"
+#include "LevelEditor.h"
 #include "Styling/AppStyle.h"
 #include "Templates/SharedPointer.h"
 #include "ToolMenus.h"
 #include "Widgets/Docking/SDockTab.h"
 #include "Widgets/SBoxPanel.h"
+#include "Widgets/SNullWidget.h"
 #include "Widgets/Text/STextBlock.h"
 #endif
 
@@ -37,9 +39,13 @@ private:
     void OpenWorldBuildPipeline();
     TSharedRef<SDockTab> SpawnWorldBuildTab(const FSpawnTabArgs& Args);
     void HandleTabClosed(TSharedRef<SDockTab> ClosedTab);
+    void HandleMapChanged(UWorld* World, EMapChangeType MapChangeType);
+    TSharedRef<SWidget> CreateWorldBuildWidget();
 
     TStrongObjectPtr<UWorldGenBuilderWidget> BuilderWidget;
     FDelegateHandle MenuStartupHandle;
+    FDelegateHandle MapChangedHandle;
+    TWeakPtr<SDockTab> WorldBuildTab;
 #endif
 };
 
@@ -69,6 +75,14 @@ void FVibeheimModule::StartupModule()
 void FVibeheimModule::ShutdownModule()
 {
     BuilderWidget.Reset();
+    if (MapChangedHandle.IsValid())
+    {
+        if (FLevelEditorModule* LevelEditorModule = FModuleManager::GetModulePtr<FLevelEditorModule>("LevelEditor"))
+        {
+            LevelEditorModule->OnMapChanged().Remove(MapChangedHandle);
+        }
+        MapChangedHandle.Reset();
+    }
 
     if (UToolMenus::IsToolMenuUIEnabled())
     {
@@ -124,25 +138,7 @@ void FVibeheimModule::OpenWorldBuildPipeline()
 
 TSharedRef<SDockTab> FVibeheimModule::SpawnWorldBuildTab(const FSpawnTabArgs& Args)
 {
-    UWorld* EditorWorld = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
-
-    UWorldGenBuilderWidget* WidgetInstance = nullptr;
-    if (EditorWorld)
-    {
-        WidgetInstance = CreateWidget<UWorldGenBuilderWidget>(EditorWorld, UWorldGenBuilderWidget::StaticClass());
-    }
-    if (!WidgetInstance)
-    {
-        WidgetInstance = NewObject<UWorldGenBuilderWidget>();
-    }
-
-    BuilderWidget.Reset();
-    BuilderWidget = TStrongObjectPtr<UWorldGenBuilderWidget>(WidgetInstance);
-
-    const TSharedRef<SWidget> Content = WidgetInstance
-                                            ? WidgetInstance->TakeWidget()
-                                            : SNew(STextBlock)
-                                            .Text(LOCTEXT("WidgetCreateFailed", "Failed to create World Build Pipeline widget."));
+    const TSharedRef<SWidget> Content = CreateWorldBuildWidget();
 
     TSharedRef<SDockTab> NewTab = SNew(SDockTab)
         .TabRole(ETabRole::NomadTab)
@@ -151,12 +147,67 @@ TSharedRef<SDockTab> FVibeheimModule::SpawnWorldBuildTab(const FSpawnTabArgs& Ar
         ];
 
     NewTab->SetOnTabClosed(SDockTab::FOnTabClosedCallback::CreateRaw(this, &FVibeheimModule::HandleTabClosed));
+    WorldBuildTab = NewTab;
+
+    if (!MapChangedHandle.IsValid())
+    {
+        FLevelEditorModule& LevelEditor = FModuleManager::LoadModuleChecked<FLevelEditorModule>("LevelEditor");
+        MapChangedHandle = LevelEditor.OnMapChanged().AddRaw(this, &FVibeheimModule::HandleMapChanged);
+    }
     return NewTab;
 }
 
 void FVibeheimModule::HandleTabClosed(TSharedRef<SDockTab> ClosedTab)
 {
     BuilderWidget.Reset();
+    WorldBuildTab.Reset();
+}
+
+TSharedRef<SWidget> FVibeheimModule::CreateWorldBuildWidget()
+{
+    UWorld* EditorWorld = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
+    UWorldGenBuilderWidget* WidgetInstance = EditorWorld
+                                                 ? CreateWidget<UWorldGenBuilderWidget>(EditorWorld, UWorldGenBuilderWidget::StaticClass())
+                                                 : nullptr;
+
+    if (!WidgetInstance)
+    {
+        BuilderWidget.Reset();
+        return SNew(STextBlock)
+            .Text(LOCTEXT("WidgetCreateFailed", "Failed to create World Build Pipeline widget."));
+    }
+
+    BuilderWidget.Reset();
+    BuilderWidget = TStrongObjectPtr<UWorldGenBuilderWidget>(WidgetInstance);
+    return WidgetInstance->TakeWidget();
+}
+
+void FVibeheimModule::HandleMapChanged(UWorld* World, EMapChangeType MapChangeType)
+{
+    if (MapChangeType == EMapChangeType::TearDownWorld)
+    {
+        if (BuilderWidget.IsValid() && BuilderWidget->GetWorld() == World)
+        {
+            if (TSharedPtr<SDockTab> Tab = WorldBuildTab.Pin())
+            {
+                Tab->SetContent(SNullWidget::NullWidget);
+            }
+
+            BuilderWidget->Rename(nullptr, GetTransientPackage(), REN_DoNotDirty);
+            BuilderWidget.Reset();
+        }
+        return;
+    }
+
+    if (MapChangeType == EMapChangeType::SaveMap)
+    {
+        return;
+    }
+
+    if (TSharedPtr<SDockTab> Tab = WorldBuildTab.Pin())
+    {
+        Tab->SetContent(CreateWorldBuildWidget());
+    }
 }
 #endif // WITH_EDITOR
 
