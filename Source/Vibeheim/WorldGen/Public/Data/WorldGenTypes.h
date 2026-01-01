@@ -56,20 +56,23 @@ struct VIBEHEIM_API FTileCoord {
 
   /**
    * Convert this tile coordinate to a PCG partition grid cell.
-   * Expects TileSize and PCGGridSize to have an integer ratio for deterministic alignment.
+   * Expects TileSize and PCGGridSize to have an integer ratio for deterministic
+   * alignment.
    */
   FIntPoint ToPCGGridCell(float PCGGridSize, float TileSize) const;
 
   /**
    * Construct a tile coordinate from a PCG partition grid cell.
-   * Expects TileSize and PCGGridSize to have an integer ratio for deterministic alignment.
+   * Expects TileSize and PCGGridSize to have an integer ratio for deterministic
+   * alignment.
    */
   static FTileCoord FromPCGGridCell(const FIntPoint &Cell, float PCGGridSize,
                                     float TileSize);
 
   /**
-   * Verify that TileSize and PCGGridSize have an integer ratio within tolerance.
-   * Accepts either direction (TileSize as multiple of PCG grid or vice versa) to avoid silent drift.
+   * Verify that TileSize and PCGGridSize have an integer ratio within
+   * tolerance. Accepts either direction (TileSize as multiple of PCG grid or
+   * vice versa) to avoid silent drift.
    */
   static bool IsAlignedWithPCGGrid(float TileSize, float PCGGridSize,
                                    float Tolerance = KINDA_SMALL_NUMBER);
@@ -189,15 +192,16 @@ struct VIBEHEIM_API FWorldGenConfig {
 
   // Build configuration
   UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Generation")
-  EWorldGenBuildMode BuildMode = EWorldGenBuildMode::RuntimeStreaming;
+  EWorldGenBuildMode BuildMode = EWorldGenBuildMode::EditorBuildOnce;
 
   UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Generation")
   bool bUseWorldPartitionStreaming = true;
 
-  /** Policy for handling stale/mismatched build states when using baked worlds. */
+  /** Policy for handling stale/mismatched build states when using baked worlds.
+   */
   UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Generation")
   EWorldBuildStatePolicy StaleBuildPolicy =
-      EWorldBuildStatePolicy::FallbackToRuntime;
+      EWorldBuildStatePolicy::RequireRebuild;
 
   // Tile and coordinate system (locked values)
   UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Coordinates",

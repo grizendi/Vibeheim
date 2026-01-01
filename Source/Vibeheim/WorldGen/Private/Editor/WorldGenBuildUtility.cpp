@@ -25,6 +25,8 @@
 
 #if WITH_EDITOR
 #include "AssetRegistry/AssetRegistryModule.h"
+#include "EngineUtils.h"
+#include "FileHelpers.h"
 #include "Widgets/Notifications/SNotificationList.h"
 #endif
 
@@ -34,9 +36,9 @@
 #endif
 
 #if WITH_EDITOR && __has_include("WorldPartition/DataLayer/DataLayerManager.h")
-#include "WorldPartition/DataLayer/DataLayerManager.h"
 #include "DataLayer/DataLayerEditorSubsystem.h"
 #include "WorldPartition/DataLayer/DataLayerInstance.h"
+#include "WorldPartition/DataLayer/DataLayerManager.h"
 #define VHM_HAS_DATA_LAYERS 1
 #else
 #define VHM_HAS_DATA_LAYERS 0
@@ -51,10 +53,8 @@
 
 DEFINE_LOG_CATEGORY_STATIC(LogWorldGenBuildUtility, Log, All);
 
-namespace
-{
-FString SanitizeIdentifier(const FString& Identifier)
-{
+namespace {
+FString SanitizeIdentifier(const FString &Identifier) {
   FString Safe = Identifier;
   Safe.ReplaceInline(TEXT("."), TEXT("_"));
   Safe.ReplaceInline(TEXT("/"), TEXT("_"));
@@ -64,69 +64,62 @@ FString SanitizeIdentifier(const FString& Identifier)
   return Safe.IsEmpty() ? TEXT("World") : Safe;
 }
 
-FString ResolveMapIdentifier(const FString& MapPath, const UWorld* World)
-{
-  if (!MapPath.IsEmpty())
-  {
+FString ResolveMapIdentifier(const FString &MapPath, const UWorld *World) {
+  if (!MapPath.IsEmpty()) {
     const FString PackageName = FPackageName::ObjectPathToPackageName(MapPath);
     return SanitizeIdentifier(FPackageName::GetShortName(PackageName));
   }
 
-  return SanitizeIdentifier(World ? World->GetMapName() : FString(TEXT("World")));
+  return SanitizeIdentifier(World ? World->GetMapName()
+                                  : FString(TEXT("World")));
 }
 
 #if WITH_EDITOR
-void RegisterAsset(UObject* Asset)
-{
-  if (Asset)
-  {
+void RegisterAsset(UObject *Asset) {
+  if (Asset) {
     FAssetRegistryModule::AssetCreated(Asset);
   }
 }
 #endif
 
 #if WITH_EDITOR && VHM_HAS_DATA_LAYERS
-UDataLayerInstance* ResolveDataLayerInstance(UWorld* World,
-                                             UDataLayerEditorSubsystem* EditorSubsystem,
-                                             const FName& LayerName)
-{
-  if (!World || LayerName.IsNone())
-  {
+UDataLayerInstance *
+ResolveDataLayerInstance(UWorld *World,
+                         UDataLayerEditorSubsystem *EditorSubsystem,
+                         const FName &LayerName) {
+  if (!World || LayerName.IsNone()) {
     return nullptr;
   }
 
-  if (EditorSubsystem)
-  {
-    if (UDataLayerInstance* Instance = EditorSubsystem->GetDataLayerInstance(LayerName))
-    {
+  if (EditorSubsystem) {
+    if (UDataLayerInstance *Instance =
+            EditorSubsystem->GetDataLayerInstance(LayerName)) {
       return Instance;
     }
   }
 
-  if (UDataLayerManager* DataLayerManager =
-          UDataLayerManager::GetDataLayerManager(World))
-  {
-    return const_cast<UDataLayerInstance*>(
+  if (UDataLayerManager *DataLayerManager =
+          UDataLayerManager::GetDataLayerManager(World)) {
+    return const_cast<UDataLayerInstance *>(
         DataLayerManager->GetDataLayerInstanceFromName(LayerName));
   }
 
   return nullptr;
 }
 
-void ValidateDataLayerNames(UWorld* World, const FWorldPartitionPCGDataLayers& Layers,
-                            TArray<FString>& OutErrors)
-{
-  UDataLayerEditorSubsystem* EditorSubsystem = UDataLayerEditorSubsystem::Get();
-  if (!EditorSubsystem)
-  {
-    OutErrors.Add(TEXT("DataLayerEditorSubsystem unavailable; cannot validate PCG data layers."));
+void EnsureDataLayersExist(UWorld *World,
+                           const FWorldPartitionPCGDataLayers &Layers,
+                           TArray<FString> &OutErrors) {
+  UDataLayerEditorSubsystem *EditorSubsystem = UDataLayerEditorSubsystem::Get();
+  if (!EditorSubsystem) {
+    OutErrors.Add(TEXT("DataLayerEditorSubsystem unavailable; cannot validate "
+                       "or create PCG data layers."));
     return;
   }
 
-  const struct
-  {
+  const struct {
     FName Name;
-    const TCHAR* Label;
+    const TCHAR *Label;
   } RequiredLayers[] = {
       {Layers.TerrainClutter, TEXT("TerrainClutter")},
       {Layers.Trees, TEXT("Trees")},
@@ -135,73 +128,76 @@ void ValidateDataLayerNames(UWorld* World, const FWorldPartitionPCGDataLayers& L
       {Layers.Dynamic, TEXT("Dynamic")},
   };
 
-  for (const auto& Entry : RequiredLayers)
-  {
-    if (Entry.Name.IsNone())
-    {
-      OutErrors.Add(FString::Printf(
-          TEXT("PCG data layer '%s' is not configured; set WorldGenSettings.PCGDataLayers.%s."),
-          Entry.Label, Entry.Label));
+  for (const auto &Entry : RequiredLayers) {
+    if (Entry.Name.IsNone()) {
+      OutErrors.Add(
+          FString::Printf(TEXT("PCG data layer '%s' is not configured; set "
+                               "WorldGenSettings.PCGDataLayers.%s."),
+                          Entry.Label, Entry.Label));
       continue;
     }
 
-    if (!ResolveDataLayerInstance(World, EditorSubsystem, Entry.Name))
-    {
-      OutErrors.Add(FString::Printf(
-          TEXT("PCG data layer '%s' (%s) was not found in the current world."),
-          Entry.Label, *Entry.Name.ToString()));
+    if (!ResolveDataLayerInstance(World, EditorSubsystem, Entry.Name)) {
+      // Create the missing Data Layer
+      FDataLayerCreationParameters ReturnParams;
+      ReturnParams.DataLayerAsset = nullptr; // Runtime runtime created if null?
+
+      // We need to create it via subsystem
+      UDataLayerInstance *NewLayer =
+          EditorSubsystem->CreateDataLayerInstance(ReturnParams);
+      if (NewLayer) {
+        UE_LOG(LogWorldGenBuildUtility, Log,
+               TEXT("Created missing PCG Data Layer: %s"),
+               *Entry.Name.ToString());
+        // Optional: Configure it (Runtime vs Editor)
+      } else {
+        OutErrors.Add(
+            FString::Printf(TEXT("Failed to create PCG data layer '%s' (%s)."),
+                            Entry.Label, *Entry.Name.ToString()));
+      }
     }
   }
 }
 
 #if VHM_HAS_HLOD_LAYER
-UHLODLayer* ResolveHLODLayer(const FName& LayerName, TArray<FString>& OutErrors)
-{
-  if (LayerName.IsNone())
-  {
+UHLODLayer *ResolveHLODLayer(const FName &LayerName,
+                             TArray<FString> &OutErrors) {
+  if (LayerName.IsNone()) {
     return nullptr;
   }
 
   const FString LayerPath = LayerName.ToString();
-  UHLODLayer* Layer = LoadObject<UHLODLayer>(nullptr, *LayerPath);
-  if (!Layer && !LayerPath.Contains(TEXT("/")))
-  {
+  UHLODLayer *Layer = LoadObject<UHLODLayer>(nullptr, *LayerPath);
+  if (!Layer && !LayerPath.Contains(TEXT("/"))) {
     Layer = FindObject<UHLODLayer>(nullptr, *LayerPath);
   }
 
-  if (!Layer)
-  {
-    OutErrors.Add(FString::Printf(TEXT("HLOD layer '%s' could not be resolved."),
-                                  *LayerPath));
+  if (!Layer) {
+    OutErrors.Add(FString::Printf(
+        TEXT("HLOD layer '%s' could not be resolved."), *LayerPath));
   }
 
   return Layer;
 }
 #endif
 
-void ApplyHLODLayerForDataLayer(UWorld* World,
-                                UDataLayerEditorSubsystem* EditorSubsystem,
-                                UDataLayerInstance* DataLayer,
-                                UHLODLayer* HLODLayer,
-                                const TCHAR* Label,
-                                TArray<FString>& OutErrors)
-{
-  if (!World || !EditorSubsystem || !DataLayer || !HLODLayer)
-  {
+void ApplyHLODLayerForDataLayer(UWorld *World,
+                                UDataLayerEditorSubsystem *EditorSubsystem,
+                                UDataLayerInstance *DataLayer,
+                                UHLODLayer *HLODLayer, const TCHAR *Label,
+                                TArray<FString> &OutErrors) {
+  if (!World || !EditorSubsystem || !DataLayer || !HLODLayer) {
     return;
   }
 
-  TArray<AActor*> Actors = EditorSubsystem->GetActorsFromDataLayer(DataLayer);
-  if (Actors.IsEmpty())
-  {
+  TArray<AActor *> Actors = EditorSubsystem->GetActorsFromDataLayer(DataLayer);
+  if (Actors.IsEmpty()) {
     return;
   }
 
   int32 UpdatedCount = 0;
-  for (AActor* Actor : Actors)
-  {
-    if (!Actor)
-    {
+  for (AActor *Actor : Actors) {
+    if (!Actor) {
       continue;
     }
 
@@ -215,48 +211,44 @@ void ApplyHLODLayerForDataLayer(UWorld* World,
          *HLODLayer->GetName(), UpdatedCount, Label);
 }
 
-void ApplyHLODLayerAssignments(UWorld* World, const FWorldPartitionPCGDataLayers& Layers,
-                               TArray<FString>& OutErrors)
-{
+void ApplyHLODLayerAssignments(UWorld *World,
+                               const FWorldPartitionPCGDataLayers &Layers,
+                               TArray<FString> &OutErrors) {
 #if VHM_HAS_HLOD_LAYER
-  UDataLayerEditorSubsystem* EditorSubsystem = UDataLayerEditorSubsystem::Get();
-  if (!EditorSubsystem)
-  {
-    OutErrors.Add(TEXT("DataLayerEditorSubsystem unavailable; cannot assign HLOD layers."));
+  UDataLayerEditorSubsystem *EditorSubsystem = UDataLayerEditorSubsystem::Get();
+  if (!EditorSubsystem) {
+    OutErrors.Add(TEXT(
+        "DataLayerEditorSubsystem unavailable; cannot assign HLOD layers."));
     return;
   }
 
-  const struct
-  {
+  const struct {
     FName DataLayerName;
     FName HLODLayerName;
-    const TCHAR* Label;
+    const TCHAR *Label;
   } HLODTargets[] = {
       {Layers.Trees, Layers.TreesHLODLayer, TEXT("Trees")},
       {Layers.Rocks, Layers.RocksHLODLayer, TEXT("Rocks")},
       {Layers.POIs, Layers.POIsHLODLayer, TEXT("POIs")},
   };
 
-  for (const auto& Target : HLODTargets)
-  {
-    if (Target.HLODLayerName.IsNone())
-    {
+  for (const auto &Target : HLODTargets) {
+    if (Target.HLODLayerName.IsNone()) {
       continue;
     }
 
-    UDataLayerInstance* DataLayer =
+    UDataLayerInstance *DataLayer =
         ResolveDataLayerInstance(World, EditorSubsystem, Target.DataLayerName);
-    if (!DataLayer)
-    {
+    if (!DataLayer) {
       OutErrors.Add(FString::Printf(
-          TEXT("Cannot apply HLOD layer for %s; Data Layer '%s' was not found."),
+          TEXT(
+              "Cannot apply HLOD layer for %s; Data Layer '%s' was not found."),
           Target.Label, *Target.DataLayerName.ToString()));
       continue;
     }
 
-    UHLODLayer* HLODLayer = ResolveHLODLayer(Target.HLODLayerName, OutErrors);
-    if (!HLODLayer)
-    {
+    UHLODLayer *HLODLayer = ResolveHLODLayer(Target.HLODLayerName, OutErrors);
+    if (!HLODLayer) {
       continue;
     }
 
@@ -265,9 +257,9 @@ void ApplyHLODLayerAssignments(UWorld* World, const FWorldPartitionPCGDataLayers
   }
 #else
   if (!Layers.TreesHLODLayer.IsNone() || !Layers.RocksHLODLayer.IsNone() ||
-      !Layers.POIsHLODLayer.IsNone())
-  {
-    OutErrors.Add(TEXT("HLOD layer assignments requested but HLOD support is unavailable."));
+      !Layers.POIsHLODLayer.IsNone()) {
+    OutErrors.Add(TEXT(
+        "HLOD layer assignments requested but HLOD support is unavailable."));
   }
 #endif
 }
@@ -275,17 +267,14 @@ void ApplyHLODLayerAssignments(UWorld* World, const FWorldPartitionPCGDataLayers
 } // namespace
 
 #if WITH_EDITOR
-static UWorld* ResolveEditorWorld()
-{
+static UWorld *ResolveEditorWorld() {
   return GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 }
 
-static void ReleaseBuildServices(UHeightfieldService*& HeightfieldService,
-                                 UBiomeService*& BiomeService,
-                                 UClimateSystem*& ClimateService,
-                                 UPCGWorldService*& PCGService,
-                                 UWorldGenExternalDataProvider*& ExternalProvider)
-{
+static void ReleaseBuildServices(
+    UHeightfieldService *&HeightfieldService, UBiomeService *&BiomeService,
+    UClimateSystem *&ClimateService, UPCGWorldService *&PCGService,
+    UWorldGenExternalDataProvider *&ExternalProvider) {
   ExternalProvider = nullptr;
   PCGService = nullptr;
   BiomeService = nullptr;
@@ -295,15 +284,16 @@ static void ReleaseBuildServices(UHeightfieldService*& HeightfieldService,
 #endif
 
 bool UWorldGenBuildUtility::BuildWorldFromSeed(int32 Seed,
-                                               const FString& MapPath,
+                                               const FString &MapPath,
                                                bool bBuildTerrain,
                                                bool bBuildPCG) {
 #if !WITH_EDITOR
-  UE_LOG(LogWorldGenBuildUtility, Warning,
-         TEXT("BuildWorldFromSeed is editor-only and unavailable in this build"));
+  UE_LOG(
+      LogWorldGenBuildUtility, Warning,
+      TEXT("BuildWorldFromSeed is editor-only and unavailable in this build"));
   return false;
 #else
-  UWorldGenBuildUtility* Utility =
+  UWorldGenBuildUtility *Utility =
       NewObject<UWorldGenBuildUtility>(GetTransientPackage());
   if (!Utility) {
     UE_LOG(LogWorldGenBuildUtility, Error,
@@ -311,24 +301,26 @@ bool UWorldGenBuildUtility::BuildWorldFromSeed(int32 Seed,
     return false;
   }
 
-  UWorld* EditorWorld = nullptr;
+  UWorld *EditorWorld = nullptr;
   FString ContextError;
   if (!Utility->ValidateEditorContext(EditorWorld, ContextError)) {
     UE_LOG(LogWorldGenBuildUtility, Error, TEXT("%s"), *ContextError);
     return false;
   }
 
-  return Utility->RunBuild(EditorWorld, Seed, MapPath, bBuildTerrain,
-                           bBuildPCG, /*bUpdateBuildState=*/true);
+  return Utility->RunBuild(EditorWorld, Seed, MapPath, bBuildTerrain, bBuildPCG,
+                           /*bUpdateBuildState=*/true);
 #endif // WITH_EDITOR
 }
 
-bool UWorldGenBuildUtility::BuildWorldFromSeedInstance(
-    int32 Seed, const FString& MapPath, bool bBuildTerrain, bool bBuildPCG) {
+bool UWorldGenBuildUtility::BuildWorldFromSeedInstance(int32 Seed,
+                                                       const FString &MapPath,
+                                                       bool bBuildTerrain,
+                                                       bool bBuildPCG) {
 #if !WITH_EDITOR
   return false;
 #else
-  UWorld* EditorWorld = nullptr;
+  UWorld *EditorWorld = nullptr;
   FString ContextError;
   if (!ValidateEditorContext(EditorWorld, ContextError)) {
     UE_LOG(LogWorldGenBuildUtility, Error, TEXT("%s"), *ContextError);
@@ -447,9 +439,8 @@ bool UWorldGenBuildUtility::ValidateEditorContext(UWorld *&OutWorld,
 }
 
 bool UWorldGenBuildUtility::RunBuild(UWorld *World, int32 Seed,
-                                     const FString &MapPath,
-                                     bool bBuildTerrain, bool bBuildPCG,
-                                     bool bUpdateBuildState) {
+                                     const FString &MapPath, bool bBuildTerrain,
+                                     bool bBuildPCG, bool bUpdateBuildState) {
 #if !WITH_EDITOR
   return false;
 #else
@@ -488,8 +479,10 @@ bool UWorldGenBuildUtility::RunBuild(UWorld *World, int32 Seed,
   }
 
   const FString MapIdentifier = ResolveMapIdentifier(MapPath, World);
-  const FString TerrainPackagePath = MakePackagePath(MapIdentifier, TEXT("TerrainData"));
-  const FString TerrainObjectName = MakeObjectName(MapIdentifier, TEXT("TerrainData"));
+  const FString TerrainPackagePath =
+      MakePackagePath(MapIdentifier, TEXT("TerrainData"));
+  const FString TerrainObjectName =
+      MakeObjectName(MapIdentifier, TEXT("TerrainData"));
 
   UPackage *Package = CreatePackage(*TerrainPackagePath);
   if (Package) {
@@ -527,57 +520,46 @@ bool UWorldGenBuildUtility::RunBuild(UWorld *World, int32 Seed,
   TArray<FString> Errors;
 
 #if WITH_EDITOR && VHM_HAS_DATA_LAYERS
-  if (Config.bUseWorldPartitionStreaming)
-  {
-    if (World->IsPartitionedWorld() && World->GetWorldPartition())
-    {
-      ValidateDataLayerNames(World, Config.PCGDataLayers, Errors);
-    }
-    else
-    {
+  if (Config.bUseWorldPartitionStreaming) {
+    if (World->IsPartitionedWorld() && World->GetWorldPartition()) {
+      EnsureDataLayersExist(World, Config.PCGDataLayers, Errors);
+    } else {
       UE_LOG(LogWorldGenBuildUtility, Warning,
-             TEXT("World Partition is unavailable for this map; skipping PCG data layer validation."));
+             TEXT("World Partition is unavailable for this map; skipping PCG "
+                  "data layer validation."));
     }
   }
 #endif
 
 #if VHM_PCG_ENABLED
-  if (bBuildPCG && PCGService)
-  {
-    UBiomeDefinitionsAsset* BiomeAsset =
+  if (bBuildPCG && PCGService) {
+    UBiomeDefinitionsAsset *BiomeAsset =
         Settings->SelectedBiomeDefinitionsAsset.IsNull()
             ? nullptr
             : Settings->SelectedBiomeDefinitionsAsset.LoadSynchronous();
-    if (BiomeAsset)
-    {
+    if (BiomeAsset) {
       TArray<FString> GraphPaths;
-      for (const TPair<EBiomeType, FBiomeDefinition>& Pair : BiomeAsset->Biomes)
-      {
-        const FBiomeDefinition& BiomeDef = Pair.Value;
-        if (!BiomeDef.BiomePCGGraph.IsNull())
-        {
+      for (const TPair<EBiomeType, FBiomeDefinition> &Pair :
+           BiomeAsset->Biomes) {
+        const FBiomeDefinition &BiomeDef = Pair.Value;
+        if (!BiomeDef.BiomePCGGraph.IsNull()) {
           GraphPaths.AddUnique(BiomeDef.BiomePCGGraph.ToString());
         }
       }
 
-      for (const FString& GraphPath : GraphPaths)
-      {
+      for (const FString &GraphPath : GraphPaths) {
         const FPCGGraphValidationResult Result =
             PCGService->ValidatePCGGraph(GraphPath);
-        for (const FString& Error : Result.Errors)
-        {
-          Errors.Add(
-              FString::Printf(TEXT("PCG graph %s: %s"),
-                              Result.GraphName.IsEmpty()
-                                  ? *Result.GraphPath
-                                  : *Result.GraphName,
-                              *Error));
+        for (const FString &Error : Result.Errors) {
+          Errors.Add(FString::Printf(TEXT("PCG graph %s: %s"),
+                                     Result.GraphName.IsEmpty()
+                                         ? *Result.GraphPath
+                                         : *Result.GraphName,
+                                     *Error));
         }
 
-        for (const FString& Warning : Result.Warnings)
-        {
-          UE_LOG(LogWorldGenBuildUtility, Warning,
-                 TEXT("PCG graph %s: %s"),
+        for (const FString &Warning : Result.Warnings) {
+          UE_LOG(LogWorldGenBuildUtility, Warning, TEXT("PCG graph %s: %s"),
                  Result.GraphName.IsEmpty() ? *Result.GraphPath
                                             : *Result.GraphName,
                  *Warning);
@@ -599,8 +581,9 @@ bool UWorldGenBuildUtility::RunBuild(UWorld *World, int32 Seed,
         FString TileError;
         float TileMin = FLT_MAX;
         float TileMax = -FLT_MAX;
-        if (!BuildTerrainForTile(TerrainResource, HeightfieldService, BiomeService,
-                                 Config, TileCoord, TileError, TileMin, TileMax)) {
+        if (!BuildTerrainForTile(TerrainResource, HeightfieldService,
+                                 BiomeService, Config, TileCoord, TileError,
+                                 TileMin, TileMax)) {
           Errors.Add(TileError);
         } else {
           MinWorldHeight = FMath::Min(MinWorldHeight, TileMin);
@@ -610,16 +593,16 @@ bool UWorldGenBuildUtility::RunBuild(UWorld *World, int32 Seed,
         ++ProcessedTiles;
         if (ProcessedTiles == TotalTiles ||
             ProcessedTiles % FMath::Max(1, TotalTiles / 10) == 0) {
-          ReportProgress(
-              ProcessedTiles, TotalTiles,
-              FString::Printf(
-                  TEXT("Terrain %d/%d (Tile %d,%d)"), ProcessedTiles, TotalTiles,
-                  TileCoord.X, TileCoord.Y));
+          ReportProgress(ProcessedTiles, TotalTiles,
+                         FString::Printf(TEXT("Terrain %d/%d (Tile %d,%d)"),
+                                         ProcessedTiles, TotalTiles,
+                                         TileCoord.X, TileCoord.Y));
         }
       }
     }
 
-    TerrainResource->MinHeight = (MinWorldHeight == FLT_MAX) ? 0.0f : MinWorldHeight;
+    TerrainResource->MinHeight =
+        (MinWorldHeight == FLT_MAX) ? 0.0f : MinWorldHeight;
     TerrainResource->MaxHeight =
         (MaxWorldHeight == -FLT_MAX) ? 0.0f : MaxWorldHeight;
     TerrainResource->MarkPackageDirty();
@@ -628,7 +611,8 @@ bool UWorldGenBuildUtility::RunBuild(UWorld *World, int32 Seed,
     }
   } else {
     UE_LOG(LogWorldGenBuildUtility, Log,
-           TEXT("Skipping terrain bake (bBuildTerrain=false). Using existing prebaked data."));
+           TEXT("Skipping terrain bake (bBuildTerrain=false). Using existing "
+                "prebaked data."));
   }
 
   UWorldGenExternalDataProvider *ExternalProvider =
@@ -641,18 +625,21 @@ bool UWorldGenBuildUtility::RunBuild(UWorld *World, int32 Seed,
   FString PCGHash;
   bool bPCGBuildSucceeded = false;
   if (bBuildPCG) {
-    // pcg.BuildComponents unloads/reloads the editor map via WorldPartitionBuilder.
-    // Release world-owned services before invoking it to avoid GC leak detection.
+    // pcg.BuildComponents unloads/reloads the editor map via
+    // WorldPartitionBuilder. Release world-owned services before invoking it to
+    // avoid GC leak detection.
 #if WITH_EDITOR
     ReleaseBuildServices(HeightfieldService, BiomeService, ClimateService,
                          PCGService, ExternalProvider);
 #endif
-    bPCGBuildSucceeded = TriggerPCGOfflineBuild(World, Config, TerrainResource,
-                                                PCGService, ExternalProvider,
-                                                PCGHash, Errors);
+    bPCGBuildSucceeded =
+        TriggerPCGOfflineBuild(World, Config, TerrainResource, PCGService,
+                               ExternalProvider, PCGHash, Errors);
     if (!bPCGBuildSucceeded) {
-      UE_LOG(LogWorldGenBuildUtility, Warning,
-             TEXT("PCG offline build was skipped or failed; see log for details."));
+      UE_LOG(
+          LogWorldGenBuildUtility, Warning,
+          TEXT(
+              "PCG offline build was skipped or failed; see log for details."));
     }
 
 #if WITH_EDITOR
@@ -668,15 +655,15 @@ bool UWorldGenBuildUtility::RunBuild(UWorld *World, int32 Seed,
   }
 
 #if WITH_EDITOR && VHM_HAS_DATA_LAYERS
-  if (bPCGBuildSucceeded && World && Config.bUseWorldPartitionStreaming)
-  {
+  if (bPCGBuildSucceeded && World && Config.bUseWorldPartitionStreaming) {
     ApplyHLODLayerAssignments(World, Config.PCGDataLayers, Errors);
   }
 #endif
 
   if (Errors.IsEmpty() && bUpdateBuildState && bBuildPCG) {
     if (!World) {
-      Errors.Add(TEXT("Build state update skipped: editor world was not available after PCG build."));
+      Errors.Add(TEXT("Build state update skipped: editor world was not "
+                      "available after PCG build."));
     }
   }
 
@@ -691,6 +678,26 @@ bool UWorldGenBuildUtility::RunBuild(UWorld *World, int32 Seed,
   }
 
   const bool bSuccess = Errors.IsEmpty();
+
+  if (bSuccess) {
+    // Save all dirty packages (Terrain Data, Build State, Textures, Map, etc.)
+    UE_LOG(LogWorldGenBuildUtility, Log,
+           TEXT("Build successful. Saving packages..."));
+
+    const bool bSaved = UEditorLoadingAndSavingUtils::SaveDirtyPackages(
+        /*bSaveMapPackages=*/true,
+        /*bSaveContentPackages=*/true);
+
+    if (!bSaved) {
+      UE_LOG(LogWorldGenBuildUtility, Warning,
+             TEXT("Failed to save some packages after build. You may need to "
+                  "save manually."));
+    } else {
+      UE_LOG(LogWorldGenBuildUtility, Log,
+             TEXT("All packages saved successfully."));
+    }
+  }
+
   if (!bSuccess) {
     for (const FString &Error : Errors) {
       UE_LOG(LogWorldGenBuildUtility, Error, TEXT("%s"), *Error);
@@ -698,9 +705,10 @@ bool UWorldGenBuildUtility::RunBuild(UWorld *World, int32 Seed,
   }
 
   BroadcastCompletion(
-      bSuccess, bSuccess ? TEXT("World build completed")
-                         : FString::Printf(TEXT("World build completed with %d issues"),
-                                           Errors.Num()));
+      bSuccess,
+      bSuccess ? TEXT("World build completed")
+               : FString::Printf(TEXT("World build completed with %d issues"),
+                                 Errors.Num()));
   return bSuccess;
 #endif // WITH_EDITOR
 }
@@ -731,8 +739,7 @@ bool UWorldGenBuildUtility::BuildTerrainForTile(
   if (HeightData.HeightData.Num() != ExpectedSamples) {
     OutError = FString::Printf(
         TEXT("HeightData size mismatch for tile (%d,%d). Expected %d, got %d"),
-        TileCoord.X, TileCoord.Y, ExpectedSamples,
-        HeightData.HeightData.Num());
+        TileCoord.X, TileCoord.Y, ExpectedSamples, HeightData.HeightData.Num());
     return false;
   }
 
@@ -741,13 +748,13 @@ bool UWorldGenBuildUtility::BuildTerrainForTile(
     OutTileMax = FMath::Max(OutTileMax, Sample);
   }
 
-  const FString TexName = FString::Printf(
-      TEXT("%s_Height_%d_%d"), *TerrainResource->GetName(), TileCoord.X,
-      TileCoord.Y);
+  const FString TexName =
+      FString::Printf(TEXT("%s_Height_%d_%d"), *TerrainResource->GetName(),
+                      TileCoord.X, TileCoord.Y);
   UPackage *Package = Cast<UPackage>(TerrainResource->GetOutermost());
   UTexture2D *Texture =
-      NewObject<UTexture2D>(Package ? Package : GetTransientPackage(),
-                            *TexName, RF_Public | RF_Standalone | RF_Transactional);
+      NewObject<UTexture2D>(Package ? Package : GetTransientPackage(), *TexName,
+                            RF_Public | RF_Standalone | RF_Transactional);
   if (!Texture) {
     OutError = FString::Printf(
         TEXT("Failed to allocate height texture for tile (%d,%d)"), TileCoord.X,
@@ -786,6 +793,8 @@ bool UWorldGenBuildUtility::BuildTerrainForTile(
 #endif // WITH_EDITOR
 }
 
+#include "PCG/VibeheimWorldGenPCGBakeActor.h"
+
 bool UWorldGenBuildUtility::TriggerPCGOfflineBuild(
     UWorld *World, const FWorldGenConfig &Config,
     UWorldGenTerrainResource *TerrainResource, UPCGWorldService *PCGService,
@@ -804,6 +813,36 @@ bool UWorldGenBuildUtility::TriggerPCGOfflineBuild(
     UE_LOG(LogWorldGenBuildUtility, Log,
            TEXT("External data provider prepared for PCG graphs."));
   }
+
+  // Find or spawn the persistent PCG bake actor
+  AVibeheimWorldGenPCGBakeActor *BakeActor = nullptr;
+  for (TActorIterator<AVibeheimWorldGenPCGBakeActor> It(World); It; ++It) {
+    BakeActor = *It;
+    break;
+  }
+
+  if (!BakeActor) {
+    FActorSpawnParameters SpawnParams;
+    SpawnParams.bNoFail = true;
+    SpawnParams.Name = TEXT("VibeheimWorldGenPCGBakeActor");
+    BakeActor = World->SpawnActor<AVibeheimWorldGenPCGBakeActor>(SpawnParams);
+  }
+
+  if (BakeActor) {
+    UWorldGenSettings *Settings = UWorldGenSettings::GetWorldGenSettings();
+    BakeActor->ConfigureFromSettings(Settings);
+    UE_LOG(LogWorldGenBuildUtility, Log,
+           TEXT("Configured persistent PCG bake actor."));
+
+    // Ensure the actor and its components are saved with the map
+    BakeActor->SetFlags(RF_Transactional);
+    BakeActor->Modify();
+  } else {
+    UE_LOG(LogWorldGenBuildUtility, Error,
+           TEXT("Failed to find or spawn VibeheimWorldGenPCGBakeActor."));
+    OutErrors.Add(TEXT("Failed to prepare PCG bake actor."));
+  }
+
   if (PCGService) {
     // PCG service already seeded with worldgen data; no additional wiring here.
   }
@@ -812,18 +851,23 @@ bool UWorldGenBuildUtility::TriggerPCGOfflineBuild(
            TEXT("Terrain resource ready for offline PCG build."));
   }
 
-  // Invoke UE5.7 PCG offline builder (PCG World Partition Builder / pcg.BuildComponents)
+  // Invoke UE5.7 PCG offline builder (PCG World Partition Builder /
+  // pcg.BuildComponents)
+  // Note: -All rebuilds all components. We rely on the persistent BakeActor to
+  // provide the targets.
   const bool bExecResult =
-      (GEditor && World) && GEditor->Exec(World, TEXT("pcg.BuildComponents -All"));
+      (GEditor && World) &&
+      GEditor->Exec(World, TEXT("pcg.BuildComponents -All"));
   if (!bExecResult) {
     UE_LOG(LogWorldGenBuildUtility, Warning,
-           TEXT("pcg.BuildComponents command failed or returned false; PCG content not rebuilt."));
+           TEXT("pcg.BuildComponents command failed or returned false; PCG "
+                "content not rebuilt."));
     OutPCGHash = TEXT("PCG_FAILED");
     return false; // Non-fatal: terrain is still baked
   }
 
-  uint32 HashValue =
-      HashCombine(GetTypeHash(Config.Seed), GetTypeHash(Config.WorldGenVersion));
+  uint32 HashValue = HashCombine(GetTypeHash(Config.Seed),
+                                 GetTypeHash(Config.WorldGenVersion));
   HashValue = HashCombine(HashValue, GetTypeHash(Config.GenerateRadius));
   OutPCGHash = FString::Printf(TEXT("%08x"), HashValue);
   UE_LOG(LogWorldGenBuildUtility, Log,
@@ -841,7 +885,8 @@ bool UWorldGenBuildUtility::SaveBuildState(UWorld *World, int32 Seed,
   return false;
 #else
   const FString MapIdentifier = ResolveMapIdentifier(FString(), World);
-  const FString PackagePath = MakePackagePath(MapIdentifier, TEXT("BuildState"));
+  const FString PackagePath =
+      MakePackagePath(MapIdentifier, TEXT("BuildState"));
   const FString ObjectName = MakeObjectName(MapIdentifier, TEXT("BuildState"));
 
   UPackage *Package = CreatePackage(*PackagePath);
@@ -873,8 +918,8 @@ bool UWorldGenBuildUtility::SaveBuildState(UWorld *World, int32 Seed,
   }
 
   UE_LOG(LogWorldGenBuildUtility, Log,
-         TEXT("Saved build state (Seed=%d, Version=%d, Hash=%s)"),
-         Seed, Config.WorldGenVersion, *PCGHash);
+         TEXT("Saved build state (Seed=%d, Version=%d, Hash=%s)"), Seed,
+         Config.WorldGenVersion, *PCGHash);
   return true;
 #endif // WITH_EDITOR
 }
@@ -920,8 +965,7 @@ void UWorldGenBuildUtility::BroadcastCompletion(bool bSuccess,
 FString UWorldGenBuildUtility::MakePackagePath(const FString &MapIdentifier,
                                                const FString &Suffix) {
   const FString SafeMap = SanitizeIdentifier(MapIdentifier);
-  return FString::Printf(TEXT("/Game/WorldGen/Baked/%s_%s"), *SafeMap,
-                         *Suffix);
+  return FString::Printf(TEXT("/Game/WorldGen/Baked/%s_%s"), *SafeMap, *Suffix);
 }
 
 FString UWorldGenBuildUtility::MakeObjectName(const FString &MapIdentifier,
@@ -969,21 +1013,19 @@ bool UWorldGenBuildUtility::AlignPCGGridWithSettings() {
     const uint32 GridSizeCm = TileSizeMeters * 100;
     const bool bHasGridSize = PCGActor->PartitionGridSize > 0;
     const float PartitionGridMeters =
-        bHasGridSize
-            ? static_cast<float>(PCGActor->PartitionGridSize) / 100.0f
-            : 0.0f;
-    if (bHasGridSize &&
-        !FTileCoord::IsAlignedWithPCGGrid(TileSizeMeters, PartitionGridMeters)) {
+        bHasGridSize ? static_cast<float>(PCGActor->PartitionGridSize) / 100.0f
+                     : 0.0f;
+    if (bHasGridSize && !FTileCoord::IsAlignedWithPCGGrid(
+                            TileSizeMeters, PartitionGridMeters)) {
       const float Ratio = PartitionGridMeters > KINDA_SMALL_NUMBER
                               ? TileSizeMeters / PartitionGridMeters
                               : 0.0f;
-      UE_LOG(
-          LogWorldGenBuildUtility, Warning,
-          TEXT("PCG grid misaligned with world tiles: TileSize=%.2fm, "
-               "PartitionGrid=%.2fm (ratio=%.3f). Recommended grid is %d cm "
-               "or another integer divisor/multiple of the tile size."),
-          static_cast<float>(TileSizeMeters), PartitionGridMeters, Ratio,
-          GridSizeCm);
+      UE_LOG(LogWorldGenBuildUtility, Warning,
+             TEXT("PCG grid misaligned with world tiles: TileSize=%.2fm, "
+                  "PartitionGrid=%.2fm (ratio=%.3f). Recommended grid is %d cm "
+                  "or another integer divisor/multiple of the tile size."),
+             static_cast<float>(TileSizeMeters), PartitionGridMeters, Ratio,
+             GridSizeCm);
     }
 
     if (PCGActor->PartitionGridSize != GridSizeCm) {
@@ -1004,10 +1046,11 @@ bool UWorldGenBuildUtility::AlignPCGGridWithSettings() {
 }
 
 #if WITH_AUTOMATION_TESTS
-bool UWorldGenBuildUtility::EvaluateContextForTest(
-    bool bIsEditor, bool bIsRunningGame, EWorldType::Type WorldType) {
-  const bool bEditorWorld = WorldType == EWorldType::Editor ||
-                            WorldType == EWorldType::EditorPreview;
+bool UWorldGenBuildUtility::EvaluateContextForTest(bool bIsEditor,
+                                                   bool bIsRunningGame,
+                                                   EWorldType::Type WorldType) {
+  const bool bEditorWorld =
+      WorldType == EWorldType::Editor || WorldType == EWorldType::EditorPreview;
   return bIsEditor && !bIsRunningGame && bEditorWorld;
 }
 #endif // WITH_AUTOMATION_TESTS

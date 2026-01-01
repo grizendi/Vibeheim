@@ -1,5 +1,7 @@
+// [Correcting corrupted file start]
 #include "WorldGenManager.h"
 #include "Data/WorldGenAssets.h"
+#include "Data/WorldGenBuildState.h"
 #include "Data/WorldGenTerrainResource.h"
 #include "Data/WorldGenTypes.h"
 #include "Engine/Engine.h"
@@ -18,30 +20,25 @@
 #include "Services/TileStreamingService.h"
 #include "Services/WaterSystemService.h"
 #include "UObject/SoftObjectPath.h"
-#include "Data/WorldGenBuildState.h"
 #include "VHMTerrainRendering/VHMDebugSystem.h"
 #include "VHMTerrainRendering/VHMTerrainRenderer.h"
 #include "WorldGenSettings.h"
 
-
 DEFINE_LOG_CATEGORY_STATIC(LogWorldGenManager, Log, All);
 
 FWorldGenRuntimeDecision EvaluateWorldGenRuntimeDecision(
-    const FWorldGenConfig& Config,
-    const FWorldBuildState& BuildState,
-    const bool bHasBuildStateAsset,
-    const EWorldBuildStatePolicy StalePolicy)
-{
+    const FWorldGenConfig &Config, const FWorldBuildState &BuildState,
+    const bool bHasBuildStateAsset, const EWorldBuildStatePolicy StalePolicy) {
   FWorldGenRuntimeDecision Decision;
 
   const bool bHasValidBuildState = bHasBuildStateAsset && BuildState.IsValid();
-  const bool bBuildStateMatches = bHasValidBuildState && BuildState.IsCompatibleWith(Config);
+  const bool bBuildStateMatches =
+      bHasValidBuildState && BuildState.IsCompatibleWith(Config);
 
   Decision.bHasValidBuildState = bHasValidBuildState;
   Decision.bBuildStateMatchesConfig = bBuildStateMatches;
 
-  switch (Config.BuildMode)
-  {
+  switch (Config.BuildMode) {
   case EWorldGenBuildMode::RuntimeStreaming:
     Decision.bUseRuntimeStreaming = true;
     Decision.bTreatWorldAsBaked = false;
@@ -56,12 +53,18 @@ FWorldGenRuntimeDecision EvaluateWorldGenRuntimeDecision(
     break;
   case EWorldGenBuildMode::EditorBuildOnce:
     Decision.bTreatWorldAsBaked = bBuildStateMatches;
-    Decision.bUseRuntimeStreaming =
-        !Decision.bTreatWorldAsBaked &&
-        StalePolicy == EWorldBuildStatePolicy::FallbackToRuntime;
-    Decision.bRequireRebuild =
-        !Decision.bTreatWorldAsBaked &&
-        StalePolicy == EWorldBuildStatePolicy::RequireRebuild;
+    Decision.bUseRuntimeStreaming = false;
+    Decision.bRequireRebuild = !bBuildStateMatches && bHasValidBuildState;
+
+    // Strict enforcement: if configured for EditorBuildOnce, never fallback to
+    // runtime unless explicitly changed in code/config.
+    if (!Decision.bTreatWorldAsBaked) {
+      // If policy allows fallback, enable runtime streaming (legacy behavior),
+      // but default is now Strict/RequireRebuild.
+      if (StalePolicy == EWorldBuildStatePolicy::FallbackToRuntime) {
+        Decision.bUseRuntimeStreaming = true;
+      }
+    }
     break;
   default:
     Decision.bUseRuntimeStreaming = true;
@@ -111,10 +114,9 @@ AWorldGenManager::AWorldGenManager() {
 void AWorldGenManager::BeginPlay() {
   Super::BeginPlay();
 
-  UE_LOG(
-      LogWorldGenManager, Log,
-      TEXT(
-          "WorldGenManager BeginPlay - Initializing world generation systems"));
+  UE_LOG(LogWorldGenManager, Log,
+         TEXT("WorldGenManager BeginPlay - Initializing world generation "
+              "systems"));
 
   // Initialize world generation systems
   if (!InitializeWorldGenSystems()) {
@@ -188,31 +190,31 @@ bool AWorldGenManager::InitializeWorldGenSystems() {
     UE_LOG(LogWorldGenManager, Error,
            TEXT("WorldGenManager: Build state requires rebuild (policy "
                 "RequireRebuild). Runtime streaming %s."),
-           RuntimeDecision.bUseRuntimeStreaming ? TEXT("enabled for fallback")
-                                                : TEXT("disabled"));
+           RuntimeDecision.bTreatWorldAsBaked ? TEXT("true") : TEXT("false"));
   }
 
-  UWorldGenTerrainResource* PrebakedTerrainResource = nullptr;
-  const bool bPrebakedRequested =
-      WorldGenSettings->VHMSettings.IsSet() &&
-      WorldGenSettings->VHMSettings.GetValue().bUsePrebakedHeightfield;
-  if (bPrebakedRequested && RuntimeDecision.bTreatWorldAsBaked) {
-    static const TCHAR* PrebakedResourcePath =
-        TEXT("/Game/WorldGen/Baked/BakedTerrainData.BakedTerrainData");
+  // Load prebaked terrain data if applicable
+  UWorldGenTerrainResource *PrebakedTerrainResource = nullptr;
+  if (RuntimeDecision.bTreatWorldAsBaked) {
+    FString MapName = GetWorld()->GetMapName();
+    MapName.RemoveFromStart(GetWorld()->StreamingLevelsPrefix);
+
+    const FString AssetName = FString::Printf(TEXT("%s_TerrainData"), *MapName);
+    const FString PackagePath = FString::Printf(
+        TEXT("/Game/WorldGen/Baked/%s.%s"), *AssetName, *AssetName);
+
     PrebakedTerrainResource =
-        LoadObject<UWorldGenTerrainResource>(nullptr, PrebakedResourcePath);
-    if (!PrebakedTerrainResource) {
-      UE_LOG(LogWorldGenManager, Error,
-             TEXT("Prebaked heightfield requested but terrain resource was not "
-                  "found at %s"),
-             PrebakedResourcePath);
+        LoadObject<UWorldGenTerrainResource>(nullptr, *PackagePath);
+
+    if (PrebakedTerrainResource) {
+      UE_LOG(LogWorldGenManager, Log, TEXT("Loaded baked terrain data from %s"),
+             *PackagePath);
+    } else {
+      UE_LOG(LogWorldGenManager, Warning,
+             TEXT("Failed to load baked terrain data from %s. Ensure the map "
+                  "is baked."),
+             *PackagePath);
     }
-  } else if (bPrebakedRequested) {
-    UE_LOG(LogWorldGenManager, Warning,
-           TEXT("Prebaked heightfield requested but build state is not valid; "
-                "skipping prebaked binding (BuildMode=%d, ValidBuildState=%s)"),
-           static_cast<int32>(WorldGenSettings->Settings.BuildMode),
-           RuntimeDecision.bTreatWorldAsBaked ? TEXT("true") : TEXT("false"));
   }
   // Configure VHM settings for seam prevention
   if (!WorldGenSettings->VHMSettings.IsSet()) {
@@ -269,6 +271,8 @@ bool AWorldGenManager::InitializeWorldGenSystems() {
   }
   PCGWorldService->SetHeightfieldService(HeightfieldService);
   PCGWorldService->SetBiomeService(BiomeService);
+  PCGWorldService->SetRuntimeOperationsEnabled(
+      !RuntimeDecision.bTreatWorldAsBaked);
   PCGWorldService->SetRuntimeDynamicDataLayersOnly(
       bWorldPartitionStreamingActive && RuntimeDecision.bTreatWorldAsBaked);
   ReloadWorldGenAssets();
@@ -306,7 +310,8 @@ bool AWorldGenManager::InitializeWorldGenSystems() {
     return false;
   }
 
-  // Initialize Tile Streaming Service (only if runtime generation is enabled)
+  // Initialize Tile Streaming Service (only if runtime generation is
+  // enabled)
   if (RuntimeDecision.bUseRuntimeStreaming) {
     TileStreamingService = NewObject<UTileStreamingService>(this);
     if (!TileStreamingService ||
@@ -332,7 +337,7 @@ bool AWorldGenManager::InitializeWorldGenSystems() {
   if (VHMTerrainRenderer && PrebakedTerrainResource) {
     VHMTerrainRenderer->SetPrebakedTerrainResource(PrebakedTerrainResource);
   }
-  UTileStreamingService* StreamingForVHM =
+  UTileStreamingService *StreamingForVHM =
       RuntimeDecision.bUseRuntimeStreaming ? TileStreamingService : nullptr;
   if (!VHMTerrainRenderer || !VHMTerrainRenderer->InitializeWithBiomeService(
                                  WorldGenSettings, HeightfieldService,
@@ -394,7 +399,8 @@ void AWorldGenManager::UpdateWorldStreaming() {
         WorldGenSettings->Settings.BuildMode ==
             EWorldGenBuildMode::EditorBuildOnce) {
       UE_LOG(LogWorldGenManager, Warning,
-             TEXT("Runtime streaming was invoked in baked EditorBuildOnce mode; "
+             TEXT("Runtime streaming was invoked in baked EditorBuildOnce "
+                  "mode; "
                   "skipping generation (Seed=%d)."),
              GetRuntimeSeed());
       bLoggedRuntimeGenerationWarning = true;
@@ -410,7 +416,8 @@ void AWorldGenManager::UpdateWorldStreaming() {
   FTileCoord CurrentPlayerTile = GetPlayerTileCoordinate();
   TileStreamingService->UpdateStreaming(CurrentPlayerTile);
 
-  // Update VHM terrain renderer with current viewer position for LOD management
+  // Update VHM terrain renderer with current viewer position for LOD
+  // management
   if (VHMTerrainRenderer) {
     FVector ViewerPosition = FVector::ZeroVector;
     if (APlayerController *PlayerController =
@@ -618,8 +625,7 @@ void AWorldGenManager::LoadBuildStateAsset() {
   }
 
   bHasBuildStateAsset = true;
-  UWorldGenBuildStateAsset *BuildAsset =
-      WorldBuildStateAsset.LoadSynchronous();
+  UWorldGenBuildStateAsset *BuildAsset = WorldBuildStateAsset.LoadSynchronous();
   if (!BuildAsset) {
     UE_LOG(LogWorldGenManager, Warning,
            TEXT("WorldGenManager: Failed to load build state asset at %s"),
@@ -631,7 +637,8 @@ void AWorldGenManager::LoadBuildStateAsset() {
   ActiveBuildState = BuildAsset->BuildState;
 }
 
-void AWorldGenManager::LogBuildStateStatus(const FWorldGenConfig &Config) const {
+void AWorldGenManager::LogBuildStateStatus(
+    const FWorldGenConfig &Config) const {
   const UEnum *PolicyEnum = StaticEnum<EWorldBuildStatePolicy>();
   const FString PolicyString =
       PolicyEnum ? PolicyEnum->GetNameStringByValue(
@@ -787,11 +794,11 @@ void AWorldGenManager::GenerateSurroundingTiles(
       // Update performance metrics
       UpdatePerformanceMetrics(TileGenTime, PCGData.GenerationTimeMs);
 
-      UE_LOG(
-          LogWorldGenManager, Verbose,
-          TEXT("Generated tile (%d, %d) in %.2fms - Biome: %d, Instances: %d"),
-          TileCoord.X, TileCoord.Y, TileGenTime, static_cast<int32>(TileBiome),
-          PCGData.TotalInstanceCount);
+      UE_LOG(LogWorldGenManager, Verbose,
+             TEXT("Generated tile (%d, %d) in %.2fms - Biome: %d, "
+                  "Instances: %d"),
+             TileCoord.X, TileCoord.Y, TileGenTime,
+             static_cast<int32>(TileBiome), PCGData.TotalInstanceCount);
 
       // Check performance targets
       if (TileGenTime > WorldGenSettings->Settings.TileGenTargetMs) {
@@ -828,8 +835,8 @@ void AWorldGenManager::GetWorldGenPerformanceStats(
         TileStreamingService->GetPerformanceMetrics();
     OutTileGenerationTimeMs = StreamingMetrics.AverageGenerationTimeMs;
     OutPCGGenerationTimeMs =
-        StreamingMetrics
-            .AverageGenerationTimeMs; // PCG time is included in generation time
+        StreamingMetrics.AverageGenerationTimeMs; // PCG time is included in
+                                                  // generation time
     OutLoadedTiles =
         StreamingMetrics.LoadedTiles + StreamingMetrics.ActiveTiles;
     OutPendingLoads = StreamingMetrics.PendingGenerations;
@@ -897,11 +904,10 @@ void AWorldGenManager::UpdatePerformanceMetrics(float TileGenTime,
       }
 
       if (AvgPCGGenTime > WorldGenSettings->Settings.PCGTargetMsPerTile) {
-        UE_LOG(
-            LogWorldGenManager, Warning,
-            TEXT(
-                "Average PCG generation time (%.2fms) exceeds target (%.2fms)"),
-            AvgPCGGenTime, WorldGenSettings->Settings.PCGTargetMsPerTile);
+        UE_LOG(LogWorldGenManager, Warning,
+               TEXT("Average PCG generation time (%.2fms) exceeds target "
+                    "(%.2fms)"),
+               AvgPCGGenTime, WorldGenSettings->Settings.PCGTargetMsPerTile);
       }
     }
   }
@@ -909,28 +915,28 @@ void AWorldGenManager::UpdatePerformanceMetrics(float TileGenTime,
 
 #if WITH_AUTOMATION_TESTS
 void FWorldGenManagerTestAccessor::SetRuntimeDecision(
-    AWorldGenManager* Manager, const FWorldGenRuntimeDecision& Decision) {
+    AWorldGenManager *Manager, const FWorldGenRuntimeDecision &Decision) {
   if (Manager) {
     Manager->RuntimeDecision = Decision;
   }
 }
 
 void FWorldGenManagerTestAccessor::SetTileStreamingService(
-    AWorldGenManager* Manager, UTileStreamingService* Service) {
+    AWorldGenManager *Manager, UTileStreamingService *Service) {
   if (Manager) {
     Manager->TileStreamingService = Service;
   }
 }
 
 void FWorldGenManagerTestAccessor::SetWorldGenSettings(
-    AWorldGenManager* Manager, UWorldGenSettings* Settings) {
+    AWorldGenManager *Manager, UWorldGenSettings *Settings) {
   if (Manager) {
     Manager->WorldGenSettings = Settings;
   }
 }
 
 void FWorldGenManagerTestAccessor::SetWorldPartitionSuppression(
-    AWorldGenManager* Manager, bool bSuppress) {
+    AWorldGenManager *Manager, bool bSuppress) {
   if (Manager) {
     Manager->bSuppressRuntimeStreamingForWorldPartition = bSuppress;
   }
